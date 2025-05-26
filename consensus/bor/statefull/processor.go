@@ -3,6 +3,10 @@ package statefull
 import (
 	"bytes"
 	"context"
+	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
+	"golang.org/x/crypto/sha3"
 	"math"
 	"math/big"
 
@@ -69,7 +73,17 @@ func ApplyMessage(
 	header *types.Header,
 	chainConfig *params.ChainConfig,
 	chainContext core.ChainContext,
+	spanID int64,
+	tracer *tracing.Hooks,
 ) (uint64, error) {
+	var txHash common.Hash
+	sha := sha3.NewLegacyKeccak256().(crypto.KeccakState)
+	sha.Reset()
+	rlp.Encode(sha, []interface{}{spanID, msg})
+	sha.Read(txHash[:])
+
+	state.SetTxContext(txHash, 0)
+
 	initialGas := msg.Gas()
 
 	// Create a new context to be used in the EVM environment
@@ -77,7 +91,26 @@ func ApplyMessage(
 
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
-	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, state, chainConfig, vm.Config{})
+	msgForCtx := core.Message{
+		To:            msg.To(),
+		From:          msg.From(),
+		Nonce:         msg.Nonce(),
+		Value:         msg.Value(),
+		GasLimit:      msg.Gas(),
+		GasPrice:      msg.GasPrice(),
+		GasFeeCap:     nil,
+		GasTipCap:     nil,
+		Data:          msg.Data(),
+		AccessList:    nil,
+		BlobGasFeeCap: nil,
+		BlobHashes:    nil,
+
+		SkipNonceChecks: false,
+
+		SkipFromEOACheck: false,
+	}
+	txContext := core.NewEVMTxContext(&msgForCtx)
+	vmenv := vm.NewEVM(blockContext, txContext, state, chainConfig, vm.Config{Tracer: tracer})
 
 	// nolint : contextcheck
 	// Apply the transaction to the current state (included in the env)
