@@ -103,11 +103,8 @@ func ApplyMessage(
 	})
 	state.SetTxContext(tx.Hash(), 0)
 
-	// Notify tracers about system call and transaction start
+	// Notify tracers about transaction start (system call is already started at Bor level)
 	if tracer != nil {
-		if tracer.OnSystemCallStart != nil {
-			tracer.OnSystemCallStart()
-		}
 		if tracer.OnTxStart != nil {
 			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
 		}
@@ -116,9 +113,6 @@ func ApplyMessage(
 	defer func() {
 		if tracer != nil && tracer.OnTxEnd != nil {
 			tracer.OnTxEnd(nil, nil)
-		}
-		if tracer != nil && tracer.OnSystemCallEnd != nil {
-			tracer.OnSystemCallEnd()
 		}
 	}()
 
