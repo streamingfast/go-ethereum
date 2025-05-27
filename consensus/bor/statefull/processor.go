@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 	"math"
 	"math/big"
 
@@ -76,46 +73,54 @@ func ApplyMessage(
 	spanID int64,
 	tracer *tracing.Hooks,
 ) (uint64, error) {
-	var txHash common.Hash
-	sha := sha3.NewLegacyKeccak256().(crypto.KeccakState)
-	sha.Reset()
-	rlp.Encode(sha, []interface{}{spanID, msg})
-	sha.Read(txHash[:])
-
-	state.SetTxContext(txHash, 0)
 
 	initialGas := msg.Gas()
 
-	// Create a new context to be used in the EVM environment
 	blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
 
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
 	msgForCtx := core.Message{
-		To:            msg.To(),
-		From:          msg.From(),
-		Nonce:         msg.Nonce(),
-		Value:         msg.Value(),
-		GasLimit:      msg.Gas(),
-		GasPrice:      msg.GasPrice(),
-		GasFeeCap:     nil,
-		GasTipCap:     nil,
-		Data:          msg.Data(),
-		AccessList:    nil,
-		BlobGasFeeCap: nil,
-		BlobHashes:    nil,
-
-		SkipNonceChecks: false,
-
+		To:               msg.To(),
+		From:             msg.From(),
+		Nonce:            msg.Nonce(),
+		Value:            msg.Value(),
+		GasLimit:         msg.Gas(),
+		GasPrice:         msg.GasPrice(),
+		SkipNonceChecks:  false,
 		SkipFromEOACheck: false,
 	}
 	txContext := core.NewEVMTxContext(&msgForCtx)
 	vmenv := vm.NewEVM(blockContext, txContext, state, chainConfig, vm.Config{Tracer: tracer})
 
-	// Notify tracer about system call start if tracer is present
-	if tracer != nil && tracer.OnSystemCallStart != nil {
-		tracer.OnSystemCallStart()
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    msg.Nonce(),
+		GasPrice: msg.GasPrice(),
+		Gas:      msg.Gas(),
+		To:       msg.To(),
+		Value:    msg.Value(),
+		Data:     msg.Data(),
+	})
+	state.SetTxContext(tx.Hash(), 0)
+
+	// Notify tracers about system call and transaction start
+	if tracer != nil {
+		if tracer.OnSystemCallStart != nil {
+			tracer.OnSystemCallStart()
+		}
+		if tracer.OnTxStart != nil {
+			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
+		}
 	}
+
+	defer func() {
+		if tracer != nil && tracer.OnTxEnd != nil {
+			tracer.OnTxEnd(nil, nil)
+		}
+		if tracer != nil && tracer.OnSystemCallEnd != nil {
+			tracer.OnSystemCallEnd()
+		}
+	}()
 
 	// nolint : contextcheck
 	// Apply the transaction to the current state (included in the env)
@@ -149,11 +154,6 @@ func ApplyMessage(
 	}
 
 	gasUsed := initialGas - gasLeft
-
-	// Notify tracer about system call end if tracer is present
-	if tracer != nil && tracer.OnSystemCallEnd != nil {
-		tracer.OnSystemCallEnd()
-	}
 
 	return gasUsed, nil
 }
