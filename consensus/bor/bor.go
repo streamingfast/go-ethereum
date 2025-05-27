@@ -838,7 +838,7 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 		start := time.Now()
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
 		// check and commit span
-		if err := c.checkAndCommitSpan(state, header, cx); err != nil {
+		if err := c.checkAndCommitSpan(state, header, cx, tracer); err != nil {
 			log.Error("Error while committing span", "error", err)
 			return
 		}
@@ -927,7 +927,7 @@ func (c *Bor) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *typ
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
 
 		// check and commit span
-		if err = c.checkAndCommitSpan(state, header, cx); err != nil {
+		if err = c.checkAndCommitSpan(state, header, cx, tracer); err != nil {
 			log.Error("Error while committing span", "error", err)
 			return nil, err
 		}
@@ -1109,6 +1109,7 @@ func (c *Bor) checkAndCommitSpan(
 	state *state.StateDB,
 	header *types.Header,
 	chain core.ChainContext,
+	tracer *tracing.Hooks,
 ) error {
 	var ctx = context.Background()
 	headerNumber := header.Number.Uint64()
@@ -1119,7 +1120,7 @@ func (c *Bor) checkAndCommitSpan(
 	}
 
 	if c.needToCommitSpan(span, headerNumber) {
-		return c.FetchAndCommitSpan(ctx, span.ID+1, state, header, chain)
+		return c.FetchAndCommitSpan(ctx, span.ID+1, state, header, chain, tracer)
 	}
 
 	return nil
@@ -1150,6 +1151,7 @@ func (c *Bor) FetchAndCommitSpan(
 	state *state.StateDB,
 	header *types.Header,
 	chain core.ChainContext,
+	tracer *tracing.Hooks,
 ) error {
 	var heimdallSpan span.HeimdallSpan
 
@@ -1179,7 +1181,7 @@ func (c *Bor) FetchAndCommitSpan(
 		)
 	}
 
-	return c.spanner.CommitSpan(ctx, heimdallSpan, state, header, chain)
+	return c.spanner.CommitSpan(ctx, heimdallSpan, state, header, chain, tracer)
 }
 
 // CommitStates commit states
