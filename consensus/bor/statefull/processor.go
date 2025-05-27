@@ -112,6 +112,11 @@ func ApplyMessage(
 	txContext := core.NewEVMTxContext(&msgForCtx)
 	vmenv := vm.NewEVM(blockContext, txContext, state, chainConfig, vm.Config{Tracer: tracer})
 
+	// Notify tracer about system call start if tracer is present
+	if tracer != nil && tracer.OnSystemCallStart != nil {
+		tracer.OnSystemCallStart()
+	}
+
 	// nolint : contextcheck
 	// Apply the transaction to the current state (included in the env)
 	ret, gasLeft, err := vmenv.Call(
@@ -144,6 +149,11 @@ func ApplyMessage(
 	}
 
 	gasUsed := initialGas - gasLeft
+
+	// Notify tracer about system call end if tracer is present
+	if tracer != nil && tracer.OnSystemCallEnd != nil {
+		tracer.OnSystemCallEnd()
+	}
 
 	return gasUsed, nil
 }
