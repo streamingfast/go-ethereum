@@ -890,7 +890,10 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction) ([]*
 	)
 
 	w.interruptCtx = vm.SetCurrentTxOnContext(w.interruptCtx, tx.Hash())
-	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig(), w.interruptCtx)
+	config := *w.chain.GetVMConfig()
+	config.Tracer = nil
+
+	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, config, w.interruptCtx)
 	if err != nil {
 		env.state.RevertToSnapshot(snap)
 		env.gasPool.SetGas(gp)
