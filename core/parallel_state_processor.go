@@ -189,10 +189,10 @@ func (task *ExecutionTask) Settle() {
 
 	if *task.shouldDelayFeeCal {
 		if task.config.IsLondon(task.blockNumber) {
-			task.finalStateDB.AddBalance(task.result.BurntContractAddress, cmath.BigIntToUint256Int(task.result.FeeBurnt), tracing.BalanceChangeTransfer)
+			task.finalStateDB.AddBalance(task.result.BurntContractAddress, cmath.BigIntToUint256Int(task.result.FeeBurnt), tracing.BalanceChangePolygonBurn)
 		}
 
-		task.finalStateDB.AddBalance(task.coinbase, cmath.BigIntToUint256Int(task.result.FeeTipped), tracing.BalanceChangeTransfer)
+		task.finalStateDB.AddBalance(task.coinbase, cmath.BigIntToUint256Int(task.result.FeeTipped), tracing.BalanceIncreaseRewardTransactionFee)
 		output1 := new(big.Int).SetBytes(task.result.SenderInitBalance.Bytes())
 		output2 := new(big.Int).SetBytes(coinbaseBalance.Bytes())
 
