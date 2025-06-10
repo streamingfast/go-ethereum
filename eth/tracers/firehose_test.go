@@ -37,32 +37,34 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 		actions []actionRunner
 	}{
 		{
-			"push/pop empty", []actionRunner{
-			push(&pbeth.Call{}),
-			pop(),
-			check(func(t *testing.T, s *CallStack) {
-				require.Len(t, s.stack, 0)
-			}),
-		},
+			"push/pop empty",
+			[]actionRunner{
+				push(&pbeth.Call{}),
+				pop(),
+				check(func(t *testing.T, s *CallStack) {
+					require.Len(t, s.stack, 0)
+				}),
+			},
 		},
 		{
-			"push/push/push", []actionRunner{
-			push(&pbeth.Call{}),
-			push(&pbeth.Call{}),
-			push(&pbeth.Call{}),
-			check(func(t *testing.T, s *CallStack) {
-				require.Len(t, s.stack, 3)
+			"push/push/push",
+			[]actionRunner{
+				push(&pbeth.Call{}),
+				push(&pbeth.Call{}),
+				push(&pbeth.Call{}),
+				check(func(t *testing.T, s *CallStack) {
+					require.Len(t, s.stack, 3)
 
-				require.Equal(t, 1, int(s.stack[0].Index))
-				require.Equal(t, 0, int(s.stack[0].ParentIndex))
+					require.Equal(t, 1, int(s.stack[0].Index))
+					require.Equal(t, 0, int(s.stack[0].ParentIndex))
 
-				require.Equal(t, 2, int(s.stack[1].Index))
-				require.Equal(t, 1, int(s.stack[1].ParentIndex))
+					require.Equal(t, 2, int(s.stack[1].Index))
+					require.Equal(t, 1, int(s.stack[1].ParentIndex))
 
-				require.Equal(t, 3, int(s.stack[2].Index))
-				require.Equal(t, 2, int(s.stack[2].ParentIndex))
-			}),
-		},
+					require.Equal(t, 3, int(s.stack[2].Index))
+					require.Equal(t, 2, int(s.stack[2].ParentIndex))
+				}),
+			},
 		},
 	}
 	for _, tt := range tests {
