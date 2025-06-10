@@ -38,31 +38,31 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 	}{
 		{
 			"push/pop empty", []actionRunner{
-				push(&pbeth.Call{}),
-				pop(),
-				check(func(t *testing.T, s *CallStack) {
-					require.Len(t, s.stack, 0)
-				}),
-			},
+			push(&pbeth.Call{}),
+			pop(),
+			check(func(t *testing.T, s *CallStack) {
+				require.Len(t, s.stack, 0)
+			}),
+		},
 		},
 		{
 			"push/push/push", []actionRunner{
-				push(&pbeth.Call{}),
-				push(&pbeth.Call{}),
-				push(&pbeth.Call{}),
-				check(func(t *testing.T, s *CallStack) {
-					require.Len(t, s.stack, 3)
+			push(&pbeth.Call{}),
+			push(&pbeth.Call{}),
+			push(&pbeth.Call{}),
+			check(func(t *testing.T, s *CallStack) {
+				require.Len(t, s.stack, 3)
 
-					require.Equal(t, 1, int(s.stack[0].Index))
-					require.Equal(t, 0, int(s.stack[0].ParentIndex))
+				require.Equal(t, 1, int(s.stack[0].Index))
+				require.Equal(t, 0, int(s.stack[0].ParentIndex))
 
-					require.Equal(t, 2, int(s.stack[1].Index))
-					require.Equal(t, 1, int(s.stack[1].ParentIndex))
+				require.Equal(t, 2, int(s.stack[1].Index))
+				require.Equal(t, 1, int(s.stack[1].ParentIndex))
 
-					require.Equal(t, 3, int(s.stack[2].Index))
-					require.Equal(t, 2, int(s.stack[2].ParentIndex))
-				}),
-			},
+				require.Equal(t, 3, int(s.stack[2].Index))
+				require.Equal(t, 2, int(s.stack[2].ParentIndex))
+			}),
+		},
 		},
 	}
 	for _, tt := range tests {
@@ -193,7 +193,6 @@ func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 var endsWithUnknownConstant = regexp.MustCompile(`.*\(\d+\)$`)
 
 func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
-
 	for i := 0; i <= math.MaxUint8; i++ {
 		tracingReason := tracing.BalanceChangeReason(i)
 		if tracingReason == tracing.BalanceChangeUnspecified || tracingReason == tracing.BalanceChangeRevert {

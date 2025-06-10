@@ -897,6 +897,8 @@ func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
 		if call.StateReverted {
 			for _, log := range call.Logs {
 				if isPolygon && isPolygonFeeTransferLog(log) {
+					// Polygon transfer and fee transfer logs are never reverted, so we must **not** reset them here as
+					// they are properly recorded to the chain's state.
 					continue
 				}
 
@@ -2357,7 +2359,6 @@ func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasFeeCap())
-
 	}
 
 	panic(errUnhandledTransactionType("maxFeePerGas", tx.Type()))

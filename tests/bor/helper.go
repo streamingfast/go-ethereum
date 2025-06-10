@@ -287,7 +287,7 @@ func buildNextBlock(t *testing.T, _bor consensus.Engine, chain *core.BlockChain,
 	// Finalize and seal the block
 	block, err := _bor.FinalizeAndAssemble(chain, b.header, state, &types.Body{
 		Transactions: b.txs,
-	}, b.receipts)
+	}, b.receipts, nil)
 	if err != nil {
 		panic(fmt.Sprintf("error finalizing block: %v", err))
 	}
