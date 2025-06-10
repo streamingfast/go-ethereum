@@ -153,10 +153,6 @@ func (j *journal) logChange(txHash common.Hash) {
 	j.append(addLogChange{txhash: txHash})
 }
 
-func (j *journal) createObject(addr common.Address) {
-	j.append(createObjectChange{account: addr})
-}
-
 func (j *journal) createContract(addr common.Address) {
 	j.append(createContractChange{account: addr})
 }
@@ -231,12 +227,6 @@ func (j *journal) accessListAddSlot(addr common.Address, slot common.Hash) {
 
 type (
 	// Changes to the account trie.
-	createObjectChange struct {
-		account common.Address
-	}
-	// createContractChange represents an account becoming a contract-account.
-	// This event happens prior to executing initcode. The journal-event simply
-	// manages the created-flag, in order to allow same-tx destruction.
 	createContractChange struct {
 		account common.Address
 	}
@@ -290,20 +280,6 @@ type (
 		key, prevalue common.Hash
 	}
 )
-
-func (ch createObjectChange) revert(s *StateDB) {
-	delete(s.stateObjects, ch.account)
-}
-
-func (ch createObjectChange) dirtied() *common.Address {
-	return &ch.account
-}
-
-func (ch createObjectChange) copy() journalEntry {
-	return createObjectChange{
-		account: ch.account,
-	}
-}
 
 func (ch createContractChange) revert(s *StateDB) {
 	s.getStateObject(ch.account).newContract = false

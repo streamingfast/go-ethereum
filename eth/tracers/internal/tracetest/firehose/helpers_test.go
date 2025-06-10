@@ -56,13 +56,6 @@ func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.Fir
 	}
 }
 
-func (lines firehoseBlockLines) assertEquals(t *testing.T, goldenDir string, expected ...firehoseBlockLineParams) {
-	actualParams := slicesMap(lines, func(l firehoseBlockLine) firehoseBlockLineParams { return l.Params })
-	require.Equal(t, expected, actualParams, "Actual lines block params do not match expected lines block params")
-
-	lines.assertOnlyBlockEquals(t, goldenDir, len(expected))
-}
-
 func (lines firehoseBlockLines) assertOnlyBlockEquals(t *testing.T, goldenDir string, expectedBlockCount int) {
 	t.Helper()
 
@@ -72,7 +65,7 @@ func (lines firehoseBlockLines) assertOnlyBlockEquals(t *testing.T, goldenDir st
 	for _, line := range lines {
 		goldenPath := filepath.Join(goldenDir, fmt.Sprintf("block.%d.golden.json", line.Block.Header.Number))
 		if !goldenUpdate && !fileExists(t, goldenPath) {
-			t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+			t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 		}
 
 		unnormalizedContent, err := protojson.MarshalOptions{Indent: "  "}.Marshal(line.Block)

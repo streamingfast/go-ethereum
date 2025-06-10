@@ -1,8 +1,9 @@
 package tracers
 
 import (
-	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"sync"
+
+	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 )
 
 type blockPrintJob struct {
