@@ -153,6 +153,7 @@ func (j *journal) logChange(txHash common.Hash) {
 	j.append(addLogChange{txhash: txHash})
 }
 
+// nolint:unused
 func (j *journal) createObject(addr common.Address) {
 	j.append(createObjectChange{account: addr})
 }

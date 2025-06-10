@@ -77,7 +77,6 @@ func ApplyMessage(
 	chainContext core.ChainContext,
 	tracer *tracing.Hooks,
 ) (uint64, error) {
-
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    msg.Nonce(),
 		GasPrice: msg.GasPrice(),

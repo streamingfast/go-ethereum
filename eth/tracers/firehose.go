@@ -540,7 +540,6 @@ func (f *Firehose) OnBlockEnd(err error) {
 		} else {
 			f.printBlockToFirehose(f.block, f.blockFinality)
 		}
-
 	} else {
 		// An error occurred, could have happen in transaction/call context, we must not check if in trx/call, only check in block
 		f.ensureInBlock(0)
@@ -896,26 +895,13 @@ func (f *Firehose) discardUncommittedSetCodeAuthorization(rootCall *pbeth.Call) 
 func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
 	for _, call := range f.transaction.Calls {
 		if call.StateReverted {
-			for _, log2 := range call.Logs {
-				//log.Info("CHECKING LOG",
-				//	"address", hex.EncodeToString(log2.Address),
-				//	"topics", log2.Topics,
-				//	"data", hex.EncodeToString(log2.Data),
-				//	"index", log2.Index,
-				//	"blockIndex", log2.BlockIndex,
-				//	"ordinal", log2.Ordinal)
-				//log.Info("IS POLYGON",
-				//	"t/f", isPolygon,
-				//	"FeeTransferLog", isPolygonFeeTransferLog(log2))
-				if isPolygon && isPolygonFeeTransferLog(log2) {
-					// Polygon transfer and fee transfer logs are never reverted, so we must **not** reset them here as
-					// they are properly recorded to the chain's state.
-					panic("Entering Polygon Exception")
-					//continue
+			for _, log := range call.Logs {
+				if isPolygon && isPolygonFeeTransferLog(log) {
+					continue
 				}
 
-				firehoseTrace("removing block index from log %s in reverted call %d", hex.EncodeToString(log2.Address), call.Index)
-				log2.BlockIndex = 0
+				firehoseTrace("removing block index from log %s in reverted call %d", hex.EncodeToString(log.Address), call.Index)
+				log.BlockIndex = 0
 			}
 		}
 	}
@@ -2385,7 +2371,6 @@ func maxPriorityFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasTipCap())
 	}
-
 	panic(errUnhandledTransactionType("maxPriorityFeePerGas", tx.Type()))
 }
 
