@@ -67,7 +67,7 @@ func (lines firehoseBlockLines) assertOnlyBlockEquals(t *testing.T, goldenDir st
 	for _, line := range lines {
 		goldenPath := filepath.Join(goldenDir, fmt.Sprintf("block.%d.golden.json", line.Block.Header.Number))
 		if !goldenUpdate && !fileExists(t, goldenPath) {
-			t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+			t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 		}
 
 		unnormalizedContent, err := protojson.MarshalOptions{Indent: "  "}.Marshal(line.Block)

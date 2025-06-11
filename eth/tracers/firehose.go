@@ -534,7 +534,6 @@ func (f *Firehose) OnBlockEnd(err error) {
 		} else {
 			f.printBlockToFirehose(f.block, f.blockFinality)
 		}
-
 	} else {
 		// An error occurred, could have happen in transaction/call context, we must not check if in trx/call, only check in block
 		f.ensureInBlock(0)
@@ -899,6 +898,7 @@ func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
 
 func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 	firehoseTrace("assigning ordinal and index to logs")
+
 	defer func() {
 		firehoseTrace("assigning ordinal and index to logs terminated")
 	}()
@@ -2297,7 +2297,6 @@ func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasFeeCap())
-
 	}
 
 	panic(errUnhandledTransactionType("maxFeePerGas", tx.Type()))
@@ -2311,7 +2310,6 @@ func maxPriorityFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasTipCap())
 	}
-
 	panic(errUnhandledTransactionType("maxPriorityFeePerGas", tx.Type()))
 }
 

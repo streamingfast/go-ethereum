@@ -3,17 +3,17 @@ package tracers
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/stretchr/testify/require"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFirehose_BlockPrintsToFirehose_SingleBlock(t *testing.T) {
-
 	f := NewFirehose(&FirehoseConfig{
 		ConcurrentBlockFlushing:    1,
 		ApplyBackwardCompatibility: ptr(false),
@@ -56,7 +56,6 @@ func TestFirehose_BlockPrintsToFirehose_SingleBlock(t *testing.T) {
 }
 
 func TestFirehose_BlocksPrintToFirehose_MultipleBlocksInOrder(t *testing.T) {
-
 	const blockCount = 100
 	const baseBlockNum = 0
 

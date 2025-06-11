@@ -37,7 +37,8 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 		actions []actionRunner
 	}{
 		{
-			"push/pop emtpy", []actionRunner{
+			"push/pop emtpy",
+			[]actionRunner{
 				push(&pbeth.Call{}),
 				pop(),
 				check(func(t *testing.T, s *CallStack) {
@@ -46,7 +47,8 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 			},
 		},
 		{
-			"push/push/push", []actionRunner{
+			"push/push/push",
+			[]actionRunner{
 				push(&pbeth.Call{}),
 				push(&pbeth.Call{}),
 				push(&pbeth.Call{}),
@@ -193,7 +195,6 @@ func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 var endsWithUnknownConstant = regexp.MustCompile(`.*\(\d+\)$`)
 
 func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
-
 	for i := 0; i <= math.MaxUint8; i++ {
 		tracingReason := tracing.BalanceChangeReason(i)
 		if tracingReason == tracing.BalanceChangeUnspecified || tracingReason == tracing.BalanceChangeRevert {
@@ -405,7 +406,7 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 			goldenPath := tt.expectedBlockFile
 
 			if !goldenUpdate && !fileExits(t, goldenPath) {
-				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 			}
 
 			content, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
