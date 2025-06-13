@@ -3,6 +3,8 @@ package tracers
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
@@ -143,4 +145,38 @@ func extractBlocksFromOutput(t *testing.T, output string) []extractedBlock {
 	}
 
 	return blocks
+}
+
+// Polygon specific test
+func TestFirehose_PolygonFeeTransferLog(t *testing.T) {
+	// Create a Polygon fee transfer log
+	polygonFeeLog := &types.Log{
+		Address: common.HexToAddress("0x0000000000000000000000000000000000001010"),
+		Topics: []common.Hash{
+			common.HexToHash("0x4dfe1bbbcf077ddc3e01291eea2d5c70c2b422b415d95645b9adcfd678cb1d63"),
+			common.Hash{},
+			common.Hash{},
+			common.Hash{},
+		},
+		Data:        []byte{},
+		BlockNumber: 0,
+		Index:       1,
+	}
+
+	receipt := &types.Receipt{
+		Status: 1, // Success
+		Logs:   []*types.Log{polygonFeeLog},
+	}
+
+	f := NewFirehose(&FirehoseConfig{})
+	f.OnBlockchainInit(params.AllEthashProtocolChanges)
+	f.OnBlockStart(blockEvent(0))
+	f.onTxStart(txEvent(), hex2Hash(fmt.Sprintf("ABCD%d", 0)), from, to)
+	f.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
+	f.OnLog(polygonFeeLog)
+	f.OnCallExit(0, nil, 0, fmt.Errorf("call reverted"), true)
+	f.OnTxEnd(receipt, nil)
+	f.OnBlockEnd(nil)
+
+	// No assertion required as we simply need to verify the test does not panic
 }
