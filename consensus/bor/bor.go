@@ -959,7 +959,7 @@ func (c *Bor) changeContractCodeIfNeeded(headerNumber uint64, state vm.StateDB) 
 
 // FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,
 // nor block rewards given, and returns the final block.
-func (c *Bor) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, body *types.Body, receipts []*types.Receipt, tracer *tracing.Hooks) (*types.Block, error) {
+func (c *Bor) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, body *types.Body, receipts []*types.Receipt) (*types.Block, error) {
 	headerNumber := header.Number.Uint64()
 	if body.Withdrawals != nil || header.WithdrawalsHash != nil {
 		return nil, consensus.ErrUnexpectedWithdrawals
@@ -977,14 +977,14 @@ func (c *Bor) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *typ
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
 
 		// check and commit span
-		if err = c.checkAndCommitSpan(vm.StateDB(state), header, cx, tracer); err != nil {
+		if err = c.checkAndCommitSpan(vm.StateDB(state), header, cx, nil); err != nil {
 			log.Error("Error while committing span", "error", err)
 			return nil, err
 		}
 
 		if c.HeimdallClient != nil {
 			// commit states
-			stateSyncData, err = c.CommitStates(state, header, cx, tracer)
+			stateSyncData, err = c.CommitStates(state, header, cx, nil)
 			if err != nil {
 				log.Error("Error while committing states", "error", err)
 				return nil, err
