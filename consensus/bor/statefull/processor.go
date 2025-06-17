@@ -6,13 +6,11 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/ethereum/go-ethereum/crypto"
-
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/log"
@@ -77,30 +75,32 @@ func ApplyMessage(
 	chainContext core.ChainContext,
 	tracer *tracing.Hooks,
 ) (uint64, error) {
-	tx := types.NewTx(&types.LegacyTx{
-		Nonce:    msg.Nonce(),
+	nonce := state.GetNonce(msg.From())
+	expectedTx := types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
 		GasPrice: msg.GasPrice(),
 		Gas:      msg.Gas(),
 		To:       msg.To(),
 		Value:    msg.Value(),
 		Data:     msg.Data(),
 	})
-	state.SetTxContext(tx.Hash(), 0)
+	signer := types.MakeSigner(chainConfig, header.Number, header.Time)
+	expectedHash := signer.Hash(expectedTx)
+	state.SetTxContext(expectedHash, 0)
 
-	initialGas := msg.Gas()
-
-	blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
+	context := core.NewEVMBlockContext(header, chainContext, nil)
 
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
-	vmenv := vm.NewEVM(blockContext, state, chainConfig, vm.Config{Tracer: tracer})
+	evm := vm.NewEVM(context, state, chainConfig, vm.Config{Tracer: tracer})
 
+	var tracingReceipt *types.Receipt
 	if tracer != nil {
 		if tracer.OnSystemTxStart != nil {
 			tracer.OnSystemTxStart()
 		}
 		if tracer.OnTxStart != nil {
-			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
+			tracer.OnTxStart(evm.GetVMContext(), expectedTx, msg.From())
 		}
 
 		// Defers are last in first out, so OnTxEnd will run before OnSystemTxEnd in this transaction,
@@ -110,11 +110,16 @@ func ApplyMessage(
 				tracer.OnSystemTxEnd()
 			}()
 		}
+		if tracer.OnTxEnd != nil {
+			defer func() {
+				tracer.OnTxEnd(tracingReceipt, nil)
+			}()
+		}
 	}
 
 	// nolint : contextcheck
 	// Apply the transaction to the current state (included in the env)
-	ret, gasLeft, err := vmenv.Call(
+	ret, gasLeft, err := evm.Call(
 		msg.From(),
 		*msg.To(),
 		msg.Data(),
@@ -122,6 +127,7 @@ func ApplyMessage(
 		uint256.NewInt(msg.Value().Uint64()),
 		nil,
 	)
+	gasUsed := msg.Gas() - gasLeft
 
 	success := big.NewInt(5).SetBytes(ret)
 
@@ -143,27 +149,16 @@ func ApplyMessage(
 		state.Finalise(true)
 	}
 
-	gasUsed := initialGas - gasLeft
+	var root []byte
+	tracingReceipt = types.NewReceipt(root, false, gasUsed)
+	tracingReceipt.TxHash = expectedTx.Hash()
+	tracingReceipt.GasUsed = gasUsed
 
-	if tracer != nil {
-		blockHash := header.Hash()
-		cumulativeGasUsed := gasUsed
-
-		receipt := types.NewReceipt(nil, err != nil, cumulativeGasUsed)
-		receipt.TxHash = tx.Hash()
-		receipt.GasUsed = gasUsed
-
-		if msg.To() == nil {
-			receipt.ContractAddress = crypto.CreateAddress(vmenv.TxContext.Origin, tx.Nonce())
-		}
-
-		receipt.Logs = state.GetLogs(tx.Hash(), header.Number.Uint64(), blockHash)
-		receipt.Bloom = types.CreateBloom(receipt)
-		receipt.BlockHash = blockHash
-		receipt.BlockNumber = header.Number
-		receipt.TransactionIndex = 0
-		tracer.OnTxEnd(receipt, nil)
-	}
+	tracingReceipt.Logs = state.GetLogs(expectedTx.Hash(), header.Number.Uint64(), header.Hash())
+	tracingReceipt.Bloom = types.CreateBloom(tracingReceipt)
+	tracingReceipt.BlockHash = header.Hash()
+	tracingReceipt.BlockNumber = header.Number
+	tracingReceipt.TransactionIndex = uint(state.TxIndex())
 
 	return gasUsed, nil
 }
