@@ -77,7 +77,6 @@ func ApplyMessage(
 	chainContext core.ChainContext,
 	tracer *tracing.Hooks,
 ) (uint64, error) {
-	log.Info("DEBUG2")
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    msg.Nonce(),
 		GasPrice: msg.GasPrice(),
@@ -86,8 +85,6 @@ func ApplyMessage(
 		Value:    msg.Value(),
 		Data:     msg.Data(),
 	})
-	log.Info("DEBUG 4",
-		"Hash", tx.Hash())
 	state.SetTxContext(tx.Hash(), 0)
 
 	initialGas := msg.Gas()
@@ -99,8 +96,19 @@ func ApplyMessage(
 	vmenv := vm.NewEVM(blockContext, state, chainConfig, vm.Config{Tracer: tracer})
 
 	if tracer != nil {
+		if tracer.OnSystemTxStart != nil {
+			tracer.OnSystemTxStart()
+		}
 		if tracer.OnTxStart != nil {
 			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
+		}
+
+		// Defers are last in first out, so OnTxEnd will run before OnSystemTxEnd in this transaction,
+		// which is what we want.
+		if tracer.OnSystemTxEnd != nil {
+			defer func() {
+				tracer.OnSystemTxEnd()
+			}()
 		}
 	}
 

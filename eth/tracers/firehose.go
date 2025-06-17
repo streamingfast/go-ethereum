@@ -106,6 +106,8 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 
 		OnSystemCallStart: tracer.OnSystemCallStart,
 		OnSystemCallEnd:   tracer.OnSystemCallEnd,
+		OnSystemTxStart:   tracer.OnSystemTxStart,
+		OnSystemTxEnd:     tracer.OnSystemTxEnd,
 
 		// For a reason yet to be discovered, some transactions panics when trying to
 		// compute the keccak hash from a preimage when it comes the time to retrieve
@@ -214,6 +216,7 @@ type Firehose struct {
 	transaction          *pbeth.TransactionTrace
 	transactionLogIndex  uint32
 	inSystemCall         bool
+	inSystemTx           bool
 	transactionIsolated  bool
 	transactionTransient *pbeth.TransactionTrace
 
@@ -660,10 +663,30 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 	return call.EndOrdinal
 }
 
+func (f *Firehose) OnSystemTxStart() {
+	firehoseInfo("system tx start")
+	f.ensureInBlockAndNotInTrx()
+
+	f.inSystemTx = true
+}
+
+func (f *Firehose) OnSystemTxEnd() {
+	firehoseInfo("system tx end")
+	f.ensureInSystemTx()
+
+	f.inSystemTx = false
+}
+
 func (f *Firehose) OnClose() {
 	if f.concurrentFlushQueue != nil {
 		log.Info("Firehose closing, flushing queued blocks to standard output")
 		f.concurrentFlushQueue.CloseChannels()
+	}
+}
+
+func (f *Firehose) ensureInSystemTx() {
+	if !f.inSystemTx {
+		f.panicInvalidState("caller expected to be in system transaction state but we were not, this is a bug", 2)
 	}
 }
 
@@ -691,15 +714,21 @@ func (f *Firehose) OnTxStart(evm *tracing.VMContext, tx *types.Transaction, from
 
 	var hash []byte
 
-	if f.block.Number == 16 {
-		log.Info("BLOCK 16")
+	if f.inSystemTx {
+		log.Info("INFO",
+			"Block Number", f.block.Number,
+			"Block Hash", f.block.Hash,
+			"Block Header Hash", f.block.Header.Hash)
+
 		enc := make([]byte, 8)
 		binary.BigEndian.PutUint64(enc, f.block.Number)
-		key := append(append([]byte("matic-bor-receipt-"), enc...), f.block.Hash...)
+		key := append(append([]byte("matic-bor-receipt-"), enc...), f.block.Header.Hash...)
 		hash = eth.Keccak256(key)
+
+		log.Info("Corrected Hash",
+			"hash", common.BytesToHash(hash),
+			"header", f.block.Header.Number)
 	}
-	log.Info("Corrected Hash",
-		"hash", common.BytesToHash(hash))
 
 	f.evm = evm
 	var to common.Address
@@ -1627,6 +1656,11 @@ func (f *Firehose) newBalanceChange(tag string, address common.Address, oldValue
 
 func (f *Firehose) OnNonceChange(a common.Address, prev, new uint64) {
 	f.ensureInBlockAndInTrx()
+
+	if *f.applyBackwardCompatibility && f.inSystemTx {
+		// Known Firehose issue: The nonce changes for system transactions are not recorded in the old Firehose instrumentation
+		return
+	}
 
 	activeCall := f.callStack.Peek()
 	change := &pbeth.NonceChange{
