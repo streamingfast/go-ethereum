@@ -887,19 +887,23 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 		stateSyncData []*types.StateSyncData
 		err           error
 	)
-	
+
+	// Set state sync data to blockchain
+	bc := chain.(*core.BlockChain)
+	bc.SetStateSync(stateSyncData)
+
 	if IsSprintStart(headerNumber, c.config.CalculateSprint(headerNumber)) {
 		start := time.Now()
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
 		// check and commit span
-		if err := c.checkAndCommitSpan(wrappedState, header, cx, tracer); err != nil {
+		if err := c.checkAndCommitSpan(wrappedState, header, cx, bc.GetTracingHooks()); err != nil {
 			log.Error("Error while committing span", "error", err)
 			return
 		}
 
 		if c.HeimdallClient != nil {
 			// commit states
-			stateSyncData, err = c.CommitStates(wrappedState, header, cx, tracer)
+			stateSyncData, err = c.CommitStates(wrappedState, header, cx, bc.GetTracingHooks())
 			if err != nil {
 				log.Error("Error while committing states", "error", err)
 				return
@@ -913,11 +917,6 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 		log.Error("Error changing contract code", "error", err)
 		return
 	}
-
-	// Set state sync data to blockchain
-	bc := chain.(*core.BlockChain)
-	bc.GetTracingHooks()
-	bc.SetStateSync(stateSyncData)
 }
 
 func decodeGenesisAlloc(i interface{}) (types.GenesisAlloc, error) {
