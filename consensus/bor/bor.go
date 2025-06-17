@@ -891,22 +891,65 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 	// Set state sync data to blockchain
 	bc := chain.(*core.BlockChain)
 	bc.SetStateSync(stateSyncData)
+	tracer := bc.GetTracingHooks()
 
 	if IsSprintStart(headerNumber, c.config.CalculateSprint(headerNumber)) {
 		start := time.Now()
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
+
+		// Create expected system transaction and signer
+		expectedTx := types.NewTx(&types.LegacyTx{})
+		signer := types.MakeSigner(c.chainConfig, header.Number, header.Time)
+		expectedHash := signer.Hash(expectedTx)
+
+		// Set transaction context in the state
+		wrappedState.SetTxContext(expectedHash, 0)
+
+		// Create block context and initialize EVM
+		blockContext := core.NewEVMBlockContext(header, cx, nil)
+		evm := vm.NewEVM(blockContext, wrappedState, c.chainConfig, vm.Config{Tracer: tracer})
+
+		if tracer != nil {
+			if tracer.OnSystemTxStart != nil {
+				tracer.OnSystemTxStart()
+			}
+			if tracer.OnTxStart != nil {
+				tracer.OnTxStart(evm.GetVMContext(), expectedTx, params.SystemAddress)
+			}
+		}
+
 		// check and commit span
-		if err := c.checkAndCommitSpan(wrappedState, header, cx, bc.GetTracingHooks()); err != nil {
+		if err := c.checkAndCommitSpan(wrappedState, header, cx, tracer); err != nil {
 			log.Error("Error while committing span", "error", err)
 			return
 		}
 
 		if c.HeimdallClient != nil {
 			// commit states
-			stateSyncData, err = c.CommitStates(wrappedState, header, cx, bc.GetTracingHooks())
+			stateSyncData, err = c.CommitStates(wrappedState, header, cx, tracer)
 			if err != nil {
 				log.Error("Error while committing states", "error", err)
 				return
+			}
+		}
+
+		if tracer != nil {
+			if tracer.OnSystemTxEnd != nil {
+				tracer.OnSystemTxEnd()
+			}
+			if tracer.OnTxEnd != nil {
+				var tracingReceipt *types.Receipt
+				var root []byte
+				tracingReceipt = types.NewReceipt(root, false, 0)
+				tracingReceipt.TxHash = expectedTx.Hash()
+				tracingReceipt.GasUsed = 0
+
+				tracingReceipt.Logs = wrappedState.GetLogs(expectedTx.Hash(), header.Number.Uint64(), header.Hash())
+				tracingReceipt.Bloom = types.CreateBloom(tracingReceipt)
+				tracingReceipt.BlockHash = header.Hash()
+				tracingReceipt.BlockNumber = header.Number
+				tracingReceipt.TransactionIndex = uint(wrappedState.TxIndex())
+				tracer.OnTxEnd(tracingReceipt, nil)
 			}
 		}
 

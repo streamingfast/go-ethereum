@@ -75,47 +75,11 @@ func ApplyMessage(
 	chainContext core.ChainContext,
 	tracer *tracing.Hooks,
 ) (uint64, error) {
-	nonce := state.GetNonce(msg.From())
-	expectedTx := types.NewTx(&types.LegacyTx{
-		Nonce:    nonce,
-		GasPrice: msg.GasPrice(),
-		Gas:      msg.Gas(),
-		To:       msg.To(),
-		Value:    msg.Value(),
-		Data:     msg.Data(),
-	})
-	signer := types.MakeSigner(chainConfig, header.Number, header.Time)
-	expectedHash := signer.Hash(expectedTx)
-	state.SetTxContext(expectedHash, 0)
-
 	context := core.NewEVMBlockContext(header, chainContext, nil)
 
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
 	evm := vm.NewEVM(context, state, chainConfig, vm.Config{Tracer: tracer})
-
-	var tracingReceipt *types.Receipt
-	if tracer != nil {
-		if tracer.OnSystemTxStart != nil {
-			tracer.OnSystemTxStart()
-		}
-		if tracer.OnTxStart != nil {
-			tracer.OnTxStart(evm.GetVMContext(), expectedTx, msg.From())
-		}
-
-		// Defers are last in first out, so OnTxEnd will run before OnSystemTxEnd in this transaction,
-		// which is what we want.
-		if tracer.OnSystemTxEnd != nil {
-			defer func() {
-				tracer.OnSystemTxEnd()
-			}()
-		}
-		if tracer.OnTxEnd != nil {
-			defer func() {
-				tracer.OnTxEnd(tracingReceipt, nil)
-			}()
-		}
-	}
 
 	// nolint : contextcheck
 	// Apply the transaction to the current state (included in the env)
@@ -148,17 +112,6 @@ func ApplyMessage(
 	if err != nil {
 		state.Finalise(true)
 	}
-
-	var root []byte
-	tracingReceipt = types.NewReceipt(root, false, gasUsed)
-	tracingReceipt.TxHash = expectedTx.Hash()
-	tracingReceipt.GasUsed = gasUsed
-
-	tracingReceipt.Logs = state.GetLogs(expectedTx.Hash(), header.Number.Uint64(), header.Hash())
-	tracingReceipt.Bloom = types.CreateBloom(tracingReceipt)
-	tracingReceipt.BlockHash = header.Hash()
-	tracingReceipt.BlockNumber = header.Number
-	tracingReceipt.TransactionIndex = uint(state.TxIndex())
 
 	return gasUsed, nil
 }
