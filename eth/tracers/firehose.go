@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
+	"github.com/streamingfast/eth-go"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
@@ -686,6 +688,18 @@ func (f *Firehose) OnTxStart(evm *tracing.VMContext, tx *types.Transaction, from
 	firehoseInfo("trx start (tracer=%s hash=%s %s type=%d gas=%d isolated=%t input=%s)", f.tracerID, tx.Hash(), fromToTxView(&from, tx), tx.Type(), tx.Gas(), f.transactionIsolated, inputView(tx.Data()))
 
 	f.ensureInBlockAndNotInTrxAndNotInCall()
+
+	var hash []byte
+
+	if f.block.Number == 16 {
+		log.Info("BLOCK 16")
+		enc := make([]byte, 8)
+		binary.BigEndian.PutUint64(enc, f.block.Number)
+		key := append(append([]byte("matic-bor-receipt-"), enc...), f.block.Hash...)
+		hash = eth.Keccak256(key)
+	}
+	log.Info("Corrected Hash",
+		"hash", common.BytesToHash(hash))
 
 	f.evm = evm
 	var to common.Address

@@ -78,6 +78,7 @@ require (
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/status-im/keycard-go v0.3.2
+	github.com/streamingfast/eth-go v0.0.0-20250611141046-926b93a01cbb
 	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250507011922-e3d3efeda61d
 	github.com/stretchr/testify v1.10.0
 	github.com/supranational/blst v0.3.14
@@ -199,8 +200,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.24.5 // indirect
 	github.com/bartekn/go-bip39 v0.0.0-20171116152956-a05967ea095d // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
+	github.com/blendle/zapdriver v1.3.1 // indirect
 	github.com/bradfitz/gomemcache v0.0.0-20190913173617-a41fca850d0b // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.3.3 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2 // indirect
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce // indirect
 	github.com/cbergoon/merkletree v0.2.0 // indirect
@@ -236,8 +238,10 @@ require (
 	github.com/jmhodges/levigo v1.0.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
+	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mitchellh/copystructure v1.0.0 // indirect
+	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
 	github.com/montanaflynn/stats v0.7.0 // indirect
@@ -256,6 +260,7 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.18.2 // indirect
 	github.com/streadway/amqp v1.1.0 // indirect
+	github.com/streamingfast/logging v0.0.0-20220405224725-2755dab2ce75 // indirect
 	github.com/stumble/gorocksdb v0.0.3 // indirect
 	github.com/tendermint/btcd v0.1.1 // indirect
 	github.com/tendermint/crypto v0.0.0-20191022145703-50d29ede1e15 // indirect
@@ -273,7 +278,9 @@ require (
 	go.opentelemetry.io/otel/metric v1.27.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
+	go.uber.org/zap v1.21.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240520151616-dc85e6b867a5 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240515191416-fc5f0ca64291 // indirect
 )

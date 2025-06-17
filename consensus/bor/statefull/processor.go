@@ -77,7 +77,7 @@ func ApplyMessage(
 	chainContext core.ChainContext,
 	tracer *tracing.Hooks,
 ) (uint64, error) {
-
+	log.Info("DEBUG2")
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    msg.Nonce(),
 		GasPrice: msg.GasPrice(),
@@ -86,6 +86,8 @@ func ApplyMessage(
 		Value:    msg.Value(),
 		Data:     msg.Data(),
 	})
+	log.Info("DEBUG 4",
+		"Hash", tx.Hash())
 	state.SetTxContext(tx.Hash(), 0)
 
 	initialGas := msg.Gas()

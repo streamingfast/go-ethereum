@@ -887,7 +887,7 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 		stateSyncData []*types.StateSyncData
 		err           error
 	)
-
+	
 	if IsSprintStart(headerNumber, c.config.CalculateSprint(headerNumber)) {
 		start := time.Now()
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
@@ -916,6 +916,7 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 
 	// Set state sync data to blockchain
 	bc := chain.(*core.BlockChain)
+	bc.GetTracingHooks()
 	bc.SetStateSync(stateSyncData)
 }
 
@@ -1293,6 +1294,7 @@ func (c *Bor) CommitStates(
 
 	log.Info(
 		"Fetching state updates from Heimdall",
+		"block number", number,
 		"fromID", from,
 		"to", to.Format(time.RFC3339))
 
