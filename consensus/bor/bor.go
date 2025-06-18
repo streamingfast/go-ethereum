@@ -1266,7 +1266,7 @@ func (c *Bor) FetchAndCommitSpan(
 	tracer *tracing.Hooks,
 ) error {
 	var heimdallSpan span.HeimdallSpan
-
+	log.Info("Fetch and commit span")
 	if c.HeimdallClient == nil {
 		// fixme: move to a new mock or fake and remove c.HeimdallClient completely
 		s, err := c.getNextHeimdallSpanForTest(ctx, newSpanID, header, chain)
@@ -1336,7 +1336,6 @@ func (c *Bor) CommitStates(
 
 	log.Info(
 		"Fetching state updates from Heimdall",
-		"block number", number,
 		"fromID", from,
 		"to", to.Format(time.RFC3339))
 

@@ -803,6 +803,11 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 	f.ensureInBlockAndInTrx()
 
 	trxTrace := f.completeTransaction(receipt)
+	if trxTrace == nil {
+		f.resetTransaction()
+		firehoseInfo("trx dropped (no calls)")
+		return
+	}
 
 	// In this case, we are in some kind of parallel processing and we must simply add the transaction
 	// to a transient storage (and not in the block directly). Adding it to the block will be done by the
@@ -827,6 +832,10 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 
 func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.TransactionTrace {
 	firehoseInfo("completing transaction (call_count=%d receipt=%s)", len(f.transaction.Calls), receiptView(receipt))
+
+	if len(f.transaction.Calls) == 0 {
+		return nil
+	}
 
 	// Sorting needs to happen first, before we populate the state reverted
 	slices.SortFunc(f.transaction.Calls, func(i, j *pbeth.Call) int {
