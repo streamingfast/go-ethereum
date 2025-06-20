@@ -105,6 +105,8 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 
 		OnSystemCallStart: tracer.OnSystemCallStart,
 		OnSystemCallEnd:   tracer.OnSystemCallEnd,
+		OnSystemTxStart:   tracer.OnSystemTxStart,
+		OnSystemTxEnd:     tracer.OnSystemTxEnd,
 
 		// For a reason yet to be discovered, some transactions panics when trying to
 		// compute the keccak hash from a preimage when it comes the time to retrieve
@@ -213,6 +215,7 @@ type Firehose struct {
 	transaction          *pbeth.TransactionTrace
 	transactionLogIndex  uint32
 	inSystemCall         bool
+	inSystemTx           bool
 	transactionIsolated  bool
 	transactionTransient *pbeth.TransactionTrace
 
@@ -657,6 +660,20 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 	call.EndOrdinal += ordinalBase
 
 	return call.EndOrdinal
+}
+
+func (f *Firehose) OnSystemTxStart() {
+	firehoseInfo("system tx start")
+	f.ensureInBlockAndNotInTrx()
+
+	f.inSystemTx = true
+}
+
+func (f *Firehose) OnSystemTxEnd() {
+	firehoseInfo("system tx end")
+	f.ensureInSystemTx()
+
+	f.inSystemTx = false
 }
 
 func (f *Firehose) OnClose() {
@@ -1932,6 +1949,12 @@ func (f *Firehose) ensureInCall() {
 func (f *Firehose) ensureInSystemCall() {
 	if !f.inSystemCall {
 		f.panicInvalidState("call expected to be in system call state but we were not, this is a bug", 2)
+	}
+}
+
+func (f *Firehose) ensureInSystemTx() {
+	if !f.inSystemTx {
+		f.panicInvalidState("caller expected to be in system transaction state but we were not, this is a bug", 2)
 	}
 }
 

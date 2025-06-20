@@ -1445,7 +1445,7 @@ func (w *worker) generateWork(params *generateParams, witness bool) *newPayloadR
 		reqHash := types.CalcRequestsHash(requests)
 		work.header.RequestsHash = &reqHash
 	}
-	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, &body, work.receipts, nil)
+	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, &body, work.receipts)
 
 	if err != nil {
 		return &newPayloadResult{err: err}
@@ -1598,7 +1598,7 @@ func (w *worker) commit(env *environment, interval func(), update bool, start ti
 		// Withdrawals are set to nil here, because this is only called in PoW.
 		block, err := w.engine.FinalizeAndAssemble(w.chain, env.header, env.state, &types.Body{
 			Transactions: env.txs,
-		}, env.receipts, nil)
+		}, env.receipts)
 
 		if err != nil {
 			return err
