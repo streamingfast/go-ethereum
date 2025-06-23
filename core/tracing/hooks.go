@@ -165,32 +165,6 @@ type (
 	// beacon block root.
 	OnSystemCallEndHook = func()
 
-	// OnSystemTxStartHook is called when a system transaction is about to complete its execution within the Bor consensus
-	// engine.
-	//
-	// This will be called in addition to the `OnTxStart` hook so the flow of event you will receive in your tracer will
-	// look kike this:
-	//
-	// - OnSystemTxStart
-	// - OnTxStart
-	// - OnTxEnd
-	// - OnSystemTxEnd
-	//
-	OnSystemTxStartHook = func()
-
-	// OnSystemTxEndHook is called when a system transaction is about to complete its execution within the Bor consensus
-	// engine.
-	//
-	// This will be called in addition to the `OnTxStart` hook so the flow of event you will receive in your tracer will
-	// look kike this:
-	//
-	// - OnSystemTxStart
-	// - OnTxStart
-	// - OnTxEnd
-	// - OnSystemTxEnd
-	//
-	OnSystemTxEndHook = func()
-
 	/*
 		- State events -
 	*/
@@ -237,9 +211,6 @@ type Hooks struct {
 	OnSystemCallStart   OnSystemCallStartHook
 	OnSystemCallStartV2 OnSystemCallStartHookV2
 	OnSystemCallEnd     OnSystemCallEndHook
-
-	OnSystemTxStart OnSystemTxStartHook
-	OnSystemTxEnd   OnSystemTxEndHook
 	// State events
 	OnBalanceChange BalanceChangeHook
 	OnNonceChange   NonceChangeHook

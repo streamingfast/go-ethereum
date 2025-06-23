@@ -107,8 +107,6 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 
 		OnSystemCallStart: tracer.OnSystemCallStart,
 		OnSystemCallEnd:   tracer.OnSystemCallEnd,
-		OnSystemTxStart:   tracer.OnSystemTxStart,
-		OnSystemTxEnd:     tracer.OnSystemTxEnd,
 
 		// For a reason yet to be discovered, some transactions panics when trying to
 		// compute the keccak hash from a preimage when it comes the time to retrieve
@@ -217,7 +215,6 @@ type Firehose struct {
 	transaction          *pbeth.TransactionTrace
 	transactionLogIndex  uint32
 	inSystemCall         bool
-	inSystemTx           bool
 	transactionIsolated  bool
 	transactionTransient *pbeth.TransactionTrace
 	systemTxHashes       hashes
@@ -473,9 +470,9 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	}
 
 	// DEBUG:
-	if f.block.Number == 36000 {
-		panic("36000")
-	}
+	//if f.block.Number == 36000 {
+	//	panic("36000")
+	//}
 
 	if *f.applyBackwardCompatibility {
 		f.block.Ver = 3
@@ -672,20 +669,6 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 	call.EndOrdinal += ordinalBase
 
 	return call.EndOrdinal
-}
-
-func (f *Firehose) OnSystemTxStart() {
-	firehoseInfo("system tx start")
-	f.ensureInBlockAndNotInTrx()
-
-	f.inSystemTx = true
-}
-
-func (f *Firehose) OnSystemTxEnd() {
-	firehoseInfo("system tx end")
-	f.ensureInSystemTx()
-
-	f.inSystemTx = false
 }
 
 func (f *Firehose) OnClose() {
@@ -1969,12 +1952,6 @@ func (f *Firehose) ensureInSystemCall() {
 	}
 }
 
-func (f *Firehose) ensureInSystemTx() {
-	if !f.inSystemTx {
-		f.panicInvalidState("caller expected to be in system transaction state but we were not, this is a bug", 2)
-	}
-}
-
 func (f *Firehose) isChainOneOf(chainIDs ...*big.Int) bool {
 	f.ensureBlockChainInit()
 
@@ -3023,9 +3000,6 @@ func (f *Firehose) combinePolygonSystemTransactions() (out []*pbeth.TransactionT
 
 	highestTrxIndex := int64(-1) // negative so that next one is 0 if no normal transaction is met
 	for _, trace := range f.block.TransactionTraces {
-		log.Info("TRANSACTION",
-			"FROM", common.BytesToAddress(trace.From),
-			"TO", common.BytesToAddress(trace.To))
 		if bytes.Equal(trace.From, polygonSystemAddress.Bytes()) {
 			if bytes.Equal(trace.To, polygonStateReceiverAddress.Bytes()) {
 				systemTransactionsToMerge = append(systemTransactionsToMerge, trace)
@@ -3044,11 +3018,9 @@ func (f *Firehose) combinePolygonSystemTransactions() (out []*pbeth.TransactionT
 	}
 
 	out = normalTransactions
-	log.Info("OUT")
 	if systemTransactionsToMerge == nil && unmergeableSystemTransactions == nil {
 		return
 	}
-	log.Info("HAS STUFF TO MERGE")
 	if systemTransactionsToMerge != nil {
 		var allCalls []*pbeth.Call
 		var allLogs []*pbeth.Log
