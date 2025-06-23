@@ -472,6 +472,11 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		Size: block.Size(),
 	}
 
+	// DEBUG:
+	if f.block.Number == 36000 {
+		panic("36000")
+	}
+
 	if *f.applyBackwardCompatibility {
 		f.block.Ver = 3
 	}
@@ -528,6 +533,10 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil {
+		if isPolygon {
+			f.block.TransactionTraces, f.systemTxHashes = f.combinePolygonSystemTransactions()
+		}
+
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
@@ -840,9 +849,6 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 
 	// Order is important, we must populate the state reverted before we remove the log block index and re-assign ordinals
 	f.populateStateReverted()
-	if f.inSystemTx {
-		f.block.TransactionTraces, f.systemTxHashes = f.combinePolygonSystemTransactions()
-	}
 	f.removeLogBlockIndexOnStateRevertedCalls()
 	f.assignOrdinalAndIndexToReceiptLogs()
 
@@ -3017,6 +3023,9 @@ func (f *Firehose) combinePolygonSystemTransactions() (out []*pbeth.TransactionT
 
 	highestTrxIndex := int64(-1) // negative so that next one is 0 if no normal transaction is met
 	for _, trace := range f.block.TransactionTraces {
+		log.Info("TRANSACTION",
+			"FROM", common.BytesToAddress(trace.From),
+			"TO", common.BytesToAddress(trace.To))
 		if bytes.Equal(trace.From, polygonSystemAddress.Bytes()) {
 			if bytes.Equal(trace.To, polygonStateReceiverAddress.Bytes()) {
 				systemTransactionsToMerge = append(systemTransactionsToMerge, trace)
@@ -3035,10 +3044,11 @@ func (f *Firehose) combinePolygonSystemTransactions() (out []*pbeth.TransactionT
 	}
 
 	out = normalTransactions
+	log.Info("OUT")
 	if systemTransactionsToMerge == nil && unmergeableSystemTransactions == nil {
 		return
 	}
-
+	log.Info("HAS STUFF TO MERGE")
 	if systemTransactionsToMerge != nil {
 		var allCalls []*pbeth.Call
 		var allLogs []*pbeth.Log
