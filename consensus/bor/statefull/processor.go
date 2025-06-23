@@ -137,6 +137,10 @@ func ApplyMessage(
 
 	state.SetTxContext(tx.Hash(), 0)
 	if tracer != nil {
+		if tracer.OnSystemTxStart != nil {
+			tracer.OnSystemTxStart()
+		}
+
 		switch {
 		case tracer.OnTxStartWithHash != nil: // firehose has this hook that allows forcing a hash to some special system transactions
 			txHash := getFirehose2CompatibleHash(spanID, msg)
@@ -196,6 +200,7 @@ func ApplyMessage(
 		receipt.BlockNumber = header.Number
 		receipt.TransactionIndex = 0
 		tracer.OnTxEnd(receipt, nil)
+		tracer.OnSystemTxEnd()
 	}
 
 	return gasUsed, nil
