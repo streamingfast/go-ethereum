@@ -3392,3 +3392,5 @@ func (bc *BlockChain) GetTrieFlushInterval() time.Duration {
 func (bc *BlockChain) SubscribeChain2HeadEvent(ch chan<- Chain2HeadEvent) event.Subscription {
 	return bc.scope.Track(bc.chain2HeadFeed.Subscribe(ch))
 }
+
+func (bc *BlockChain) GetTracingHooks() *tracing.Hooks { return bc.logger }
