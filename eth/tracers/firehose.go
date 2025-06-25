@@ -525,9 +525,7 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil {
-		if isPolygon {
-			f.block.TransactionTraces, f.systemTxHashes = f.combinePolygonSystemTransactions()
-		}
+
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
@@ -826,6 +824,7 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 
 	// Order is important, we must populate the state reverted before we remove the log block index and re-assign ordinals
 	f.populateStateReverted()
+	f.combinePolygonSystemTransactions()
 	f.removeLogBlockIndexOnStateRevertedCalls()
 	f.assignOrdinalAndIndexToReceiptLogs()
 
@@ -904,17 +903,22 @@ func (f *Firehose) discardUncommittedSetCodeAuthorization(rootCall *pbeth.Call) 
 }
 
 func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
-	for _, call := range f.transaction.Calls {
-		if call.StateReverted {
-			for _, log := range call.Logs {
-				if isPolygon && isPolygonFeeTransferLog(log) {
-					// Polygon transfer and fee transfer logs are never reverted, so we must **not** reset them here as
-					// they are properly recorded to the chain's state.
-					continue
-				}
+	for _, trace := range f.block.TransactionTraces {
+		if f.systemTxHashes.Contains(trace.Hash) {
+			continue
+		}
+		for _, call := range trace.Calls {
+			if call.StateReverted {
+				for _, log := range call.Logs {
+					if isPolygon && isPolygonFeeTransferLog(log) {
+						// Polygon transfer and fee transfer logs are never reverted, so we must **not** reset them here as
+						// they are properly recorded to the chain's state.
+						continue
+					}
 
-				firehoseTrace("removing block index from log %s in reverted call %d", hex.EncodeToString(log.Address), call.Index)
-				log.BlockIndex = 0
+					firehoseTrace("removing block index from log %s in reverted call %d", hex.EncodeToString(log.Address), call.Index)
+					log.BlockIndex = 0
+				}
 			}
 		}
 	}
@@ -2982,9 +2986,11 @@ type BloomFilter [256]byte
 
 // combinePolygonSystemTransactions will identify transactions that are "system transactions" and merge them into a single transaction with a predictive name, like the `bor` client does.
 // It reorders the calls and logs to match expected output from RPC API.
-func (f *Firehose) combinePolygonSystemTransactions() (out []*pbeth.TransactionTrace, systemTransactionHashes hashes) {
+func (f *Firehose) combinePolygonSystemTransactions() {
 	var systemTransactionsToMerge []*pbeth.TransactionTrace
 	var unmergeableSystemTransactions []*pbeth.TransactionTrace
+	var out []*pbeth.TransactionTrace
+	var systemTransactionHashes hashes
 	normalTransactions := make([]*pbeth.TransactionTrace, 0, len(f.block.TransactionTraces))
 
 	highestTrxIndex := int64(-1) // negative so that next one is 0 if no normal transaction is met
@@ -3121,6 +3127,9 @@ func (f *Firehose) combinePolygonSystemTransactions() (out []*pbeth.TransactionT
 		out = append(out, tx)
 		highestTrxIndex++
 	}
+
+	f.block.TransactionTraces = out
+	f.systemTxHashes = systemTransactionHashes
 
 	return
 }
