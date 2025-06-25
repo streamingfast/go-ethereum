@@ -525,7 +525,7 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil {
-
+		f.combinePolygonSystemTransactions()
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
@@ -825,7 +825,6 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 	// Order is important, we must populate the state reverted before we remove the log block index and re-assign ordinals
 	f.populateStateReverted()
 	f.combinePolygonSystemTransactions()
-	f.removeLogBlockIndexOnStateRevertedCalls()
 	f.assignOrdinalAndIndexToReceiptLogs()
 
 	if *f.applyBackwardCompatibility {
