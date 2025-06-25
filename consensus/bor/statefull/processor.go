@@ -117,6 +117,14 @@ func ApplyMessage(
 	tracer *tracing.Hooks,
 	spanID uint64,
 ) (uint64, error) {
+	initialGas := msg.Gas()
+
+	// Create a new context to be used in the EVM environment
+	blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
+
+	// Create a new environment which holds all relevant information
+	// about the transaction and calling mechanisms.
+	vmenv := vm.NewEVM(blockContext, state, chainConfig, vm.Config{Tracer: tracer})
 
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    msg.Nonce(),
@@ -126,16 +134,8 @@ func ApplyMessage(
 		Value:    msg.Value(),
 		Data:     msg.Data(),
 	})
+
 	state.SetTxContext(tx.Hash(), 0)
-
-	initialGas := msg.Gas()
-
-	blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
-
-	// Create a new environment which holds all relevant information
-	// about the transaction and calling mechanisms.
-	vmenv := vm.NewEVM(blockContext, state, chainConfig, vm.Config{Tracer: tracer})
-
 	if tracer != nil {
 		switch {
 		case tracer.OnTxStartWithHash != nil: // firehose has this hook that allows forcing a hash to some special system transactions
@@ -181,9 +181,8 @@ func ApplyMessage(
 
 	if tracer != nil {
 		blockHash := header.Hash()
-		cumulativeGasUsed := gasUsed
 
-		receipt := types.NewReceipt(nil, err != nil, cumulativeGasUsed)
+		receipt := types.NewReceipt(nil, err != nil, gasUsed)
 		receipt.TxHash = tx.Hash()
 		receipt.GasUsed = gasUsed
 
