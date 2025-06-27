@@ -37,7 +37,7 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 		actions []actionRunner
 	}{
 		{
-			"push/pop emtpy", []actionRunner{
+			"push/pop empty", []actionRunner{
 				push(&pbeth.Call{}),
 				pop(),
 				check(func(t *testing.T, s *CallStack) {
@@ -405,7 +405,7 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 			goldenPath := tt.expectedBlockFile
 
 			if !goldenUpdate && !fileExits(t, goldenPath) {
-				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 			}
 
 			content, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
