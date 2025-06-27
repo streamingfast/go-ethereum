@@ -545,7 +545,6 @@ func (f *Firehose) OnBlockEnd(err error) {
 		} else {
 			f.printBlockToFirehose(f.block, f.blockFinality)
 		}
-
 	} else {
 		// An error occurred, could have happen in transaction/call context, we must not check if in trx/call, only check in block
 		f.ensureInBlock(0)
@@ -2377,7 +2376,6 @@ func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 		return firehoseBigIntFromNative(tx.GasFeeCap())
 
 	}
-
 	panic(errUnhandledTransactionType("maxFeePerGas", tx.Type()))
 }
 
