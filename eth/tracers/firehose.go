@@ -824,7 +824,7 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 
 	// Order is important, we must populate the state reverted before we remove the log block index and re-assign ordinals
 	f.populateStateReverted()
-	f.combinePolygonSystemTransactions()
+	f.removeLogBlockIndexOnStateRevertedCalls()
 	f.assignOrdinalAndIndexToReceiptLogs()
 
 	if *f.applyBackwardCompatibility {
@@ -924,8 +924,10 @@ func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
 }
 
 var (
+	//nolint:unused // Used in isPolygonFeeTransferLog function
 	polygonTransferFeeLogSig = common.HexToHash("0x4dfe1bbbcf077ddc3e01291eea2d5c70c2b422b415d95645b9adcfd678cb1d63")
-	polygonFeeAddress        = common.HexToAddress("0x0000000000000000000000000000000000001010")
+	//nolint:unused // Used in isPolygonFeeTransferLog function
+	polygonFeeAddress = common.HexToAddress("0x0000000000000000000000000000000000001010")
 )
 
 //go:inline
@@ -2972,13 +2974,13 @@ func (m Memory) GetPtr(offset, size int64) []byte {
 	return append(reminder, make([]byte, int(size)-len(reminder))...)
 }
 
-var polygonSystemAddress = common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
-var polygonNeverRevertedTopic = common.HexToAddress("0x4dfe1bbbcf077ddc3e01291eea2d5c70c2b422b415d95645b9adcfd678cb1d63")
-var polygonFeeSystemAddress = common.HexToAddress("0x0000000000000000000000000000000000001010")
-var polygonStateReceiverAddress = common.HexToAddress("0x0000000000000000000000000000000000001001")
-var polygonValidatorContract = common.HexToAddress("0x0000000000000000000000000000000000001000")
-var nullAddress = common.HexToAddress("0x0000000000000000000000000000000000000000")
-var bigIntZero = pbeth.BigIntFromBytes(nil)
+var (
+	polygonSystemAddress        = common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
+	polygonStateReceiverAddress = common.HexToAddress("0x0000000000000000000000000000000000001001")
+	polygonValidatorContract    = common.HexToAddress("0x0000000000000000000000000000000000001000")
+	nullAddress                 = common.HexToAddress("0x0000000000000000000000000000000000000000")
+	bigIntZero                  = pbeth.BigIntFromBytes(nil)
+)
 
 type hashes [][]byte
 type BloomFilter [256]byte
@@ -3063,7 +3065,7 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 				allCalls = append(allCalls, call)
 				// the receipt.logs on these transactions is not populated before
 				for _, log := range call.Logs {
-					if !call.StateReverted || isPolygonException(log) {
+					if !call.StateReverted || isPolygonFeeTransferLog(log) {
 						trxLogs = append(trxLogs, log)
 					}
 				}
@@ -3131,11 +3133,6 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 	f.systemTxHashes = systemTransactionHashes
 
 	return
-}
-
-// polygon has a fee log that will never be skipped even if call failed
-func isPolygonException(log *pbeth.Log) bool {
-	return bytes.Equal(log.Address, polygonFeeSystemAddress.Bytes()) && len(log.Topics) == 4 && bytes.Equal(log.Topics[0], polygonNeverRevertedTopic.Bytes())
 }
 
 func (b *BloomFilter) add(data []byte) {
