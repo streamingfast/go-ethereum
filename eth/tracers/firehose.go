@@ -2374,7 +2374,6 @@ func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasFeeCap())
-
 	}
 	panic(errUnhandledTransactionType("maxFeePerGas", tx.Type()))
 }
