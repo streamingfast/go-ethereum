@@ -2972,7 +2972,6 @@ var (
 	bigIntZero                  = pbeth.BigIntFromBytes(nil)
 )
 
-type hashes [][]byte
 type BloomFilter [256]byte
 
 // combinePolygonSystemTransactions will identify transactions that are "system transactions" and merge them into a single transaction with a predictive name, like the `bor` client does.
@@ -3144,13 +3143,4 @@ func computePolygonHash(blockNum uint64, blockHash []byte) []byte {
 	binary.BigEndian.PutUint64(enc, blockNum)
 	key := append(append([]byte("matic-bor-receipt-"), enc...), blockHash...)
 	return crypto.Keccak256(key)
-}
-
-func (h hashes) Contains(in []byte) bool {
-	for _, hash := range h {
-		if bytes.Equal(hash, in) {
-			return true
-		}
-	}
-	return false
 }
