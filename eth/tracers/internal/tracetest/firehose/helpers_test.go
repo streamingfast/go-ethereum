@@ -56,6 +56,7 @@ func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.Fir
 	}
 }
 
+//nolint:unused // Test helper function that may be used in future tests
 func (lines firehoseBlockLines) assertEquals(t *testing.T, goldenDir string, expected ...firehoseBlockLineParams) {
 	actualParams := slicesMap(lines, func(l firehoseBlockLine) firehoseBlockLineParams { return l.Params })
 	require.Equal(t, expected, actualParams, "Actual lines block params do not match expected lines block params")
