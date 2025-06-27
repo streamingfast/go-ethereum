@@ -217,7 +217,6 @@ type Firehose struct {
 	inSystemCall         bool
 	transactionIsolated  bool
 	transactionTransient *pbeth.TransactionTrace
-	systemTxHashes       hashes
 
 	// Call state
 	callStack               *CallStack
@@ -901,22 +900,16 @@ func (f *Firehose) discardUncommittedSetCodeAuthorization(rootCall *pbeth.Call) 
 }
 
 func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
-	for _, trace := range f.block.TransactionTraces {
-		if f.systemTxHashes.Contains(trace.Hash) {
-			continue
-		}
-		for _, call := range trace.Calls {
-			if call.StateReverted {
-				for _, log := range call.Logs {
-					if isPolygon && isPolygonFeeTransferLog(log) {
-						// Polygon transfer and fee transfer logs are never reverted, so we must **not** reset them here as
-						// they are properly recorded to the chain's state.
-						continue
-					}
-
-					firehoseTrace("removing block index from log %s in reverted call %d", hex.EncodeToString(log.Address), call.Index)
-					log.BlockIndex = 0
+	for _, call := range f.transaction.Calls {
+		if call.StateReverted {
+			for _, log := range call.Logs {
+				if isPolygon && isPolygonFeeTransferLog(log) {
+					// Polygon transfer and fee transfer logs are never reverted, so we must **not** reset them here as
+					// they are properly recorded to the chain's state.
+					continue
 				}
+				firehoseTrace("removing block index from log %s in reverted call %d", hex.EncodeToString(log.Address), call.Index)
+				log.BlockIndex = 0
 			}
 		}
 	}
@@ -2988,7 +2981,6 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 	var systemTransactionsToMerge []*pbeth.TransactionTrace
 	var unmergeableSystemTransactions []*pbeth.TransactionTrace
 	var out []*pbeth.TransactionTrace
-	var systemTransactionHashes hashes
 	normalTransactions := make([]*pbeth.TransactionTrace, 0, len(f.block.TransactionTraces))
 
 	highestTrxIndex := int64(-1) // negative so that next one is 0 if no normal transaction is met
@@ -3115,19 +3107,16 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 				// StateRoot // Deprecated EIP 658
 			},
 		}
-		systemTransactionHashes = append(systemTransactionHashes, mergedHash)
 		out = append(out, mergedSystemTrx)
 		highestTrxIndex++
 	}
 	for _, tx := range unmergeableSystemTransactions {
 		tx.Index = uint32(highestTrxIndex + 1)
-		systemTransactionHashes = append(systemTransactionHashes, tx.Hash)
 		out = append(out, tx)
 		highestTrxIndex++
 	}
 
 	f.block.TransactionTraces = out
-	f.systemTxHashes = systemTransactionHashes
 
 	return
 }
