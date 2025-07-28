@@ -19,9 +19,11 @@ package tracers
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"math/big"
 	"os"
 	"runtime"
@@ -1110,4 +1112,64 @@ func overrideConfig(original *params.ChainConfig, override *params.ChainConfig) 
 	}
 
 	return copy, canon
+}
+
+func (api *API) TraceFirehoseBlockByNumber(
+	ctx context.Context,
+	number rpc.BlockNumber,
+	config *TraceCallConfig,
+) (interface{}, error) {
+	// 1. Load the block
+	block, err := api.blockByNumber(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Recompute state at block
+	reexec := defaultTraceReexec
+	if config != nil && config.Reexec != nil {
+		reexec = *config.Reexec
+	}
+	statedb, release, err := api.backend.StateAtBlock(ctx, block, reexec, nil, true, false)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	// 3. For each transaction, execute trace and collect results
+	var traces []*pbfirehose.TransactionTrace
+	for i, tx := range block.Transactions() {
+		msg, err := core.TransactionToMessage(tx, types.MakeSigner(api.backend.ChainConfig(), block.Number(), block.Time()), block.BaseFee())
+		if err != nil {
+			return nil, err
+		}
+
+		txctx := &Context{
+			BlockHash:   block.Hash(),
+			BlockNumber: block.Number(),
+			TxIndex:     i,
+			TxHash:      tx.Hash(),
+		}
+
+		traceResult, err := api.traceTx(ctx, tx, msg, txctx, core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), nil), statedb, &config.TraceConfig, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert traceResult → pbfirehose.TransactionTrace
+		pbTrace := convertToFirehoseTrace(traceResult)
+		traces = append(traces, pbTrace)
+	}
+
+	// 4. Build Firehose Block
+	pbBlock := convertToFirehoseBlock(block, traces)
+
+	// 5. Serialize to protobuf
+	data, err := proto.Marshal(pbBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	// JSON-RPC can’t return raw bytes, so return base64
+	return base64.StdEncoding.EncodeToString(data), nil
 }
