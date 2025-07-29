@@ -169,6 +169,8 @@ type Firehose struct {
 	blockReorderOrdinalSnapshot uint64
 	blockReorderOrdinalOnce     sync.Once
 	blockIsGenesis              bool
+	captureBlock                bool
+	capturedBlock               *pbeth.Block
 
 	// Transaction state
 	evm                  *tracing.VMContext
@@ -483,6 +485,9 @@ func (f *Firehose) OnBlockEnd(err error) {
 		}
 
 		f.ensureInBlockAndNotInTrx()
+		if f.captureBlock {
+			f.capturedBlock = f.block
+		}
 		f.printBlockToFirehose(f.block, f.blockFinality)
 	} else {
 		// An error occurred, could have happen in transaction/call context, we must not check if in trx/call, only check in block
@@ -2794,4 +2799,12 @@ func (m Memory) GetPtr(offset, size int64) []byte {
 	// In this situtation, we must pad with zeroes when the memory is not big enough.
 	reminder := m[offset:]
 	return append(reminder, make([]byte, int(size)-len(reminder))...)
+}
+
+func (f *Firehose) SetCaptureBlock(capture bool) {
+	f.captureBlock = capture
+}
+
+func (f *Firehose) CapturedBlock() *pbeth.Block {
+	return f.capturedBlock
 }
