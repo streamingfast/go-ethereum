@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/tracing"
-	"google.golang.org/protobuf/proto"
 	"math/big"
 	"os"
 	"runtime"
@@ -1132,8 +1131,11 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 	}
 
 	// Firehose tracer configuration
-	firehoseTracer := NewFirehose(&FirehoseConfig{})
-	firehoseTracer.SetCaptureBlock(true)
+	firehoseTracer := NewFirehose(&FirehoseConfig{
+		private: &privateFirehoseConfig{
+			FlushToTestBuffer: true,
+		},
+	})
 	hooks := NewTracingHooksFromFirehose(firehoseTracer)
 	firehoseTracer.OnBlockchainInit(api.backend.ChainConfig())
 
@@ -1178,10 +1180,8 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 	// Finalize and capture block
 	hooks.OnBlockEnd(nil)
 
-	// Return traced block
-	capturedBlock := firehoseTracer.CapturedBlock()
-	if capturedBlock == nil {
-		return nil, errors.New("failed to capture block")
+	if firehoseTracer.testingBuffer == nil {
+		return nil, errors.New("testing buffer is not available")
 	}
-	return proto.Marshal(capturedBlock)
+	return firehoseTracer.testingBuffer.Bytes(), nil
 }
