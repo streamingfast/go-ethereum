@@ -1131,7 +1131,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		return nil, errors.New("genesis is not traceable")
 	}
 
-	// Force Firehose tracer configuration
+	// Firehose tracer configuration
 	firehoseTracer := NewFirehose(&FirehoseConfig{})
 	firehoseTracer.SetCaptureBlock(true)
 	hooks := NewTracingHooksFromFirehose(firehoseTracer)
@@ -1155,38 +1155,30 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 	// Start block tracing
 	hooks.OnBlockStart(tracing.BlockEvent{Block: block})
 
-	blockCtx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), nil)
+	// Create processor
+	procInterrupt := func() bool {
+		select {
+		case <-ctx.Done():
+			return true
+		default:
+			return false
+		}
+	}
+	headerChain, err := core.NewHeaderChain(api.backend.ChainDb(), api.backend.ChainConfig(), api.backend.Engine(), procInterrupt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create header chain: %w", err)
+	}
+	processor := core.NewStateProcessor(api.backend.ChainConfig(), headerChain)
 	vmConfig := vm.Config{Tracer: hooks}
-	evm := vm.NewEVM(blockCtx, statedb, api.backend.ChainConfig(), vmConfig)
-
-	// Process special block features
-	if beaconRoot := block.BeaconRoot(); beaconRoot != nil {
-		core.ProcessBeaconBlockRoot(*beaconRoot, evm)
-	}
-	if api.backend.ChainConfig().IsPrague(block.Number(), block.Time()) {
-		core.ProcessParentBlockHash(block.ParentHash(), evm)
-	}
-
-	// Execute transactions
-	signer := types.MakeSigner(api.backend.ChainConfig(), block.Number(), block.Time())
-	gasPool := new(core.GasPool).AddGas(block.GasLimit())
-	for i, tx := range block.Transactions() {
-		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
-		txctx := &Context{
-			BlockHash:   block.Hash(),
-			BlockNumber: block.Number(),
-			TxIndex:     i,
-			TxHash:      tx.Hash(),
-		}
-		statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
-		_, err := core.ApplyTransactionWithEVM(msg, gasPool, statedb, blockCtx.BlockNumber, txctx.BlockHash, blockCtx.Time, tx, new(uint64), evm)
-		if err != nil {
-			return nil, fmt.Errorf("tracing failed: %w", err)
-		}
+	_, err = processor.Process(block, statedb, vmConfig)
+	if err != nil {
+		return nil, fmt.Errorf("block processing failed: %w", err)
 	}
 
 	// Finalize and capture block
 	hooks.OnBlockEnd(nil)
+
+	// Return traced block
 	capturedBlock := firehoseTracer.CapturedBlock()
 	if capturedBlock == nil {
 		return nil, errors.New("failed to capture block")
