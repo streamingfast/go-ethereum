@@ -1125,6 +1125,18 @@ func (api *API) TraceFirehoseBlockByNumber(
 	return api.traceFirehoseBlock(ctx, block, config)
 }
 
+func (api *API) TraceFirehoseBlockByHash(
+	ctx context.Context,
+	hash common.Hash,
+	config *TraceConfig,
+) (interface{}, error) {
+	block, err := api.blockByHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	return api.traceFirehoseBlock(ctx, block, config)
+}
+
 func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, config *TraceConfig) ([]byte, error) {
 	if block.NumberU64() == 0 {
 		return nil, errors.New("genesis is not traceable")
