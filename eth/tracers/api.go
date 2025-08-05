@@ -1142,6 +1142,10 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		return nil, errors.New("genesis is not traceable")
 	}
 
+	if config != nil && config.Tracer != nil && *config.Tracer != "firehose" {
+		return nil, fmt.Errorf("TraceFirehoseBlockByHash only supports tracer: 'firehose'")
+	}
+
 	// Firehose tracer configuration
 	firehoseTracer := NewFirehose(&FirehoseConfig{
 		private: &privateFirehoseConfig{
