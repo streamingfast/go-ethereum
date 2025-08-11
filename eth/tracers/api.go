@@ -19,9 +19,17 @@ package tracers
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"os"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/streamingfast/bstream"
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
@@ -29,11 +37,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"math/big"
-	"os"
-	"runtime"
-	"sync"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -1206,9 +1209,36 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		return nil, errors.New("testing buffer is not available")
 	}
 
+	respStr := string(firehoseTracer.testingBuffer.Bytes())
+	lines := strings.Split(respStr, "\n")
+
+	var fireBlockLine string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "FIRE BLOCK") {
+			fireBlockLine = line
+			break
+		}
+	}
+
+	if fireBlockLine == "" {
+		return nil, fmt.Errorf("no FIRE BLOCK line found in block %d", block.Number())
+	}
+
+	// Extract the base-64 encoded protobuf block
+	fields := strings.Fields(fireBlockLine)
+	if len(fields) < 9 {
+		return nil, fmt.Errorf("malformed FIRE BLOCK line in block %d", block.Number())
+	}
+
+	blockPayloadB64 := fields[len(fields)-1]
+	blockBytes, err := base64.StdEncoding.DecodeString(blockPayloadB64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode FIRE BLOCK payload: %w", err)
+	}
+
 	// Unmarshal the traced Ethereum block
 	ethBlock := &pbeth.Block{}
-	if err := proto.Unmarshal(firehoseTracer.testingBuffer.Bytes(), ethBlock); err != nil {
+	if err := proto.Unmarshal(blockBytes, ethBlock); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal eth block: %w", err)
 	}
 
