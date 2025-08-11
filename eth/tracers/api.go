@@ -23,6 +23,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/streamingfast/bstream"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
+	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"math/big"
 	"os"
 	"runtime"
@@ -1137,7 +1143,7 @@ func (api *API) TraceFirehoseBlockByHash(
 	return api.traceFirehoseBlock(ctx, block, config)
 }
 
-func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, config *TraceConfig) ([]byte, error) {
+func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, config *TraceConfig) (*pbbstream.Block, error) {
 	if block.NumberU64() == 0 {
 		return nil, errors.New("genesis is not traceable")
 	}
@@ -1199,5 +1205,35 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 	if firehoseTracer.testingBuffer == nil {
 		return nil, errors.New("testing buffer is not available")
 	}
-	return firehoseTracer.testingBuffer.Bytes(), nil
+
+	// Unmarshal the traced Ethereum block
+	ethBlock := &pbeth.Block{}
+	if err := proto.Unmarshal(firehoseTracer.testingBuffer.Bytes(), ethBlock); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal eth block: %w", err)
+	}
+
+	payload, err := anypb.New(ethBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wrap eth block: %w", err)
+	}
+
+	bstreamBlock := &pbbstream.Block{
+		Number:    ethBlock.Number,
+		Id:        ethBlock.GetFirehoseBlockID(),
+		ParentId:  ethBlock.GetFirehoseBlockParentID(),
+		Timestamp: timestamppb.New(ethBlock.GetFirehoseBlockTime()),
+		LibNum:    ethBlockLIBNum(ethBlock),
+		ParentNum: ethBlock.GetFirehoseBlockParentNumber(),
+		Payload:   payload,
+	}
+
+	return bstreamBlock, nil
+}
+
+func ethBlockLIBNum(b *pbeth.Block) uint64 {
+	if b.Number <= bstream.GetProtocolFirstStreamableBlock+200 {
+		return bstream.GetProtocolFirstStreamableBlock
+	}
+
+	return b.Number - 200
 }
