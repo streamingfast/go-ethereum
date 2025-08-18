@@ -427,6 +427,20 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		f.blockBaseFee = f.block.Header.BaseFeePerGas.Native()
 	}
 
+	if !*f.applyBackwardCompatibility {
+		if withdrawals := event.Block.Withdrawals(); withdrawals != nil {
+			f.block.Withdrawals = make([]*pbeth.Withdrawal, len(withdrawals))
+			for i, w := range withdrawals {
+				f.block.Withdrawals[i] = &pbeth.Withdrawal{
+					Index:          w.Index,
+					ValidatorIndex: w.Validator,
+					Address:        w.Address.Bytes(),
+					Amount:         w.Amount,
+				}
+			}
+		}
+	}
+
 	f.blockFinality.populateFromChain(event.Finalized)
 }
 
