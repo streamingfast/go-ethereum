@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/streamingfast/bstream"
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"google.golang.org/protobuf/proto"
@@ -159,9 +158,10 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 }
 
 func ethBlockLIBNum(b *pbeth.Block) uint64 {
-	if b.Number <= bstream.GetProtocolFirstStreamableBlock+200 {
-		return bstream.GetProtocolFirstStreamableBlock
+	if b.Number == 0 {
+		return 0
 	}
 
-	return b.Number - 200
+	// TODO: fetch the finalized block from the api backend directly
+	return b.Number - 1
 }
