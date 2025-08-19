@@ -721,6 +721,18 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.TransactionTrace {
 	firehoseInfo("completing transaction (call_count=%d receipt=%s)", len(f.transaction.Calls), receiptView(receipt))
 
+	if len(f.transaction.Calls) == 0 {
+		// This case happens today only on Bad Blocks and misconstructed blocks, but it can happen.
+		// We need to protect against it, the node higher up will deal with it.
+		//
+		// Terminate the transaction right away since there is nothing else to do, don't forget to
+		// set the EndOrdinal as this is required!
+		//
+		// See https://github.com/ethereum/go-ethereum/issues/31011#issuecomment-3120514740
+		f.transaction.EndOrdinal = f.blockOrdinal.Next()
+		return f.transaction
+	}
+
 	// Sorting needs to happen first, before we populate the state reverted
 	slices.SortFunc(f.transaction.Calls, func(i, j *pbeth.Call) int {
 		return cmp.Compare(i.Index, j.Index)

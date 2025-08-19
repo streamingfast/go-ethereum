@@ -1,0 +1,156 @@
+{
+  "balanceChanges": [
+    {
+      "address": "cVYrcZmYc9tbKG35V68ZnslGF/c=",
+      "newValue": {
+        "bytes": "DeC36vLM+gA="
+      },
+      "oldValue": {
+        "bytes": "DeC2s6dkAAA="
+      },
+      "ordinal": "17",
+      "reason": "REASON_WITHDRAWAL"
+    },
+    {
+      "address": "cVYrcZmYc9tbKG35V68ZnslGF/c=",
+      "newValue": {
+        "bytes": "DeC36y5nxAA="
+      },
+      "oldValue": {
+        "bytes": "DeC36vLM+gA="
+      },
+      "ordinal": "18",
+      "reason": "REASON_WITHDRAWAL"
+    }
+  ],
+  "hash": "jTJuvdOyuCQrHIKD6a80R/4w9Gusb+oZSElHelZiL/w=",
+  "header": {
+    "baseFeePerGas": {
+      "bytes": "LaKCqA=="
+    },
+    "blobGasUsed": "0",
+    "coinbase": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "difficulty": {
+      "bytes": "AA=="
+    },
+    "excessBlobGas": "0",
+    "gasLimit": "4712388",
+    "hash": "jTJuvdOyuCQrHIKD6a80R/4w9Gusb+oZSElHelZiL/w=",
+    "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "mixHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "number": "2",
+    "parentBeaconRoot": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "parentHash": "CTD63sSBGU88o7akQRmArVAWWsZC+L8PHQZIJIa8k6Q=",
+    "receiptRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE=",
+    "requestsHash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+    "stateRoot": "Lejrb+4lF6oUXy1sy7UtnPhoAf8WNRoi8uPRJLD2O8E=",
+    "timestamp": "1970-01-01T00:00:20Z",
+    "transactionsRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE=",
+    "uncleHash": "HcxN6N7HXXqrhbVntszUGtMSRRuUinQT8KFC/UDUk0c=",
+    "withdrawalsRoot": "0BBXqSgDBQYulhNmeHEuYfsBbcRk4XZi3Fx5BQXk0I0="
+  },
+  "number": "2",
+  "size": "663",
+  "systemCalls": [
+    {
+      "address": "AA899tcygH7xMZ+3uLuFItC+rAI=",
+      "beginOrdinal": "1",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "4",
+      "gasChanges": [
+        {
+          "newValue": "30000000",
+          "ordinal": "2",
+          "reason": "REASON_CALL_INITIAL_BALANCE"
+        },
+        {
+          "oldValue": "30000000",
+          "ordinal": "3",
+          "reason": "REASON_CALL_LEFT_OVER_RETURNED"
+        }
+      ],
+      "gasLimit": "30000000",
+      "index": 1,
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    {
+      "address": "AAD5CCfxxToQy3oCM1sXUyAAKTU=",
+      "beginOrdinal": "5",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "8",
+      "gasChanges": [
+        {
+          "newValue": "30000000",
+          "ordinal": "6",
+          "reason": "REASON_CALL_INITIAL_BALANCE"
+        },
+        {
+          "oldValue": "30000000",
+          "ordinal": "7",
+          "reason": "REASON_CALL_LEFT_OVER_RETURNED"
+        }
+      ],
+      "gasLimit": "30000000",
+      "index": 1,
+      "input": "CTD63sSBGU88o7akQRmArVAWWsZC+L8PHQZIJIa8k6Q="
+    },
+    {
+      "address": "AAAJYe9IDrVegNGa2DV5pkwAcAI=",
+      "beginOrdinal": "9",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "12",
+      "gasChanges": [
+        {
+          "newValue": "30000000",
+          "ordinal": "10",
+          "reason": "REASON_CALL_INITIAL_BALANCE"
+        },
+        {
+          "oldValue": "30000000",
+          "ordinal": "11",
+          "reason": "REASON_CALL_LEFT_OVER_RETURNED"
+        }
+      ],
+      "gasLimit": "30000000",
+      "index": 1
+    },
+    {
+      "address": "AAC73cfOSIZC+1efiwDzpZAAclE=",
+      "beginOrdinal": "13",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "16",
+      "gasChanges": [
+        {
+          "newValue": "30000000",
+          "ordinal": "14",
+          "reason": "REASON_CALL_INITIAL_BALANCE"
+        },
+        {
+          "oldValue": "30000000",
+          "ordinal": "15",
+          "reason": "REASON_CALL_LEFT_OVER_RETURNED"
+        }
+      ],
+      "gasLimit": "30000000",
+      "index": 1
+    }
+  ],
+  "ver": 4,
+  "withdrawals": [
+    {
+      "address": "cVYrcZmYc9tbKG35V68ZnslGF/c=",
+      "amount": "1337",
+      "validatorIndex": "42"
+    },
+    {
+      "address": "cVYrcZmYc9tbKG35V68ZnslGF/c=",
+      "amount": "1",
+      "index": "1",
+      "validatorIndex": "13"
+    }
+  ]
+}

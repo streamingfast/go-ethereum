@@ -2033,7 +2033,12 @@ func (bc *BlockChain) processBlock(parentRoot common.Hash, block *types.Block, s
 	}
 	if bc.logger != nil && bc.logger.OnBlockEnd != nil {
 		defer func() {
-			bc.logger.OnBlockEnd(blockEndErr)
+			if recovered := recover(); recovered != nil {
+				bc.logger.OnBlockEnd(fmt.Errorf("panic during block processing: %v", err))
+				panic(err)
+			} else {
+				bc.logger.OnBlockEnd(blockEndErr)
+			}
 		}()
 	}
 

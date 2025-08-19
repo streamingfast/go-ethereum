@@ -191,7 +191,9 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 			tracer, tracingHooks, onClose := newFirehoseTestTracer(t, model)
 			defer onClose()
 
-			chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), nil, genesisSpec, nil, engine, vm.Config{Tracer: tracingHooks}, nil)
+			chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), genesisSpec, engine, &core.BlockChainConfig{
+				VmConfig: vm.Config{Tracer: tracingHooks},
+			})
 			require.NoError(t, err, "failed to create tester chain")
 
 			chain.SetBlockValidatorAndProcessorForTesting(
@@ -206,4 +208,39 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 			assertBlockEquals(t, tracer, filepath.Join("testdata", goldenDir, string(model)), len(blocks))
 		})
 	}
+}
+
+func TestFirehose_Withdrawals(t *testing.T) {
+	// Modeled after TestFirehose_EIP7702, but for Shanghai withdrawals
+	var (
+		config  = *params.MergedTestChainConfig
+		engine  = beacon.New(ethash.NewFaker())
+		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
+		funds   = new(big.Int).Mul(common.Big1, big.NewInt(params.Ether))
+	)
+
+	gspec := &core.Genesis{
+		Config: &config,
+		Alloc: types.GenesisAlloc{
+			addr1: {Balance: funds},
+		},
+	}
+
+	_, blocks, _ := core.GenerateChainWithGenesis(gspec, engine, 3, func(i int, b *core.BlockGen) {
+		if i == 1 {
+			b.AddWithdrawal(&types.Withdrawal{
+				Validator: 42,
+				Address:   addr1,
+				Amount:    1337,
+			})
+			b.AddWithdrawal(&types.Withdrawal{
+				Validator: 13,
+				Address:   addr1,
+				Amount:    1,
+			})
+		}
+	})
+
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals")
 }

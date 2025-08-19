@@ -1,0 +1,71 @@
+{
+  "hash": "mfWWWCC6K3Of3ko3ghV9GpKmCl9ZCBehEdGc9i4NWb8=",
+  "header": {
+    "baseFeePerGas": {
+      "bytes": "J+4yUw=="
+    },
+    "blobGasUsed": "0",
+    "coinbase": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "difficulty": {
+      "bytes": "AA=="
+    },
+    "excessBlobGas": "0",
+    "gasLimit": "4712388",
+    "hash": "mfWWWCC6K3Of3ko3ghV9GpKmCl9ZCBehEdGc9i4NWb8=",
+    "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "mixHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "number": "3",
+    "parentBeaconRoot": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "parentHash": "jTJuvdOyuCQrHIKD6a80R/4w9Gusb+oZSElHelZiL/w=",
+    "receiptRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE=",
+    "requestsHash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+    "stateRoot": "Lejrb+4lF6oUXy1sy7UtnPhoAf8WNRoi8uPRJLD2O8E=",
+    "timestamp": "1970-01-01T00:00:30Z",
+    "transactionsRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE=",
+    "uncleHash": "HcxN6N7HXXqrhbVntszUGtMSRRuUinQT8KFC/UDUk0c=",
+    "withdrawalsRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE="
+  },
+  "number": "3",
+  "size": "611",
+  "systemCalls": [
+    {
+      "address": "AA899tcygH7xMZ+3uLuFItC+rAI=",
+      "beginOrdinal": "1",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "2",
+      "gasLimit": "30000000",
+      "index": 1,
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    {
+      "address": "AAD5CCfxxToQy3oCM1sXUyAAKTU=",
+      "beginOrdinal": "3",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "4",
+      "gasLimit": "30000000",
+      "index": 1,
+      "input": "jTJuvdOyuCQrHIKD6a80R/4w9Gusb+oZSElHelZiL/w="
+    },
+    {
+      "address": "AAAJYe9IDrVegNGa2DV5pkwAcAI=",
+      "beginOrdinal": "5",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "6",
+      "gasLimit": "30000000",
+      "index": 1
+    },
+    {
+      "address": "AAC73cfOSIZC+1efiwDzpZAAclE=",
+      "beginOrdinal": "7",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "8",
+      "gasLimit": "30000000",
+      "index": 1
+    }
+  ],
+  "ver": 3
+}
