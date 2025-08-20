@@ -88,6 +88,11 @@ var (
 	sealedBlocksCounter      = metrics.NewRegisteredCounter("worker/sealedBlocks", nil)
 	sealedEmptyBlocksCounter = metrics.NewRegisteredCounter("worker/sealedEmptyBlocks", nil)
 	txCommitInterruptCounter = metrics.NewRegisteredCounter("worker/txCommitInterrupt", nil)
+
+	// txHeapInitTimer measures time taken to initialise a heap of pending transactions from pool
+	txHeapInitTimer = metrics.NewRegisteredTimer("worker/txheapinit", nil)
+	// commitTransactionsTimer measures time taken to execute transactions
+	commitTransactionsTimer = metrics.NewRegisteredTimer("worker/commitTransactions", nil)
 )
 
 // environment is the worker's current environment and holds all
@@ -438,7 +443,7 @@ func (w *worker) stop() {
 	w.running.Store(false)
 }
 
-// isRunning returns an indicator whether worker is running or not.
+// IsRunning returns an indicator whether worker is running or not.
 func (w *worker) IsRunning() bool {
 	return w.running.Load()
 }
@@ -641,15 +646,17 @@ func (w *worker) mainLoop() {
 						BlobGas:   tx.BlobGas(),
 					})
 				}
-				plainTxs := newTransactionsByPriceAndNonce(w.current.signer, txs, w.current.header.BaseFee) // Mixed bag of everrything, yolo
-				blobTxs := newTransactionsByPriceAndNonce(w.current.signer, nil, w.current.header.BaseFee)  // Empty bag, don't bother optimising
-
-				tcount := w.current.tcount
 
 				stopFn := func() {}
 				if w.interruptCommitFlag {
 					stopFn = createInterruptTimer(w.current.header.Number.Uint64(), w.current.header.Time, &w.interruptBlockBuilding)
 				}
+
+				plainTxs := newTransactionsByPriceAndNonce(w.current.signer, txs, w.current.header.BaseFee, &w.interruptBlockBuilding) // Mixed bag of everrything, yolo
+				blobTxs := newTransactionsByPriceAndNonce(w.current.signer, nil, w.current.header.BaseFee, &w.interruptBlockBuilding)  // Empty bag, don't bother optimising
+
+				tcount := w.current.tcount
+
 				w.commitTransactions(w.current, plainTxs, blobTxs, nil, new(uint256.Int))
 				stopFn()
 
@@ -915,6 +922,10 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction) ([]*
 }
 
 func (w *worker) commitTransactions(env *environment, plainTxs, blobTxs *transactionsByPriceAndNonce, interrupt *atomic.Int32, minTip *uint256.Int) error {
+	defer func(t0 time.Time) {
+		commitTransactionsTimer.Update(time.Since(t0))
+	}(time.Now())
+
 	gasLimit := env.header.GasLimit
 	if env.gasPool == nil {
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
@@ -1339,22 +1350,11 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 		filter.BaseFee = uint256.MustFromBig(env.header.BaseFee)
 	}
 
-	if env.header.ExcessBlobGas != nil {
-		filter.BlobFee = uint256.MustFromBig(eip4844.CalcBlobFee(w.chainConfig, env.header))
-	}
-
-	// bor: kept for reference, can remove later
-	/*
-		var (
-			localPlainTxs, remotePlainTxs, localBlobTxs, remoteBlobTxs map[common.Address][]*txpool.LazyTransaction
-		)
-	*/
-
 	filter.OnlyPlainTxs, filter.OnlyBlobTxs = true, false
-	pendingPlainTxs := w.eth.TxPool().Pending(filter)
+	pendingPlainTxs := w.eth.TxPool().Pending(filter, &w.interruptBlockBuilding)
 
 	filter.OnlyPlainTxs, filter.OnlyBlobTxs = false, true
-	pendingBlobTxs := w.eth.TxPool().Pending(filter)
+	pendingBlobTxs := w.eth.TxPool().Pending(filter, &w.interruptBlockBuilding)
 
 	// Split the pending transactions into locals and remotes.
 	prioPlainTxs, normalPlainTxs := make(map[common.Address][]*txpool.LazyTransaction), pendingPlainTxs
@@ -1373,24 +1373,18 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 
 	// Fill the block with all available pending transactions.
 	if len(prioPlainTxs) > 0 || len(prioBlobTxs) > 0 {
-		plainTxs := newTransactionsByPriceAndNonce(env.signer, prioPlainTxs, env.header.BaseFee)
-		blobTxs := newTransactionsByPriceAndNonce(env.signer, prioBlobTxs, env.header.BaseFee)
-
-		// bor: kept for reference, can remove later
-		// plainTxs = newTransactionsByPriceAndNonce(env.signer, localPlainTxs, env.header.BaseFee)
-		// blobTxs = newTransactionsByPriceAndNonce(env.signer, localBlobTxs, env.header.BaseFee)
+		plainTxs := newTransactionsByPriceAndNonce(env.signer, prioPlainTxs, env.header.BaseFee, &w.interruptBlockBuilding)
+		blobTxs := newTransactionsByPriceAndNonce(env.signer, prioBlobTxs, env.header.BaseFee, &w.interruptBlockBuilding)
 
 		if err := w.commitTransactions(env, plainTxs, blobTxs, interrupt, new(uint256.Int)); err != nil {
 			return err
 		}
 	}
 	if len(normalPlainTxs) > 0 || len(normalBlobTxs) > 0 {
-		plainTxs := newTransactionsByPriceAndNonce(env.signer, normalPlainTxs, env.header.BaseFee)
-		blobTxs := newTransactionsByPriceAndNonce(env.signer, normalBlobTxs, env.header.BaseFee)
-
-		// bor: kept for reference, can remove later
-		// plainTxs = newTransactionsByPriceAndNonce(env.signer, remotePlainTxs, env.header.BaseFee)
-		// blobTxs = newTransactionsByPriceAndNonce(env.signer, remoteBlobTxs, env.header.BaseFee)
+		heapInitTime := time.Now()
+		plainTxs := newTransactionsByPriceAndNonce(env.signer, normalPlainTxs, env.header.BaseFee, &w.interruptBlockBuilding)
+		blobTxs := newTransactionsByPriceAndNonce(env.signer, normalBlobTxs, env.header.BaseFee, &w.interruptBlockBuilding)
+		txHeapInitTimer.Update(time.Since(heapInitTime))
 
 		if err := w.commitTransactions(env, plainTxs, blobTxs, interrupt, new(uint256.Int)); err != nil {
 			return err

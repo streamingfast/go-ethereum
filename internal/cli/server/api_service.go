@@ -9,8 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 
-	protobor "github.com/maticnetwork/polyproto/bor"
-	protoutil "github.com/maticnetwork/polyproto/utils"
+	protobor "github.com/0xPolygon/polyproto/bor"
+	protoutil "github.com/0xPolygon/polyproto/utils"
 )
 
 func (s *Server) GetRootHash(ctx context.Context, req *protobor.GetRootHashRequest) (*protobor.GetRootHashResponse, error) {
@@ -105,18 +105,6 @@ func (s *Server) BorBlockReceipt(ctx context.Context, req *protobor.ReceiptReque
 	}
 
 	return &protobor.ReceiptResponse{Receipt: ConvertReceiptToProtoReceipt(receipt)}, nil
-}
-
-func (s *Server) GetStartBlockHeimdallSpanID(ctx context.Context, req *protobor.GetStartBlockHeimdallSpanIDRequest) (*protobor.GetStartBlockHeimdallSpanIDResponse, error) {
-	spanID, err := s.backend.APIBackend.GetStartBlockHeimdallSpanID(ctx, req.StartBlock)
-	if err != nil {
-		return nil, err
-	}
-
-	return &protobor.GetStartBlockHeimdallSpanIDResponse{
-		StartBlock:     req.StartBlock,
-		HeimdallSpanID: spanID,
-	}, nil
 }
 
 func getRpcBlockNumberFromString(blockNumber string) (rpc.BlockNumber, error) {

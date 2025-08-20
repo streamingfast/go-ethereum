@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	borTypes "github.com/0xPolygon/heimdall-v2/x/bor/types"
 	stakeTypes "github.com/0xPolygon/heimdall-v2/x/stake/types"
 )
 
@@ -49,7 +50,7 @@ func NewChainSpanner(ethAPI api.Caller, validatorSet abi.ABI, chainConfig *param
 }
 
 // GetCurrentSpan get current span from contract
-func (c *ChainSpanner) GetCurrentSpan(ctx context.Context, headerHash common.Hash) (*Span, error) {
+func (c *ChainSpanner) GetCurrentSpan(ctx context.Context, headerHash common.Hash) (*borTypes.Span, error) {
 	// block
 	blockNr := rpc.BlockNumberOrHashWithHash(headerHash, false)
 
@@ -89,7 +90,7 @@ func (c *ChainSpanner) GetCurrentSpan(ctx context.Context, headerHash common.Has
 	}
 
 	// create new span
-	span := Span{
+	span := borTypes.Span{
 		Id:         ret.Number.Uint64(),
 		StartBlock: ret.StartBlock.Uint64(),
 		EndBlock:   ret.EndBlock.Uint64(),
@@ -290,7 +291,7 @@ func (c *ChainSpanner) GetCurrentValidatorsByHash(ctx context.Context, headerHas
 
 const method = "commitSpan"
 
-func (c *ChainSpanner) CommitSpan(ctx context.Context, minimalSpan Span, validators, producers []stakeTypes.MinimalVal, state vm.StateDB, header *types.Header, chainContext core.ChainContext, tracer *tracing.Hooks) error {
+func (c *ChainSpanner) CommitSpan(ctx context.Context, minimalSpan borTypes.Span, validators, producers []stakeTypes.MinimalVal, state vm.StateDB, header *types.Header, chainContext core.ChainContext, tracer *tracing.Hooks) error {
 	// get validators bytes
 	validatorBytes, err := rlp.EncodeToBytes(validators)
 	if err != nil {

@@ -46,7 +46,10 @@ import (
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/golang/mock/gomock"
 	"github.com/holiman/uint256"
+	"github.com/stretchr/testify/require"
 	"gotest.tools/assert"
+
+	borSpan "github.com/ethereum/go-ethereum/consensus/bor/heimdall/span"
 )
 
 // nolint : paralleltest
@@ -86,7 +89,7 @@ func testGenerateBlockAndImport(t *testing.T, isClique bool, isBor bool) {
 
 	defer engine.Close()
 
-	w, b, _ := newTestWorker(t, &chainConfig, engine, db, false, 0)
+	w, b, _ := newTestWorker(t, DefaultTestConfig(), &chainConfig, engine, db, false, 0)
 	defer w.close()
 
 	// This test chain imports the mined blocks.
@@ -170,12 +173,6 @@ var (
 	// Test transactions
 	pendingTxs []*types.Transaction
 	newTxs     []*types.Transaction
-
-	testConfig = &Config{
-		Recommit:            time.Second,
-		GasCeil:             params.GenesisGasLimit,
-		CommitInterruptFlag: true,
-	}
 )
 
 func init() {
@@ -209,6 +206,14 @@ func init() {
 		GasPrice: big.NewInt(params.InitialBaseFee),
 	})
 	newTxs = append(newTxs, tx2)
+}
+
+func DefaultTestConfig() *Config {
+	return &Config{
+		Recommit:            time.Second,
+		GasCeil:             params.GenesisGasLimit,
+		CommitInterruptFlag: true,
+	}
 }
 
 // testWorkerBackend implements worker.Backend interfaces and wraps all information needed during the testing.
@@ -312,10 +317,10 @@ func (b *testWorkerBackend) newStorageContractCallTx(to common.Address, nonce ui
 	return tx
 }
 
-func newTestWorker(t TensingObject, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, noempty bool, delay uint) (*worker, *testWorkerBackend, func()) {
+func newTestWorker(t TensingObject, config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, noempty bool, delay uint) (*worker, *testWorkerBackend, func()) {
 	backend := newTestWorkerBackend(t, chainConfig, engine, db)
 	backend.txPool.Add(pendingTxs, false)
-	w := newWorker(testConfig, chainConfig, engine, backend, new(event.TypeMux), nil, false)
+	w := newWorker(config, chainConfig, engine, backend, new(event.TypeMux), nil, false)
 	w.setMockTxDelay(delay)
 	w.setEtherbase(testBankAddress)
 	// enable empty blocks
@@ -332,7 +337,7 @@ func TestGenerateAndImportBlock(t *testing.T) {
 	config.Clique = &params.CliqueConfig{Period: 1, Epoch: 30000}
 	engine := clique.New(config.Clique, db)
 
-	w, b, _ := newTestWorker(t, &config, engine, db, false, 0)
+	w, b, _ := newTestWorker(t, DefaultTestConfig(), &config, engine, db, false, 0)
 	defer w.close()
 
 	// This test chain imports the mined blocks.
@@ -374,12 +379,12 @@ func getFakeBorFromConfig(t *testing.T, chainConfig *params.ChainConfig) (consen
 	span0 := createMockSpanForTest(TestBankAddress, chainConfig.ChainID.String())
 
 	spanner := bor.NewMockSpanner(ctrl)
-	spanner.EXPECT().GetCurrentValidatorsByHash(gomock.Any(), gomock.Any(), gomock.Any()).Return(span0.ValidatorSet.Validators, nil).AnyTimes()
+	spanner.EXPECT().GetCurrentValidatorsByHash(gomock.Any(), gomock.Any(), gomock.Any()).Return(borSpan.ConvertHeimdallValidatorsToBorValidatorsByRef(span0.ValidatorSet.Validators), nil).AnyTimes()
 
 	heimdallClientMock := mocks.NewMockIHeimdallClient(ctrl)
 	heimdallWSClient := mocks.NewMockIHeimdallWSClient(ctrl)
 
-	heimdallClientMock.EXPECT().GetSpanV1(gomock.Any(), uint64(0)).Return(&span0, nil).AnyTimes()
+	heimdallClientMock.EXPECT().GetSpan(gomock.Any(), uint64(0)).Return(&span0, nil).AnyTimes()
 	heimdallClientMock.EXPECT().Close().AnyTimes()
 
 	contractMock := bor.NewMockGenesisContract(ctrl)
@@ -404,7 +409,7 @@ func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consens
 	t.Helper()
 	defer engine.Close()
 
-	w, _, _ := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
+	w, _, _ := newTestWorker(t, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
 	defer w.close()
 
 	taskCh := make(chan struct{}, 2)
@@ -451,7 +456,7 @@ func TestAdjustIntervalClique(t *testing.T) {
 func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine) {
 	defer engine.Close()
 
-	w, _, _ := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
+	w, _, _ := newTestWorker(t, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
 	defer w.close()
 
 	w.skipSealHook = func(task *task) bool {
@@ -556,7 +561,7 @@ func TestGetSealingWorkPostMerge(t *testing.T) {
 func testGetSealingWork(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine) {
 	defer engine.Close()
 
-	w, b, _ := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
+	w, b, _ := newTestWorker(t, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
 	defer w.close()
 
 	w.setExtra([]byte{0x01, 0x02})
@@ -724,7 +729,7 @@ func testCommitInterruptExperimentBor(t *testing.T, delay uint, txCount int) {
 
 	engine, ctrl = getFakeBorFromConfig(t, chainConfig)
 
-	w, b, _ := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), true, delay)
+	w, b, _ := newTestWorker(t, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), true, delay)
 	defer func() {
 		w.close()
 		engine.Close()
@@ -773,7 +778,7 @@ func TestCommitInterruptExperimentBor_NewTxFlow(t *testing.T) {
 	engine, ctrl = getFakeBorFromConfig(t, chainConfig)
 
 	// Set the mock tx delay to 500ms
-	w, b, _ := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), true, 500)
+	w, b, _ := newTestWorker(t, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), true, 500)
 	defer func() {
 		w.close()
 		engine.Close()
@@ -828,6 +833,148 @@ func TestCommitInterruptExperimentBor_NewTxFlow(t *testing.T) {
 	assert.Equal(t, len(w.current.txs), 2)
 }
 
+// nolint: paralleltest
+// TestCommitInterruptPending tests setting interrupting the block building very early on
+// in the fill transactions phase. The test is just to ensure that commit work works when
+// it started the block production late.
+func TestCommitInterruptPending(t *testing.T) {
+	var (
+		engine      consensus.Engine
+		chainConfig *params.ChainConfig
+		db          = rawdb.NewMemoryDatabase()
+		ctrl        *gomock.Controller
+		txInTxpool  = 100
+		txs         = make([]*types.Transaction, 0, txInTxpool)
+	)
+
+	chainConfig = params.BorUnittestChainConfig
+
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
+
+	engine, ctrl = getFakeBorFromConfig(t, chainConfig)
+
+	// Disable the commit interrupt as this will cause a reset on every block which we don't want
+	// for this test.
+	testConfig := DefaultTestConfig()
+	testConfig.CommitInterruptFlag = false
+	w, b, _ := newTestWorker(t, testConfig, chainConfig, engine, rawdb.NewMemoryDatabase(), true, 0)
+	defer func() {
+		w.close()
+		engine.Close()
+		db.Close()
+		ctrl.Finish()
+	}()
+
+	// nonce starts from 0 because have no txs yet
+	initNonce := uint64(0)
+
+	for i := 0; i < txInTxpool; i++ {
+		tx := b.newRandomTxWithNonce(false, initNonce+uint64(i))
+		txs = append(txs, tx)
+	}
+
+	wrapped := make([]*types.Transaction, len(txs))
+	copy(wrapped, txs)
+
+	b.TxPool().Add(wrapped, false)
+
+	// Set the interrupt to true by default so that it'll stop block building early on
+	// even before entering commit transactions.
+	w.interruptBlockBuilding.Store(true)
+
+	// Create a chain head subscription for tests
+	chainHeadCh := make(chan core.ChainHeadEvent, 10)
+	w.chain.SubscribeChainHeadEvent(chainHeadCh)
+
+	// Start mining!
+	w.start()
+	go func() {
+		for {
+			head := <-chainHeadCh
+			txs := w.chain.GetBlockByNumber(head.Header.Number.Uint64()).Transactions().Len()
+			require.Equal(t, 0, txs, "expected no transactions due to interrupt in block building")
+		}
+	}()
+	time.Sleep(5 * time.Second)
+	w.stop()
+}
+
+// TestBenchmarkPending is a simple benchmark test to measure the performance of transaction pool. It inserts
+// large number of transactions into the pool and captures the time taken for `pending` to return the list
+// of pending transactions. The purpose is just to compare the performance on different branches.
+func TestBenchmarkPending(t *testing.T) {
+	t.Skip("This test is just for benchmarking against other branches and shouldn't be used in normal CI process")
+	var (
+		engine      consensus.Engine
+		chainConfig *params.ChainConfig
+		db          = rawdb.NewMemoryDatabase()
+		ctrl        *gomock.Controller
+		txInTxpool  = 20000
+		txs         = make([]*types.Transaction, 0, txInTxpool)
+	)
+
+	chainConfig = params.BorUnittestChainConfig
+
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
+
+	engine, ctrl = getFakeBorFromConfig(t, chainConfig)
+
+	// Disable the commit interrupt as this will cause a reset on every block which we don't want
+	// for this test.
+	testConfig := DefaultTestConfig()
+	testConfig.CommitInterruptFlag = false
+	w, b, _ := newTestWorker(t, testConfig, chainConfig, engine, rawdb.NewMemoryDatabase(), true, 0)
+	defer func() {
+		w.close()
+		engine.Close()
+		db.Close()
+		ctrl.Finish()
+	}()
+
+	// nonce starts from 0 because have no txs yet
+	initNonce := uint64(0)
+
+	for i := 0; i < txInTxpool; i++ {
+		tx := b.newRandomTxWithNonce(false, initNonce+uint64(i))
+		txs = append(txs, tx)
+	}
+
+	wrapped := make([]*types.Transaction, len(txs))
+	copy(wrapped, txs)
+
+	// Set the interrupt to true by default so that it'll stop block building early on
+	// even before entering commit transactions.
+	w.interruptBlockBuilding.Store(true)
+
+	b.TxPool().Add(wrapped, false)
+
+	// Create a chain head subscription for tests
+	chainHeadCh := make(chan core.ChainHeadEvent, 10)
+	w.chain.SubscribeChainHeadEvent(chainHeadCh)
+
+	durations := make([]time.Duration, 0)
+
+	// Start mining!
+	w.start()
+	go func() {
+		for {
+			<-chainHeadCh
+			// Wait for a few ms so that run reorg is triggered
+			time.Sleep(10 * time.Millisecond)
+
+			// Make a call to pending and capture the time
+			start := time.Now()
+			b.txPool.Pending(txpool.PendingFilter{}, nil)
+			durations = append(durations, time.Since(start))
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	time.Sleep(5 * time.Second)
+	w.stop()
+
+	t.Log("Durations:", durations)
+}
+
 func BenchmarkBorMining(b *testing.B) {
 	chainConfig := params.BorUnittestChainConfig
 
@@ -861,7 +1008,7 @@ func BenchmarkBorMining(b *testing.B) {
 
 	chainConfig.LondonBlock = big.NewInt(0)
 
-	w, back, _ := newTestWorker(b, chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
+	w, back, _ := newTestWorker(b, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
 	defer w.close()
 
 	chain, _ := core.NewBlockChain(rawdb.NewMemoryDatabase(), nil, back.genesis, nil, engine, vm.Config{}, nil, nil, nil)
@@ -960,7 +1107,7 @@ func BenchmarkBorMiningBlockSTMMetadata(b *testing.B) {
 
 	chainConfig.LondonBlock = big.NewInt(0)
 
-	w, back, _ := newTestWorker(b, chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
+	w, back, _ := newTestWorker(b, DefaultTestConfig(), chainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
 	defer w.close()
 
 	// This test chain imports the mined blocks.

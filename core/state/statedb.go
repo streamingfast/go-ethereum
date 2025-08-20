@@ -808,16 +808,16 @@ func (s *StateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tr
 	return stateObject.SetBalance(new(uint256.Int).Sub(stateObject.Balance(), amount))
 }
 
+// SetBalance sets amount to the account associated with addr.
 func (s *StateDB) SetBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	stateObject := s.getOrNewStateObject(addr)
-	var prevBalance uint256.Int
-
-	if stateObject != nil {
-		stateObject = s.mvRecordWritten(stateObject)
-		prevBalance = stateObject.SetBalance(amount)
-		MVWrite(s, blockstm.NewSubpathKey(addr, BalancePath))
+	if stateObject == nil {
+		return uint256.Int{}
 	}
-	return prevBalance
+
+	stateObject = s.mvRecordWritten(stateObject)
+	MVWrite(s, blockstm.NewSubpathKey(addr, BalancePath))
+	return stateObject.SetBalance(amount)
 }
 
 func (s *StateDB) SetNonce(addr common.Address, nonce uint64, reason tracing.NonceChangeReason) {
@@ -894,7 +894,6 @@ func (s *StateDB) SelfDestruct(addr common.Address) uint256.Int {
 	stateObject = s.mvRecordWritten(stateObject)
 
 	prevBalance = *(stateObject.Balance())
-
 	// Regardless of whether it is already destructed or not, we do have to
 	// journal the balance-change, if we set it to zero here.
 	if !stateObject.Balance().IsZero() {
@@ -1945,6 +1944,11 @@ func (s *StateDB) Witness() *stateless.Witness {
 
 func (s *StateDB) AccessEvents() *AccessEvents {
 	return s.accessEvents
+}
+
+// Inner receives the underlying state db
+func (s *StateDB) Inner() *StateDB {
+	return s
 }
 
 // Polygon specific

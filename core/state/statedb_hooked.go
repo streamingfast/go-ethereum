@@ -291,6 +291,11 @@ func (s *hookedStateDB) Finalise(deleteEmptyObjects bool) {
 	}
 }
 
+// Inner receives the underlying state db
+func (s *hookedStateDB) Inner() *StateDB {
+	return s.inner
+}
+
 func (s *hookedStateDB) GetLogs(txHash common.Hash, blockNumber uint64, blockHash common.Hash) []*types.Log {
 	return s.inner.GetLogs(txHash, blockNumber, blockHash)
 }
