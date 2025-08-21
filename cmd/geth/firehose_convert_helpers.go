@@ -458,6 +458,10 @@ func createWithdrawals(block *pbeth.Block, externalRpc string) []*types.Withdraw
 		return nil
 	}
 
+	if externalRpc == "" {
+		return createWithdrawalsFromProtobuf(block)
+	}
+
 	withdrawals := []*types.Withdrawal{}
 	indices, validatorIndices, err := fetchValidatorIndices(externalRpc, block.Number)
 	if err != nil {
@@ -483,4 +487,20 @@ func createWithdrawals(block *pbeth.Block, externalRpc string) []*types.Withdraw
 		}
 	}
 	return withdrawals
+}
+
+func createWithdrawalsFromProtobuf(block *pbeth.Block) []*types.Withdrawal {
+	if block.Withdrawals != nil && len(block.Withdrawals) > 0 {
+		withdrawals := make([]*types.Withdrawal, len(block.Withdrawals))
+		for i, pbWithdrawal := range block.Withdrawals {
+			withdrawals[i] = &types.Withdrawal{
+				Index:     pbWithdrawal.Index,
+				Validator: pbWithdrawal.ValidatorIndex,
+				Address:   common.BytesToAddress(pbWithdrawal.Address),
+				Amount:    pbWithdrawal.Amount,
+			}
+		}
+		return withdrawals
+	}
+	return nil
 }

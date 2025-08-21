@@ -23,14 +23,23 @@ import (
 )
 
 func importFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 3 {
+	if ctx.Args().Len() < 2 {
 		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID> <rpc>")
 	}
 
 	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
-	endpoint := ctx.Args().Get(0)
-	chainIDStr := ctx.Args().Get(1)
-	externalRpc := ctx.Args().Get(2)
+	var endpoint, chainIDStr, externalRpc string
+
+	if ctx.Args().Len() == 3 {
+		endpoint = ctx.Args().Get(0)
+		chainIDStr = ctx.Args().Get(1)
+		externalRpc = ctx.Args().Get(2)
+	} else if ctx.Args().Len() == 2 {
+		endpoint = ctx.Args().Get(0)
+		chainIDStr = ctx.Args().Get(1)
+		externalRpc = ""
+	}
+
 	batchSize := ctx.Int("batch-size")
 	endBlock := ctx.Uint64("end-block")
 	workerCount := ctx.Int("worker-count")
