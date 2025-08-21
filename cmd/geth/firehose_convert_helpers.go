@@ -490,7 +490,7 @@ func createWithdrawals(block *pbeth.Block, externalRpc string) []*types.Withdraw
 }
 
 func createWithdrawalsFromProtobuf(block *pbeth.Block) []*types.Withdrawal {
-	if block.Withdrawals != nil && len(block.Withdrawals) > 0 {
+	if len(block.Withdrawals) > 0 {
 		withdrawals := make([]*types.Withdrawal, len(block.Withdrawals))
 		for i, pbWithdrawal := range block.Withdrawals {
 			withdrawals[i] = &types.Withdrawal{
@@ -502,5 +502,5 @@ func createWithdrawalsFromProtobuf(block *pbeth.Block) []*types.Withdrawal {
 		}
 		return withdrawals
 	}
-	return nil
+	return []*types.Withdrawal{}
 }
