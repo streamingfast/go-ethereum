@@ -1,10 +1,13 @@
 package firehose_test
 
 import (
+	"fmt"
 	"math/big"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/eth/tracers"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -36,27 +39,37 @@ func TestFirehosePrestate(t *testing.T) {
 		"./testdata/TestFirehosePrestate/keccak256_wrong_diff",
 		"./testdata/TestFirehosePrestate/suicide_double_withdraw",
 		"./testdata/TestFirehosePrestate/extra_account_creations",
+		"./testdata/TestFirehosePrestate/keccak256_memory_out_of_bounds",
 	}
 
-	for _, folder := range testFolders {
-		name := filepath.Base(folder)
+	for _, concurrent := range []int{0, 1} {
+		for _, folder := range testFolders {
+			name := filepath.Base(folder)
+			concurrencyLabel := "sequential"
+			if concurrent == 1 {
+				concurrencyLabel = "concurrent"
+			}
 
-		for _, model := range tracingModels {
-			t.Run(string(model)+"/"+name, func(t *testing.T) {
-				tracer, tracingHooks, onClose := newFirehoseTestTracer(t, model)
-				defer onClose()
+			for _, model := range tracingModels {
+				t.Run(fmt.Sprintf("%s/%s/%s", model, name, concurrencyLabel), func(t *testing.T) {
+					config := &tracers.FirehoseConfig{
+						ConcurrentBlockFlushing: concurrent,
+					}
 
-				runPrestateBlock(t, filepath.Join(folder, "prestate.json"), tracingHooks)
+					tracer, tracingHooks, _ := newFirehoseTestTracer(t, model, config)
 
-				genesisLine, blockLines, unknownLines := readTracerFirehoseLines(t, tracer)
-				require.Len(t, unknownLines, 0, "Lines:\n%s", strings.Join(slicesMap(unknownLines, func(l unknownLine) string { return "- '" + string(l) + "'" }), "\n"))
-				require.NotNil(t, genesisLine)
-				blockLines.assertOnlyBlockEquals(t, filepath.Join(folder, string(model)), 1)
-			})
+					runPrestateBlock(t, filepath.Join(folder, "prestate.json"), tracingHooks)
+
+					tracer.OnClose()
+					genesisLine, blockLines, unknownLines := readTracerFirehoseLines(t, tracer)
+					require.Len(t, unknownLines, 0, "Lines:\n%s", strings.Join(
+						slicesMap(unknownLines, func(l unknownLine) string { return "- '" + string(l) + "'" }), "\n"))
+					require.NotNil(t, genesisLine)
+					blockLines.assertOnlyBlockEquals(t, filepath.Join(folder, string(model)), 1)
+				})
+			}
 		}
-
 	}
-
 }
 func TestFirehose_EIP7702(t *testing.T) {
 	// Copied from ./core/blockchain_test.go#L4180 (TestEIP7702)
@@ -169,7 +182,7 @@ func TestFirehose_EIP7702(t *testing.T) {
 		}
 	})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestEIP7702")
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestEIP7702", nil)
 }
 
 func TestFirehose_SystemCalls(t *testing.T) {
@@ -180,30 +193,82 @@ func TestFirehose_SystemCalls(t *testing.T) {
 	engine := beacon.New(ethash.NewFaker())
 	_, blocks, _ := core.GenerateChainWithGenesis(gspec, engine, 1, func(i int, b *core.BlockGen) {})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls")
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls", nil)
 }
 
-func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string) {
+func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string, customizeConfig func(config *tracers.FirehoseConfig)) {
 	t.Helper()
 
-	for _, model := range tracingModels {
-		t.Run(string(model), func(t *testing.T) {
-			tracer, tracingHooks, onClose := newFirehoseTestTracer(t, model)
-			defer onClose()
+	for _, concurrent := range []int{0, 1} {
+		concurrencyLabel := "sequential"
+		if concurrent == 1 {
+			concurrencyLabel = "concurrent"
+		}
 
-			chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), nil, genesisSpec, nil, engine, vm.Config{Tracer: tracingHooks}, nil, nil)
-			require.NoError(t, err, "failed to create tester chain")
+		for _, model := range tracingModels {
+			t.Run(fmt.Sprintf("%s/%s", model, concurrencyLabel), func(t *testing.T) {
+				config := &tracers.FirehoseConfig{
+					ConcurrentBlockFlushing: concurrent,
+				}
 
-			chain.SetBlockValidatorAndProcessorForTesting(
-				ignoreValidateStateValidator{core.NewBlockValidator(genesisSpec.Config, chain)},
-				core.NewStateProcessor(genesisSpec.Config, chain.HeaderChain()),
-			)
+				if customizeConfig != nil {
+					customizeConfig(config)
+				}
 
-			defer chain.Stop()
-			n, err := chain.InsertChain(blocks)
-			require.NoError(t, err, "failed to insert chain block %d", n)
+				tracer, tracingHooks, _ := newFirehoseTestTracer(t, model, config)
 
-			assertBlockEquals(t, tracer, filepath.Join("testdata", goldenDir, string(model)), len(blocks))
-		})
+				chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), nil, genesisSpec, nil, engine, vm.Config{Tracer: tracingHooks}, nil, nil)
+				require.NoError(t, err, "failed to create tester chain")
+
+				chain.SetBlockValidatorAndProcessorForTesting(
+					ignoreValidateStateValidator{core.NewBlockValidator(genesisSpec.Config, chain)},
+					core.NewStateProcessor(genesisSpec.Config, chain.HeaderChain()),
+				)
+
+				defer chain.Stop()
+				n, err := chain.InsertChain(blocks)
+				require.NoError(t, err, "failed to insert chain block %d", n)
+
+				tracer.OnClose()
+				assertBlockEquals(t, tracer, filepath.Join("testdata", goldenDir, string(model)), len(blocks))
+			})
+		}
 	}
+}
+
+func TestFirehose_Withdrawals(t *testing.T) {
+	// Modeled after TestFirehose_EIP7702, but for Shanghai withdrawals
+	var (
+		config  = *params.MergedTestChainConfig
+		engine  = beacon.New(ethash.NewFaker())
+		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
+		funds   = new(big.Int).Mul(common.Big1, big.NewInt(params.Ether))
+	)
+
+	gspec := &core.Genesis{
+		Config: &config,
+		Alloc: types.GenesisAlloc{
+			addr1: {Balance: funds},
+		},
+	}
+
+	_, blocks, _ := core.GenerateChainWithGenesis(gspec, engine, 3, func(i int, b *core.BlockGen) {
+		if i == 1 {
+			b.AddWithdrawal(&types.Withdrawal{
+				Validator: 42,
+				Address:   addr1,
+				Amount:    1337,
+			})
+			b.AddWithdrawal(&types.Withdrawal{
+				Validator: 13,
+				Address:   addr1,
+				Amount:    1,
+			})
+		}
+	})
+
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals", func(config *tracers.FirehoseConfig) {
+		config.TraceBlockWithdrawals = true
+	})
 }

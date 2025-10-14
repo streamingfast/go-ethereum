@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"os"
 	"regexp"
@@ -78,6 +79,7 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 		OnBlockStart:     tracer.OnBlockStart,
 		OnBlockEnd:       tracer.OnBlockEnd,
 		OnSkippedBlock:   tracer.OnSkippedBlock,
+		OnClose:          tracer.OnClose,
 
 		OnTxStart: tracer.OnTxStart,
 		OnTxEnd:   tracer.OnTxEnd,
@@ -100,16 +102,43 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 		OnSystemTxStart:   tracer.OnSystemTxStart,
 		OnSystemTxEnd:     tracer.OnSystemTxEnd,
 
+		// For a reason yet to be discovered, some transactions panics when trying to
+		// compute the keccak hash from a preimage when it comes the time to retrieve
+		// the memory location by inspecting the opcode's EVM stack arguments. The panic
+		// is an index out of bound error.
+		//
+		// To avoid the problem altogether, we return to our old Firehose tracer hook directly
+		// when the instructions is called within the EVM. That has the added benefit of
+		// avoiding re-computing the keccak results of the preimage again since at this location,
+		// we have both the result and the preimage.
+		//
+		// The cons of this is that we need to keep some Geth internal changes to have the hook
+		// called. But this is minimal as we do have to maintain a fork and the changes are actually
+		// minimal.
+		//
+		// Comment 11471b22bb0b (search '11471b22bb0b' within the repository to see all related code locations)
+		OnKeccakPreimage: tracer.OnKeccakPreimage,
+
+		// Firehose backward compatibility
+		//
+		// This hook exist because some current Firehose supported chains requires it
+		// but this field is going to be deprecated and newer chains will not produced
+		// those events anymore.
+		//
 		// This should actually be conditional but it's not possible to do it in the hooks
 		// directly because the chain ID will be known only after the `OnBlockchainInit` call.
 		// So we register it unconditionally and the actual `OnNewAccount` hook will decide
 		// what it needs to do.
+		//
+		// Comment a368bc8a3737 (search 'a368bc8a3737' within the repository to see all related code locations)
 		OnNewAccount: tracer.OnNewAccount,
 	}
 }
 
 type FirehoseConfig struct {
 	ApplyBackwardCompatibility *bool `json:"applyBackwardCompatibility"`
+	ConcurrentBlockFlushing    int   `json:"concurrentBlockFlushing"`
+	TraceBlockWithdrawals      bool  `json:"traceBlockWithdrawals"`
 
 	// Only used for testing, only possible through JSON configuration
 	private *privateFirehoseConfig
@@ -130,6 +159,7 @@ func (c *FirehoseConfig) LogKeyValues() []any {
 
 	return []any{
 		"config.applyBackwardCompatibility", applyBackwardCompatibility,
+		"config.concurrentBlockFlushing", c.ConcurrentBlockFlushing,
 	}
 }
 
@@ -143,13 +173,15 @@ func (c *FirehoseConfig) ForcedBackwardCompatibility() bool {
 
 type Firehose struct {
 	// Global state
-	outputBuffer *bytes.Buffer
-	initSent     *atomic.Bool
-	config       *FirehoseConfig
-	chainConfig  *params.ChainConfig
-	hasher       crypto.KeccakState // Keccak256 hasher instance shared across tracer needs (non-concurrent safe)
-	hasherBuf    common.Hash        // Keccak256 hasher result array shared across tracer needs (non-concurrent safe)
-	tracerID     string
+	outputBuffer              *bytes.Buffer
+	initSent                  *atomic.Bool
+	config                    *FirehoseConfig
+	chainConfig               *params.ChainConfig
+	hasher                    crypto.KeccakState // Keccak256 hasher instance shared across tracer needs (non-concurrent safe)
+	hasherBuf                 common.Hash        // Keccak256 hasher result array shared across tracer needs (non-concurrent safe)
+	tracerID                  string
+	concurrentFlushQueue      *ConcurrentFlushQueue
+	concurrentFlushBufferSize int
 	// The FirehoseTracer is used in multiple chains, some for which were produced using a legacy version
 	// of the whole tracing infrastructure. This legacy version had many small bugs here and there that
 	// we must "reproduce" on some chain to ensure that the FirehoseTracer produces the same output
@@ -159,6 +191,7 @@ type Firehose struct {
 	// here. If not set in the config, then we inspect `OnBlockchainInit` the chain config to determine
 	// if it's a network for which we must reproduce the legacy bugs.
 	applyBackwardCompatibility *bool
+	concurrentBlockFlushing    int
 
 	// Block state
 	block                       *pbeth.Block
@@ -228,6 +261,8 @@ func NewFirehose(config *FirehoseConfig) *Firehose {
 		hasher:                     crypto.NewKeccakState(),
 		tracerID:                   "global",
 		applyBackwardCompatibility: config.ApplyBackwardCompatibility,
+		concurrentBlockFlushing:    config.ConcurrentBlockFlushing,
+		concurrentFlushBufferSize:  100,
 
 		// Block state
 		blockOrdinal:        &Ordinal{},
@@ -343,6 +378,16 @@ func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
 		applyBackwardCompatibilityLogSuffix = " (disabled)"
 	}
 
+	if f.config.ConcurrentBlockFlushing > 0 {
+		log.Info("Firehose concurrent block flushing enabled, starting goroutine")
+		f.concurrentFlushQueue = NewConcurrentFlushQueue(
+			f.concurrentFlushBufferSize,
+			f.printBlockToFirehose,
+			f.flushToFirehose,
+		)
+		f.concurrentFlushQueue.Start(f.config.ConcurrentBlockFlushing)
+	}
+
 	log.Info("Firehose tracer initialized",
 		"chain_id", chainConfig.ChainID,
 		"apply_backward_compatibility", fmt.Sprintf("%t%s", *f.applyBackwardCompatibility, applyBackwardCompatibilityLogSuffix),
@@ -430,6 +475,20 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		f.blockBaseFee = f.block.Header.BaseFeePerGas.Native()
 	}
 
+	if !*f.applyBackwardCompatibility && f.config.TraceBlockWithdrawals {
+		if withdrawals := event.Block.Withdrawals(); withdrawals != nil {
+			f.block.Withdrawals = make([]*pbeth.Withdrawal, len(withdrawals))
+			for i, w := range withdrawals {
+				f.block.Withdrawals[i] = &pbeth.Withdrawal{
+					Index:          w.Index,
+					ValidatorIndex: w.Validator,
+					Address:        w.Address.Bytes(),
+					Amount:         w.Amount,
+				}
+			}
+		}
+	}
+
 	f.blockFinality.populateFromChain(event.Finalized)
 }
 
@@ -486,7 +545,13 @@ func (f *Firehose) OnBlockEnd(err error) {
 		}
 
 		f.ensureInBlockAndNotInTrx()
-		f.printBlockToFirehose(f.block, f.blockFinality)
+
+		// Flush block to firehose and optionally use goroutine
+		if f.concurrentBlockFlushing > 0 {
+			f.concurrentFlushQueue.Enqueue(f.block, f.blockFinality)
+		} else {
+			f.printBlockToFirehose(f.block, f.blockFinality)
+		}
 	} else {
 		// An error occurred, could have happen in transaction/call context, we must not check if in trx/call, only check in block
 		f.ensureInBlock(0)
@@ -616,6 +681,13 @@ func (f *Firehose) OnSystemTxEnd() {
 	f.ensureInSystemTx()
 
 	f.inSystemTx = false
+}
+
+func (f *Firehose) OnClose() {
+	if f.concurrentFlushQueue != nil {
+		log.Info("Firehose closing, flushing queued blocks to standard output")
+		f.concurrentFlushQueue.CloseChannels()
+	}
 }
 
 func (f *Firehose) OnSystemCallStart() {
@@ -858,6 +930,7 @@ func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
 
 func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 	firehoseTrace("assigning ordinal and index to logs")
+
 	defer func() {
 		firehoseTrace("assigning ordinal and index to logs terminated")
 	}()
@@ -1116,8 +1189,9 @@ func (f *Firehose) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.
 		}
 
 		switch opCode {
-		case vm.KECCAK256:
-			f.onOpcodeKeccak256(activeCall, scope.StackData(), Memory(scope.MemoryData()))
+		// Bogus, search 11471b22bb0b within the repository to find all the details
+		// case vm.KECCAK256:
+		// 	f.onOpcodeKeccak256(activeCall, scope.StackData(), Memory(scope.MemoryData()))
 
 		case vm.SELFDESTRUCT:
 			f.ensureInCall()
@@ -1125,6 +1199,33 @@ func (f *Firehose) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.
 		}
 	}
 }
+
+func (f *Firehose) OnKeccakPreimage(hash common.Hash, preImage []byte) {
+	f.ensureInBlockAndInTrxAndInCall()
+
+	activeCall := f.callStack.Peek()
+	if activeCall.KeccakPreimages == nil {
+		activeCall.KeccakPreimages = make(map[string]string)
+	}
+
+	encodedData := hex.EncodeToString(preImage)
+	if *f.applyBackwardCompatibility {
+		// Known Firehose issue: It appears the old Firehose instrumentation have a bug
+		// where when the keccak256 preimage is empty, it is written as "." which is
+		// completely wrong.
+		//
+		// To keep the same behavior, we will write the preimage as a "." when the encoded
+		// data is an empty string.
+		if encodedData == "" {
+			encodedData = "."
+		}
+	}
+
+	activeCall.KeccakPreimages[hex.EncodeToString(hash[:])] = encodedData
+}
+
+// Unused due to bogus behavior, search 11471b22bb0b within the repository to find all the details
+var _ any = new(Firehose).onOpcodeKeccak256
 
 // onOpcodeKeccak256 is called during the SHA3 (a.k.a KECCAK256) opcode it's known
 // in Firehose tracer as Keccak preimages. The preimage is the input data that
@@ -1819,6 +1920,9 @@ func (f *Firehose) isChainOneOf(chainIDs ...*big.Int) bool {
 }
 
 func isChainIDOneOf(actualChainID *big.Int, chainIDs ...*big.Int) bool {
+	if actualChainID == nil {
+		return false
+	}
 	for _, chainID := range chainIDs {
 		if actualChainID.Cmp(chainID) == 0 {
 			return true
@@ -1847,12 +1951,17 @@ func (f *Firehose) panicInvalidState(msg string, callerSkip int) string {
 
 // printBlockToFirehose is a helper function to print a block to Firehose protocl format.
 func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *FinalityStatus) {
+
+	headerSize := 225 // FIRE BLOCK:11 <blockNum:20> <blockHash:64> <prevNum:20> <prevHash:64> <libNum:20> <timestamp:20>
+	base64Size := math.Ceil(float64(proto.Size(block)) * 8 / 6)
+	bufferSize := headerSize + int(base64Size)
+	buf := bytes.NewBuffer(make([]byte, 0, bufferSize))
+
 	marshalled, err := proto.Marshal(block)
+
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal block: %w", err))
 	}
-
-	f.outputBuffer.Reset()
 
 	previousHash := block.PreviousID()
 	previousNum := 0
@@ -1908,9 +2017,9 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	}
 
 	// **Important* The final space in the Sprintf template is mandatory!
-	f.outputBuffer.WriteString(fmt.Sprintf("FIRE BLOCK %d %s %d %s %d %d ", block.Number, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano()))
+	buf.WriteString(fmt.Sprintf("FIRE BLOCK %d %s %d %s %d %d ", block.Number, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano()))
 
-	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
+	encoder := base64.NewEncoder(base64.StdEncoding, buf)
 	if _, err = encoder.Write(marshalled); err != nil {
 		panic(fmt.Errorf("write to encoder should have been infaillible: %w", err))
 	}
@@ -1919,9 +2028,16 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 		panic(fmt.Errorf("closing encoder should have been infaillible: %w", err))
 	}
 
-	f.outputBuffer.WriteString("\n")
+	buf.WriteString("\n")
 
-	f.flushToFirehose(f.outputBuffer.Bytes())
+	if f.concurrentBlockFlushing > 0 {
+		f.concurrentFlushQueue.outputQueue <- &outputJob{
+			blockNum: block.Number,
+			data:     buf.Bytes(),
+		}
+	} else {
+		f.flushToFirehose(buf.Bytes())
+	}
 }
 
 // printToFirehose is an easy way to print to Firehose format, it essentially
@@ -2266,7 +2382,6 @@ func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasFeeCap())
-
 	}
 
 	panic(errUnhandledTransactionType("maxFeePerGas", tx.Type()))
@@ -2280,7 +2395,6 @@ func maxPriorityFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
 		return firehoseBigIntFromNative(tx.GasTipCap())
 	}
-
 	panic(errUnhandledTransactionType("maxPriorityFeePerGas", tx.Type()))
 }
 
@@ -2889,7 +3003,7 @@ func (m Memory) GetPtr(offset, size int64) []byte {
 	// work because the memory is going to be expanded before the operation is actually
 	// executed so the memory will be of the correct size.
 	//
-	// In this situtation, we must pad with zeroes when the memory is not big enough.
-	reminder := m[offset:]
+	// In this situation, we must pad with zeroes when the memory is not big enough.
+	reminder := m[min(offset, int64(len(m))):]
 	return append(reminder, make([]byte, int(size)-len(reminder))...)
 }

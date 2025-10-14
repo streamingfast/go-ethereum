@@ -29,16 +29,25 @@ type firehoseInitLine struct {
 
 type firehoseBlockLines []firehoseBlockLine
 
-func newFirehoseTestTracer(t *testing.T, model tracingModel) (*tracers.Firehose, *tracing.Hooks, func()) {
+func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.FirehoseConfig) (*tracers.Firehose, *tracing.Hooks, func()) {
 	t.Helper()
 
-	tracer, err := tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
-		"_private": {
-			"flushToTestBuffer": true,
-			"ignoreGenesisBlock": true,
-			"forcedBackwardCompatibility": %t
-		}
-	}`, model == tracingModelFirehose2_3)))
+	configJSON, err := json.Marshal(config)
+	require.NoError(t, err)
+
+	var configGenericMap map[string]any
+	require.NoError(t, json.Unmarshal(configJSON, &configGenericMap))
+
+	configGenericMap["_private"] = map[string]any{
+		"flushToTestBuffer":           true,
+		"ignoreGenesisBlock":          true,
+		"forcedBackwardCompatibility": model == tracingModelFirehose2_3,
+	}
+
+	configJSON, err = json.Marshal(configGenericMap)
+	require.NoError(t, err)
+
+	tracer, err := tracers.NewFirehoseFromRawJSON(configJSON)
 	require.NoError(t, err)
 
 	hooks := tracers.NewTracingHooksFromFirehose(tracer)
@@ -66,7 +75,7 @@ func (lines firehoseBlockLines) assertOnlyBlockEquals(t *testing.T, goldenDir st
 	for _, line := range lines {
 		goldenPath := filepath.Join(goldenDir, fmt.Sprintf("block.%d.golden.json", line.Block.Header.Number))
 		if !goldenUpdate && !fileExists(t, goldenPath) {
-			t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+			t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 		}
 
 		unnormalizedContent, err := protojson.MarshalOptions{Indent: "  "}.Marshal(line.Block)

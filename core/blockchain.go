@@ -2338,8 +2338,13 @@ func (bc *BlockChain) processBlock(block *types.Block, statedb *state.StateDB, s
 	}
 	if bc.logger != nil && bc.logger.OnBlockEnd != nil {
 		defer func() {
-			bc.logFinalizedHeaderMismatch("OnBlockEnd", finalized, block.Header())
-			bc.logger.OnBlockEnd(blockEndErr)
+			if recovered := recover(); recovered != nil {
+				bc.logger.OnBlockEnd(fmt.Errorf("panic during block processing: %v", recovered))
+				panic(recovered)
+			} else {
+				bc.logFinalizedHeaderMismatch("OnBlockEnd", finalized, block.Header())
+				bc.logger.OnBlockEnd(blockEndErr)
+			}
 		}()
 	}
 
