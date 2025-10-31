@@ -1,4 +1,4 @@
-ARG FIREHOSE_ETHEREUM="v2.13.2"
+ARG FIREHOSE_ETHEREUM="v2.14.1"
 
 # Build Bor in a stock Go builder container
 FROM golang:1.24-alpine AS builder
