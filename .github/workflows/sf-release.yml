@@ -87,8 +87,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
-          build-args: |
-            FIREHOSE_ETHEREUM=v2.13.2
 
   push:
     needs: build
