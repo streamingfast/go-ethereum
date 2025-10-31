@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -37,7 +38,8 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 		actions []actionRunner
 	}{
 		{
-			"push/pop emtpy", []actionRunner{
+			"push/pop emtpy",
+			[]actionRunner{
 				push(&pbeth.Call{}),
 				pop(),
 				check(func(t *testing.T, s *CallStack) {
@@ -46,7 +48,8 @@ func TestFirehoseCallStack_Push(t *testing.T) {
 			},
 		},
 		{
-			"push/push/push", []actionRunner{
+			"push/push/push",
+			[]actionRunner{
 				push(&pbeth.Call{}),
 				push(&pbeth.Call{}),
 				push(&pbeth.Call{}),
@@ -193,7 +196,6 @@ func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 var endsWithUnknownConstant = regexp.MustCompile(`.*\(\d+\)$`)
 
 func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
-
 	for i := 0; i <= math.MaxUint8; i++ {
 		tracingReason := tracing.BalanceChangeReason(i)
 		if tracingReason == tracing.BalanceChangeUnspecified || tracingReason == tracing.BalanceChangeRevert {
@@ -405,14 +407,17 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 			goldenPath := tt.expectedBlockFile
 
 			if !goldenUpdate && !fileExits(t, goldenPath) {
-				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 			}
 
-			content, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
+			unnormalizedContent, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
 			require.NoError(t, err)
 
 			if goldenUpdate {
-				require.NoError(t, os.WriteFile(goldenPath, content, os.ModePerm))
+				content := normalizedJSON(t, unnormalizedContent)
+
+				require.NoError(t, os.MkdirAll(filepath.Dir(goldenPath), 0755))
+				require.NoError(t, os.WriteFile(goldenPath, content, 0644))
 			}
 
 			expected, err := os.ReadFile(goldenPath)
@@ -543,4 +548,16 @@ func TestMemory_GetPtr(t *testing.T) {
 			assert.Equal(t, tt.want, tt.m.GetPtr(tt.args.offset, tt.args.size))
 		})
 	}
+}
+
+func normalizedJSON(t *testing.T, data []byte) []byte {
+	t.Helper()
+
+	var obj map[string]any
+	require.NoError(t, json.Unmarshal(data, &obj))
+
+	normalized, err := json.MarshalIndent(obj, "", "  ")
+	require.NoError(t, err)
+
+	return normalized
 }

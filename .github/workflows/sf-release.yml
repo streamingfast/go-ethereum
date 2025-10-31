@@ -7,6 +7,12 @@ on:
     branches:
       - "firehose-fh3.0"
       - "release/*"
+  workflow_dispatch:
+    inputs:
+      firehose_ethereum:
+        description: "Firehose Ethereum version"
+        required: false
+        default: "latest"
 
 env:
   REGISTRY: ghcr.io
@@ -25,7 +31,7 @@ jobs:
             platform_suffix: arm64
             runner: ubuntu-22.04-arm
 
-    runs-on: [ "${{ matrix.runner }}" ]
+    runs-on: ["${{ matrix.runner }}"]
 
     steps:
       - name: Checkout repository
@@ -87,17 +93,16 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
-          # FIXME: Switch to Firehose Ethereum!
           build-args: |
-            FIREHOSE_CORE=18bb86f
+            FIREHOSE_ETHEREUM=${{ inputs.firehose_ethereum || 'latest' }}
 
   push:
     needs: build
     runs-on: ubuntu-22.04
 
     permissions:
-        contents: read
-        packages: write
+      contents: read
+      packages: write
 
     steps:
       - name: Docker login
@@ -144,7 +149,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     permissions:
-        contents: write
+      contents: write
 
     steps:
       - name: Extract image
@@ -164,9 +169,20 @@ jobs:
           docker cp $(docker create --platform=linux/amd64 ${{ steps.image.outputs.ID }}-amd64):/usr/local/bin/geth ./geth_linux
           docker cp $(docker create --platform=linux/arm64 ${{ steps.image.outputs.ID }}-arm64):/usr/local/bin/geth ./geth_linux_arm64
 
+      - name: Extract Changelog
+        id: changelog
+        run: |
+          curl -L https://github.com/streamingfast/sfreleaser/releases/download/v0.12.1/sfreleaser_linux_x86_64.tar.gz | tar -xz
+          chmod +x sfreleaser
+
+          ./sfreleaser changelog extract-section \
+            github://token:${{ github.token }}@${{ github.repository }}/$GITHUB_SHA/CHANGELOG.sf.md \
+            --github-output="changelog:$GITHUB_OUTPUT"
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.changelog.outputs.changelog }}
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
           files: |
             ./geth_linux

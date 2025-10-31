@@ -1,0 +1,98 @@
+{
+  "balanceChanges": [
+    {
+      "address": "cVYrcZmYc9tbKG35V68ZnslGF/c=",
+      "newValue": {
+        "bytes": "DeC36vLM+gA="
+      },
+      "oldValue": {
+        "bytes": "DeC2s6dkAAA="
+      },
+      "ordinal": "9",
+      "reason": "REASON_WITHDRAWAL"
+    },
+    {
+      "address": "cVYrcZmYc9tbKG35V68ZnslGF/c=",
+      "newValue": {
+        "bytes": "DeC36y5nxAA="
+      },
+      "oldValue": {
+        "bytes": "DeC36vLM+gA="
+      },
+      "ordinal": "10",
+      "reason": "REASON_WITHDRAWAL"
+    }
+  ],
+  "hash": "jTJuvdOyuCQrHIKD6a80R/4w9Gusb+oZSElHelZiL/w=",
+  "header": {
+    "baseFeePerGas": {
+      "bytes": "LaKCqA=="
+    },
+    "blobGasUsed": "0",
+    "coinbase": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "difficulty": {
+      "bytes": "AA=="
+    },
+    "excessBlobGas": "0",
+    "gasLimit": "4712388",
+    "hash": "jTJuvdOyuCQrHIKD6a80R/4w9Gusb+oZSElHelZiL/w=",
+    "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "mixHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "number": "2",
+    "parentBeaconRoot": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "parentHash": "CTD63sSBGU88o7akQRmArVAWWsZC+L8PHQZIJIa8k6Q=",
+    "receiptRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE=",
+    "requestsHash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+    "stateRoot": "Lejrb+4lF6oUXy1sy7UtnPhoAf8WNRoi8uPRJLD2O8E=",
+    "timestamp": "1970-01-01T00:00:20Z",
+    "totalDifficulty": {
+      "bytes": "AgAA"
+    },
+    "transactionsRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE=",
+    "uncleHash": "HcxN6N7HXXqrhbVntszUGtMSRRuUinQT8KFC/UDUk0c=",
+    "withdrawalsRoot": "0BBXqSgDBQYulhNmeHEuYfsBbcRk4XZi3Fx5BQXk0I0="
+  },
+  "number": "2",
+  "size": "663",
+  "systemCalls": [
+    {
+      "address": "AA899tcygH7xMZ+3uLuFItC+rAI=",
+      "beginOrdinal": "1",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "2",
+      "gasLimit": "30000000",
+      "index": 1,
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    {
+      "address": "AAD5CCfxxToQy3oCM1sXUyAAKTU=",
+      "beginOrdinal": "3",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "4",
+      "gasLimit": "30000000",
+      "index": 1,
+      "input": "CTD63sSBGU88o7akQRmArVAWWsZC+L8PHQZIJIa8k6Q="
+    },
+    {
+      "address": "AAAJYe9IDrVegNGa2DV5pkwAcAI=",
+      "beginOrdinal": "5",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "6",
+      "gasLimit": "30000000",
+      "index": 1
+    },
+    {
+      "address": "AAC73cfOSIZC+1efiwDzpZAAclE=",
+      "beginOrdinal": "7",
+      "callType": "CALL",
+      "caller": "//////////////////////////4=",
+      "endOrdinal": "8",
+      "gasLimit": "30000000",
+      "index": 1
+    }
+  ],
+  "ver": 3
+}
