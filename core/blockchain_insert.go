@@ -29,7 +29,6 @@ import (
 type insertStats struct {
 	queued, processed, ignored int
 	usedGas                    uint64
-	lastIndex                  int
 	startTime                  mclock.AbsTime
 }
 
@@ -43,13 +42,14 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 	// Fetch the timings for the batch
 	var (
 		now     = mclock.Now()
-		elapsed = now.Sub(st.startTime)
+		elapsed = now.Sub(st.startTime) + 1 // prevent zero division
+		mgasps  = float64(st.usedGas) * 1000 / float64(elapsed)
 	)
 	// If we're at the last block of the batch or report period reached, log
 	if index == len(chain)-1 || elapsed >= statsReportLimit {
-		// Count the number of transactions in this segment
+		// Count the number of transactions processed in this segment
 		var txs int
-		for _, block := range chain[st.lastIndex : index+1] {
+		for _, block := range chain[(index+1)-st.processed : index+1] {
 			txs += len(block.Transactions())
 		}
 
@@ -59,7 +59,7 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 		context := []interface{}{
 			"number", end.Number(), "hash", end.Hash(),
 			"blocks", st.processed, "txs", txs, "mgas", float64(st.usedGas) / 1000000,
-			"elapsed", common.PrettyDuration(elapsed), "mgasps", float64(st.usedGas) * 1000 / float64(elapsed),
+			"elapsed", common.PrettyDuration(elapsed), "mgasps", mgasps,
 		}
 		if timestamp := time.Unix(int64(end.Time()), 0); time.Since(timestamp) > time.Minute {
 			context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
@@ -74,10 +74,6 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 			context = append(context, []interface{}{"triediffs", trieDiffNodes}...)
 		}
 		context = append(context, []interface{}{"triedirty", triebufNodes}...)
-
-		if st.queued > 0 {
-			context = append(context, []interface{}{"queued", st.queued}...)
-		}
 
 		if st.ignored > 0 {
 			context = append(context, []interface{}{"ignored", st.ignored}...)
@@ -97,7 +93,7 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 			}
 		}
 		// Bump the stats reported to the next section
-		*st = insertStats{startTime: now, lastIndex: index + 1}
+		*st = insertStats{startTime: now}
 	}
 }
 
@@ -150,6 +146,7 @@ func (it *insertIterator) next() (*types.Block, error) {
 //
 // Both header and body validation errors (nil too) is cached into the iterator
 // to avoid duplicating work on the following next() call.
+// nolint:unused
 func (it *insertIterator) peek() (*types.Block, error) {
 	// If we reached the end of the chain, abort
 	if it.index+1 >= len(it.chain) {

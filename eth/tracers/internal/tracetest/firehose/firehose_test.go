@@ -213,8 +213,19 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 
 				tracer, tracingHooks, _ := newFirehoseTestTracer(t, model, config)
 
-				var txLookupLimit uint64 = 100000
-				chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), nil, genesisSpec, nil, engine, vm.Config{Tracer: tracingHooks}, func(header *types.Header) bool { return true }, &txLookupLimit, nil)
+				var txLookupLimit int64 = 100000
+
+				// BlockChainConfig
+				// func NewBlockChain(db ethdb.Database, genesis *Genesis, engine consensus.Engine, cfg *BlockChainConfig) (*BlockChain, error) {
+				//
+				// core.NewBlockChain(rawdb.NewMemoryDatabase(), nil, genesisSpec, nil, engine, vm.Config{Tracer: tracingHooks},, &txLookupLimit, nil)
+				chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), genesisSpec, engine, &core.BlockChainConfig{
+					TxLookupLimit:  txLookupLimit,
+					ShouldPreserve: func(header *types.Header) bool { return true },
+					VmConfig: vm.Config{
+						Tracer: tracingHooks,
+					},
+				})
 				require.NoError(t, err, "failed to create tester chain")
 
 				chain.SetBlockValidatorAndProcessorForTesting(

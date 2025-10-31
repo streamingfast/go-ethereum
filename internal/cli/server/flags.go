@@ -318,6 +318,13 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Default: c.cliConfig.TxPool.LifeTime,
 		Group:   "Transaction Pool",
 	})
+	f.StringFlag(&flagset.StringFlag{
+		Name:    "txpool.filtered-addresses",
+		Usage:   "Path to the file containing a newline-separated list of addresses whose transactions will be filtered",
+		Value:   &c.cliConfig.TxPool.FilteredAddressesFile,
+		Default: c.cliConfig.TxPool.FilteredAddressesFile,
+		Group:   "Transaction Pool",
+	})
 
 	// sealer options
 	f.BoolFlag(&flagset.BoolFlag{
@@ -367,6 +374,13 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Usage:   "Interrupt block commit when block creation time is passed",
 		Value:   &c.cliConfig.Sealer.CommitInterruptFlag,
 		Default: c.cliConfig.Sealer.CommitInterruptFlag,
+		Group:   "Sealer",
+	})
+	f.DurationFlag(&flagset.DurationFlag{
+		Name:    "miner.blocktime",
+		Usage:   "The block time defined by the miner. Needs to be larger or equal to the consensus block time. If not set (default = 0), the miner will use the consensus block time.",
+		Value:   &c.cliConfig.Sealer.BlockTime,
+		Default: c.cliConfig.Sealer.BlockTime,
 		Group:   "Sealer",
 	})
 
@@ -492,6 +506,27 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Usage:   "Raise the open file descriptor resource limit (default = system fd limit)",
 		Value:   &c.cliConfig.Cache.FDLimit,
 		Default: c.cliConfig.Cache.FDLimit,
+		Group:   "Cache",
+	})
+	f.StringFlag(&flagset.StringFlag{
+		Name:    "cache.gomemlimit",
+		Usage:   "Set GOMEMLIMIT for the runtime (e.g. '34GB', '34359738368'). Empty means no limit",
+		Value:   &c.cliConfig.Cache.GoMemLimit,
+		Default: c.cliConfig.Cache.GoMemLimit,
+		Group:   "Cache",
+	})
+	f.IntFlag(&flagset.IntFlag{
+		Name:    "cache.gogc",
+		Usage:   "Set GOGC percentage for garbage collection trigger (default: 100)",
+		Value:   &c.cliConfig.Cache.GoGC,
+		Default: c.cliConfig.Cache.GoGC,
+		Group:   "Cache",
+	})
+	f.StringFlag(&flagset.StringFlag{
+		Name:    "cache.godebug",
+		Usage:   "Set GODEBUG variables for runtime debugging (e.g. 'gctrace=1,gcpacertrace=1')",
+		Value:   &c.cliConfig.Cache.GoDebug,
+		Default: c.cliConfig.Cache.GoDebug,
 		Group:   "Cache",
 	})
 
@@ -1067,18 +1102,6 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Value:   &c.cliConfig.Witness.FastForwardThreshold,
 		Default: c.cliConfig.Witness.FastForwardThreshold,
 	})
-	f.Uint64Flag(&flagset.Uint64Flag{
-		Name:    "witness.prunethreshold",
-		Usage:   "Maximum distance between local header and latest non pruned witness after a pruning routine",
-		Value:   &c.cliConfig.Witness.PruneThreshold,
-		Default: c.cliConfig.Witness.PruneThreshold,
-	})
-	f.DurationFlag(&flagset.DurationFlag{
-		Name:    "witness.pruneinterval",
-		Usage:   "The time interval between each witness prune routine",
-		Value:   &c.cliConfig.Witness.PruneInterval,
-		Default: c.cliConfig.Witness.PruneInterval,
-	})
 
 	f.Uint64Flag(&flagset.Uint64Flag{
 		Name:    "dev.gaslimit",
@@ -1149,6 +1172,36 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Usage:   "Number of recent blocks to retain state history for, only relevant in state.scheme=path (default = 90,000 blocks, 0 = entire chain)",
 		Value:   &c.cliConfig.History.StateHistory,
 		Default: c.cliConfig.History.StateHistory,
+	})
+
+	// Health check related flags
+	f.IntFlag(&flagset.IntFlag{
+		Name:    "health.max-goroutine-threshold",
+		Usage:   "Maximum number of goroutines before health check fails (0 = disabled)",
+		Value:   &c.cliConfig.Health.MaxGoRoutineThreshold,
+		Default: c.cliConfig.Health.MaxGoRoutineThreshold,
+		Group:   "Health",
+	})
+	f.IntFlag(&flagset.IntFlag{
+		Name:    "health.warn-goroutine-threshold",
+		Usage:   "Maximum number of goroutines before health check warns (0 = disabled)",
+		Value:   &c.cliConfig.Health.WarnGoRoutineThreshold,
+		Default: c.cliConfig.Health.WarnGoRoutineThreshold,
+		Group:   "Health",
+	})
+	f.IntFlag(&flagset.IntFlag{
+		Name:    "health.min-peer-threshold",
+		Usage:   "Minimum number of peers before health check fails (0 = disabled)",
+		Value:   &c.cliConfig.Health.MinPeerThreshold,
+		Default: c.cliConfig.Health.MinPeerThreshold,
+		Group:   "Health",
+	})
+	f.IntFlag(&flagset.IntFlag{
+		Name:    "health.warn-peer-threshold",
+		Usage:   "Minimum number of peers before health check warns (0 = disabled)",
+		Value:   &c.cliConfig.Health.WarnPeerThreshold,
+		Default: c.cliConfig.Health.WarnPeerThreshold,
+		Group:   "Health",
 	})
 
 	return f

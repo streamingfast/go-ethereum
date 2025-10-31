@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 
-	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
@@ -191,7 +191,7 @@ func ApplyMessage(
 			receipt.ContractAddress = crypto.CreateAddress(vmenv.TxContext.Origin, tx.Nonce())
 		}
 
-		receipt.Logs = state.GetLogs(tx.Hash(), header.Number.Uint64(), blockHash)
+		receipt.Logs = state.GetLogs(tx.Hash(), header.Number.Uint64(), blockHash, header.Time)
 		receipt.Bloom = types.CreateBloom(receipt)
 		receipt.BlockHash = blockHash
 		receipt.BlockNumber = header.Number

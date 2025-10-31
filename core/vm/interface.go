@@ -70,7 +70,7 @@ type StateDB interface {
 	SelfDestruct6780(common.Address) (uint256.Int, bool)
 
 	// Exist reports whether the given account exists in state.
-	// Notably this should also return true for self-destructed accounts.
+	// Notably this also returns true for self-destructed accounts within the current transaction.
 	Exist(common.Address) bool
 	// Empty returns whether the given account is empty. Empty
 	// is defined according to EIP161 (balance = nonce = code = 0).
@@ -110,5 +110,5 @@ type StateDB interface {
 
 	// GetLogs is needed for Firehose within Polygon Bor consensus engine where on [bor.ApplyMessage]
 	// we need to make a receipt and as such, retrieve the logs.
-	GetLogs(txHash common.Hash, blockNumber uint64, blockHash common.Hash) []*types.Log
+	GetLogs(txHash common.Hash, blockNumber uint64, blockHash common.Hash, blockTime uint64) []*types.Log
 }

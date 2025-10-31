@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -113,6 +114,11 @@ var ignorePbFieldNames = map[string]bool{
 	"TxDependency": true,
 }
 
+var ignoreGethFieldNames = map[string]bool{
+	// This is a field used internally by the polygon miners
+	"ActualTime": true,
+}
+
 var pbFieldNameToGethMapping = map[string]string{
 	"WithdrawalsRoot":  "WithdrawalsHash",
 	"MixHash":          "MixDigest",
@@ -163,7 +169,9 @@ func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 		return !ignorePbFieldNames[f.Name]
 	})
 
-	gethFields := reflect.VisibleFields(gethHeaderType)
+	gethFields := filter(reflect.VisibleFields(gethHeaderType), func(f reflect.StructField) bool {
+		return !ignoreGethFieldNames[f.Name]
+	})
 
 	pbFieldCount := len(pbFields)
 	gethFieldCount := len(gethFields)
@@ -274,6 +282,8 @@ func fillAllFieldsWithNonEmptyValues(t *testing.T, structValue reflect.Value, fi
 			fieldValue.Set(reflect.ValueOf(&pbeth.BigInt{Bytes: []byte{1}}))
 		case *timestamppb.Timestamp:
 			fieldValue.Set(reflect.ValueOf(&timestamppb.Timestamp{Seconds: 1}))
+		case time.Time:
+			fieldValue.Set(reflect.ValueOf(time.Unix(0, 1)))
 		default:
 			// If you reach this panic in test, simply add a case above with a sane non-default
 			// value for the type in question.

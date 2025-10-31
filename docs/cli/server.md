@@ -116,10 +116,6 @@ The ```bor server``` command runs the Bor client.
 
 - ```witness.producewitnesses```: Produce witnesses while syncing (default: false)
 
-- ```witness.pruneinterval```: The time interval between each witness prune routine (default: 2m0s)
-
-- ```witness.prunethreshold```: Maximum distance between local header and latest non pruned witness after a pruning routine (default: 64000)
-
 - ```witness.syncwithwitnesses```: Sync blocks with witnesses (default: false)
 
 - ```witness.witnessapi```: Enable witness API endpoints (by default disabled) (default: false)
@@ -167,6 +163,16 @@ The ```bor server``` command runs the Bor client.
 - ```leveldb.compaction.total.size```: Total size in mebibytes of SSTables in a given LevelDB level. Size for a level is determined by: `leveldb.compaction.total.size * (leveldb.compaction.total.size.multiplier ^ Level)` (default: 10)
 
 - ```leveldb.compaction.total.size.multiplier```: Multiplier on level size on LevelDB levels. Size for a level is determined by: `leveldb.compaction.total.size * (leveldb.compaction.total.size.multiplier ^ Level)` (default: 10)
+
+### Health Options
+
+- ```health.max-goroutine-threshold```: Maximum number of goroutines before health check fails (0 = disabled) (default: 0)
+
+- ```health.min-peer-threshold```: Minimum number of peers before health check fails (0 = disabled) (default: 0)
+
+- ```health.warn-goroutine-threshold```: Maximum number of goroutines before health check warns (0 = disabled) (default: 0)
+
+- ```health.warn-peer-threshold```: Minimum number of peers before health check warns (0 = disabled) (default: 0)
 
 ### JsonRPC Options
 
@@ -327,6 +333,8 @@ The ```bor server``` command runs the Bor client.
 - ```txpool.accountqueue```: Maximum number of non-executable transaction slots permitted per account (default: 64)
 
 - ```txpool.accountslots```: Minimum number of executable transaction slots guaranteed per account (default: 16)
+
+- ```txpool.filtered-addresses```: Path to the file containing a newline-separated list of addresses whose transactions will be filtered
 
 - ```txpool.globalqueue```: Maximum number of non-executable transaction slots for all accounts (default: 131072)
 

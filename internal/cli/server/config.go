@@ -3,10 +3,12 @@ package server
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"math"
+
+	// "math"
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -162,6 +164,9 @@ type Config struct {
 
 	// HistoryConfig has historical data retention related settings
 	History *HistoryConfig `hcl:"history,block" toml:"history,block"`
+
+	// HealthConfig has health check related settings
+	Health *HealthConfig `hcl:"health,block" toml:"health,block"`
 }
 
 type HistoryConfig struct {
@@ -177,6 +182,20 @@ type HistoryConfig struct {
 	// StateHistory denotes number of recent blocks to retain state history for (only relevant
 	// in state.scheme=path)
 	StateHistory uint64 `hcl:"state,block" toml:"state,block"`
+}
+
+type HealthConfig struct {
+	// MaxGoRoutineThreshold is the maximum number of goroutines before bor health check fails.
+	MaxGoRoutineThreshold int `hcl:"max_goroutine_threshold,optional" toml:"max_goroutine_threshold,optional"`
+
+	// WarnGoRoutineThreshold is the maximum number of goroutines before bor health check warns.
+	WarnGoRoutineThreshold int `hcl:"warn_goroutine_threshold,optional" toml:"warn_goroutine_threshold,optional"`
+
+	// MinPeerThreshold is the minimum number of peers before bor health check fails.
+	MinPeerThreshold int `hcl:"min_peer_threshold,optional" toml:"min_peer_threshold,optional"`
+
+	// WarnPeerThreshold is the minimum number of peers before bor health check warns.
+	WarnPeerThreshold int `hcl:"warn_peer_threshold,optional" toml:"warn_peer_threshold,optional"`
 }
 
 type LoggingConfig struct {
@@ -349,6 +368,9 @@ type TxPoolConfig struct {
 	// lifetime is the maximum amount of time non-executable transaction are queued
 	LifeTime    time.Duration `hcl:"-,optional" toml:"-"`
 	LifeTimeRaw string        `hcl:"lifetime,optional" toml:"lifetime,optional"`
+
+	// FilteredAddressesFile is the path to newline-separated list of addresses whose transactions will be filtered
+	FilteredAddressesFile string `hcl:"filtered-addresses,optional" toml:"filtered-addresses,optional"`
 }
 
 type SealerConfig struct {
@@ -373,6 +395,10 @@ type SealerConfig struct {
 	RecommitRaw string        `hcl:"recommit,optional" toml:"recommit,optional"`
 
 	CommitInterruptFlag bool `hcl:"commitinterrupt,optional" toml:"commitinterrupt,optional"`
+
+	// BlockTime is the block time defined by the miner. Needs to be larger or equal to the consensus block time. If not set (default = 0), the miner will use the consensus block time.
+	BlockTime    time.Duration `hcl:"-,optional" toml:"-"`
+	BlockTimeRaw string        `hcl:"blocktime,optional" toml:"blocktime,optional"`
 }
 
 type JsonRPCConfig struct {
@@ -600,6 +626,16 @@ type CacheConfig struct {
 
 	// Raise the open file descriptor resource limit (default = system fd limit)
 	FDLimit int `hcl:"fdlimit,optional" toml:"fdlimit,optional"`
+
+	// GC settings
+	// GoMemLimit sets the soft memory limit for the runtime
+	GoMemLimit string `hcl:"gomemlimit,optional" toml:"gomemlimit,optional"`
+
+	// GoGC sets the initial garbage collection target percentage
+	GoGC int `hcl:"gogc,optional" toml:"gogc,optional"`
+
+	// GoDebug sets debugging variables for the runtime
+	GoDebug string `hcl:"godebug,optional" toml:"godebug,optional"`
 }
 
 type ExtraDBConfig struct {
@@ -660,12 +696,6 @@ type WitnessConfig struct {
 
 	// Minimum necessary distance between local header and peer to fast forward
 	FastForwardThreshold uint64 `hcl:"fastforwardthreshold,optional" toml:"fastforwardthreshold,optional"`
-
-	// Minimum necessary distance between local header and latest non pruned witness
-	PruneThreshold uint64 `hcl:"prunethreshold,optional" toml:"prunethreshold,optional"`
-
-	// The time interval between each witness prune routine
-	PruneInterval time.Duration `hcl:"pruneinterval,optional" toml:"pruneinterval,optional"`
 }
 
 func DefaultConfig() *Config {
@@ -749,6 +779,7 @@ func DefaultConfig() *Config {
 			ExtraData:           "",
 			Recommit:            125 * time.Second,
 			CommitInterruptFlag: true,
+			BlockTime:           0,
 		},
 		Gpo: &GpoConfig{
 			Blocks:           20,
@@ -836,6 +867,9 @@ func DefaultConfig() *Config {
 			FilterLogCacheSize: ethconfig.Defaults.FilterLogCacheSize,
 			TrieTimeout:        60 * time.Minute,
 			FDLimit:            0,
+			GoMemLimit:         "",  // Empty means no limit
+			GoGC:               100, // Go default is 100%
+			GoDebug:            "",  // Empty means no debug flags
 		},
 		ExtraDB: &ExtraDBConfig{
 			// These are LevelDB defaults, specifying here for clarity in code and in logging.
@@ -880,14 +914,18 @@ func DefaultConfig() *Config {
 			ProduceWitnesses:     false,
 			WitnessAPI:           false,
 			FastForwardThreshold: 6400,
-			PruneThreshold:       64000,
-			PruneInterval:        120 * time.Second,
 		},
 		History: &HistoryConfig{
 			TransactionHistory: ethconfig.Defaults.TransactionHistory,
 			LogHistory:         ethconfig.Defaults.LogHistory,
 			LogNoHistory:       ethconfig.Defaults.LogNoHistory,
 			StateHistory:       params.FullImmutabilityThreshold,
+		},
+		Health: &HealthConfig{
+			MaxGoRoutineThreshold:  0,
+			WarnGoRoutineThreshold: 0,
+			MinPeerThreshold:       0,
+			WarnPeerThreshold:      0,
 		},
 	}
 }
@@ -935,6 +973,7 @@ func (c *Config) fillTimeDurations() error {
 	}{
 		{"jsonrpc.evmtimeout", &c.JsonRPC.RPCEVMTimeout, &c.JsonRPC.RPCEVMTimeoutRaw},
 		{"miner.recommit", &c.Sealer.Recommit, &c.Sealer.RecommitRaw},
+		{"miner.blocktime", &c.Sealer.BlockTime, &c.Sealer.BlockTimeRaw},
 		{"jsonrpc.timeouts.read", &c.JsonRPC.HttpTimeout.ReadTimeout, &c.JsonRPC.HttpTimeout.ReadTimeoutRaw},
 		{"jsonrpc.timeouts.write", &c.JsonRPC.HttpTimeout.WriteTimeout, &c.JsonRPC.HttpTimeout.WriteTimeoutRaw},
 		{"jsonrpc.timeouts.idle", &c.JsonRPC.HttpTimeout.IdleTimeout, &c.JsonRPC.HttpTimeout.IdleTimeoutRaw},
@@ -1061,6 +1100,13 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.TxPool.AccountQueue = c.TxPool.AccountQueue
 		n.TxPool.GlobalQueue = c.TxPool.GlobalQueue
 		n.TxPool.Lifetime = c.TxPool.LifeTime
+
+		// Load filtered addresses during config initialization
+		if filteredAddrs, err := loadFilteredAddresses(c.TxPool.FilteredAddressesFile); err != nil {
+			return nil, fmt.Errorf("failed to load filtered addresses: %v", err)
+		} else {
+			n.TxPool.FilteredAddresses = filteredAddrs
+		}
 	}
 
 	// miner options
@@ -1070,6 +1116,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.Miner.GasCeil = c.Sealer.GasCeil
 		n.Miner.ExtraData = []byte(c.Sealer.ExtraData)
 		n.Miner.CommitInterruptFlag = c.Sealer.CommitInterruptFlag
+		n.Miner.BlockTime = c.Sealer.BlockTime
 
 		if etherbase := c.Sealer.Etherbase; etherbase != "" {
 			if !common.IsHexAddress(etherbase) {
@@ -1204,11 +1251,34 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 				cache = allowance
 			}
 		}
-		// Tune the garbage collector
-		gogc := math.Max(20, math.Min(100, 100/(float64(cache)/1024)))
+		// Apply configurable garbage collection settings with validation
+		if c.Cache.GoMemLimit != "" {
+			if err := validateGoMemLimit(c.Cache.GoMemLimit); err != nil {
+				log.Warn("Invalid GOMEMLIMIT value, skipping", "value", c.Cache.GoMemLimit, "error", err)
+			} else {
+				os.Setenv("GOMEMLIMIT", c.Cache.GoMemLimit)
+				log.Info("Set GOMEMLIMIT", "value", c.Cache.GoMemLimit)
+			}
+		}
 
-		log.Debug("Sanitizing Go's GC trigger", "percent", int(gogc))
-		godebug.SetGCPercent(int(gogc))
+		// Sanitize GOGC value to reasonable bounds
+		sanitizedGoGC := sanitizeGoGC(c.Cache.GoGC)
+		if sanitizedGoGC != c.Cache.GoGC {
+			log.Warn("GOGC value sanitized", "original", c.Cache.GoGC, "sanitized", sanitizedGoGC)
+		}
+		if sanitizedGoGC != 100 { // Only set if different from default
+			godebug.SetGCPercent(sanitizedGoGC)
+			log.Info("Set GOGC", "percent", sanitizedGoGC)
+		}
+
+		if c.Cache.GoDebug != "" {
+			if err := validateGoDebug(c.Cache.GoDebug); err != nil {
+				log.Warn("Invalid GODEBUG value, skipping", "value", c.Cache.GoDebug, "error", err)
+			} else {
+				os.Setenv("GODEBUG", c.Cache.GoDebug)
+				log.Info("Set GODEBUG", "value", c.Cache.GoDebug)
+			}
+		}
 
 		n.DatabaseCache = calcPerc(c.Cache.PercDatabase)
 		n.SnapshotCache = calcPerc(c.Cache.PercSnapshot)
@@ -1276,9 +1346,6 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 
 			log.Info("Enabling recording of key preimages since archive mode is used")
 		}
-		if c.StateScheme == "path" {
-			return nil, fmt.Errorf("path storage scheme is not supported in archive mode, please use hash instead")
-		}
 	default:
 		return nil, fmt.Errorf("gcmode '%s' not found", c.GcMode)
 	}
@@ -1320,8 +1387,6 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 	n.SyncAndProduceWitnesses = c.Witness.ProduceWitnesses
 	n.WitnessAPIEnabled = c.Witness.WitnessAPI
 	n.FastForwardThreshold = c.Witness.FastForwardThreshold
-	n.WitnessPruneThreshold = c.Witness.PruneThreshold
-	n.WitnessPruneInterval = c.Witness.PruneInterval
 
 	n.RPCReturnDataLimit = c.RPCReturnDataLimit
 
@@ -1519,10 +1584,6 @@ func (c *Config) buildNode() (*node.Config, error) {
 		cfg.P2P.ListenAddr = ""
 		cfg.P2P.NoDial = true
 		cfg.P2P.DiscoveryV5 = false
-
-		// enable JsonRPC HTTP API
-		c.JsonRPC.Http.Enabled = true
-		cfg.HTTPModules = []string{"admin", "debug", "eth", "miner", "net", "personal", "txpool", "web3", "bor"}
 	}
 
 	// enable jsonrpc endpoints
@@ -1689,4 +1750,141 @@ func MakePasswordListFromFile(path string) ([]string, error) {
 	}
 
 	return lines, nil
+}
+
+// validateGoMemLimit validates GOMEMLIMIT values
+func validateGoMemLimit(value string) error {
+	// GOMEMLIMIT can be:
+	// - A number followed by optional unit (B, KB, MB, GB, TB, PB)
+	// - "off" to disable soft limit
+	if value == "off" {
+		return nil
+	}
+
+	// Parse the value to validate format
+	if matched, _ := regexp.MatchString(`^[0-9]+(\.[0-9]+)?[KMGTPE]?[iB]?$`, value); !matched {
+		return fmt.Errorf("invalid GOMEMLIMIT format, expected number with optional unit (e.g., '8GB', '1024MB')")
+	}
+
+	return nil
+}
+
+// sanitizeGoGC clamps GOGC values to reasonable bounds
+func sanitizeGoGC(value int) int {
+	const (
+		minGoGC = 10
+		maxGoGC = 2000
+	)
+
+	if value < minGoGC {
+		return minGoGC
+	}
+	if value > maxGoGC {
+		return maxGoGC
+	}
+	return value
+}
+
+// validateGoDebug validates GODEBUG values for known debug variables
+func validateGoDebug(value string) error {
+	// Known GODEBUG variables (not exhaustive, but covers common ones)
+	knownVars := map[string]bool{
+		"gctrace":            true, // GC trace
+		"gcpacertrace":       true, // GC pacer trace
+		"madvdontneed":       true, // Memory management
+		"scavenge":           true, // Scavenger debug
+		"asyncpreempt":       true, // Async preemption
+		"cgocheck":           true, // CGO check
+		"schedtrace":         true, // Scheduler trace
+		"scheddetail":        true, // Scheduler detail
+		"tracebackancestors": true, // Traceback ancestors
+		"httpmuxgo121":       true, // HTTP mux
+		"netdns":             true, // DNS resolution
+		"tls13":              true, // TLS 1.3
+		"panicnil":           true, // Panic on nil
+		"invalidptr":         true, // Invalid pointer checking
+		"sbrk":               true, // Memory allocation
+		"efence":             true, // Electric fence
+		"inittrace":          true, // Init trace
+		"cpu.all":            true, // CPU features
+	}
+
+	// Split by comma and validate each key=value pair
+	pairs := strings.Split(value, ",")
+	for _, pair := range pairs {
+		if strings.TrimSpace(pair) == "" {
+			continue
+		}
+
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid GODEBUG format: '%s', expected key=value", pair)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+
+		if key == "" {
+			return fmt.Errorf("empty GODEBUG variable name in: '%s'", pair)
+		}
+
+		// Validate value (most GODEBUG vars use 0/1 or numeric values)
+		if val == "" {
+			return fmt.Errorf("empty GODEBUG value for '%s'", key)
+		}
+
+		// Warn about unknown variables but don't fail (Go may add new ones)
+		if !knownVars[key] {
+			log.Warn("Unknown GODEBUG variable", "var", key, "value", val)
+		}
+
+		// Validate numeric values where appropriate
+		if key == "gctrace" || key == "gcpacertrace" || key == "schedtrace" || key == "cgocheck" {
+			if _, err := strconv.Atoi(val); err != nil {
+				return fmt.Errorf("GODEBUG variable '%s' expects numeric value, got '%s'", key, val)
+			}
+		}
+	}
+
+	return nil
+}
+
+// loadFilteredAddresses loads newline-separated addresses to filter from the specified file.
+func loadFilteredAddresses(filePath string) (map[common.Address]struct{}, error) {
+	if filePath == "" {
+		return make(map[common.Address]struct{}), nil
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Warn("Filtered addresses file not found", "file", filePath)
+			return make(map[common.Address]struct{}), nil
+		}
+		return nil, fmt.Errorf("failed to read filtered addresses file: %v", err)
+	}
+
+	filteredAddrs := make(map[common.Address]struct{})
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		log.Info("Empty filtered addresses file", "file", filePath)
+		return filteredAddrs, nil
+	}
+
+	addresses := strings.Split(content, "\n")
+	for i, addrStr := range addresses {
+		addrStr = strings.TrimSpace(addrStr)
+		if addrStr == "" {
+			continue
+		}
+		if !common.IsHexAddress(addrStr) {
+			log.Warn("Invalid address in filtered addresses file", "file", filePath, "position", i+1, "address", addrStr)
+			continue
+		}
+		addr := common.HexToAddress(addrStr)
+		filteredAddrs[addr] = struct{}{}
+	}
+
+	log.Info("Loaded filtered addresses", "count", len(filteredAddrs), "file", filePath)
+	return filteredAddrs, nil
 }

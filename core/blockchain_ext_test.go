@@ -28,7 +28,7 @@ func TestTracingBlockEndNotCalledOnPanic(t *testing.T) {
 	}
 
 	blockchain.logger = hooks
-	blockchain.vmConfig.Tracer = hooks
+	blockchain.GetVMConfig().Tracer = hooks
 
 	blocks := makeBlockChain(blockchain.chainConfig, blockchain.GetBlockByHash(blockchain.CurrentBlock().Hash()), 1, ethash.NewFullFaker(), genDb, 0)
 
