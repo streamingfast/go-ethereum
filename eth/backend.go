@@ -184,6 +184,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+	noTries := config.TriesVerifyMode != core.LocalVerify
+	if noTries && config.StateScheme != rawdb.HashScheme {
+		config.StateScheme = rawdb.HashScheme
+		log.Info("Using hash-based state scheme since tries are disabled")
+	}
 
 	if config.StateScheme == rawdb.HashScheme && config.NoPruning && config.TrieDirtyCache > 0 {
 		if config.SnapshotCache > 0 {
@@ -317,24 +322,33 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	journalFilePath := stack.ResolvePath(path) + "/" + JournalFileName
 	var (
 		options = &core.BlockChainConfig{
-			TrieCleanLimit:   config.TrieCleanCache,
-			NoPrefetch:       config.NoPrefetch,
-			TrieDirtyLimit:   config.TrieDirtyCache,
-			ArchiveMode:      config.NoPruning,
-			TrieTimeLimit:    config.TrieTimeout,
-			NoTries:          config.TriesVerifyMode != core.LocalVerify,
-			SnapshotLimit:    config.SnapshotCache,
-			TriesInMemory:    config.TriesInMemory,
-			Preimages:        config.Preimages,
-			StateHistory:     config.StateHistory,
-			StateScheme:      config.StateScheme,
-			PathSyncFlush:    config.PathSyncFlush,
-			JournalFilePath:  journalFilePath,
-			JournalFile:      config.JournalFileEnabled,
-			ChainHistoryMode: config.HistoryMode,
-			TxLookupLimit:    int64(min(config.TransactionHistory, math.MaxInt64)),
+			TrieCleanLimit:        config.TrieCleanCache,
+			NoPrefetch:            config.NoPrefetch,
+			EnableBAL:             config.EnableBAL,
+			TrieDirtyLimit:        config.TrieDirtyCache,
+			ArchiveMode:           config.NoPruning,
+			TrieTimeLimit:         config.TrieTimeout,
+			NoTries:               noTries,
+			SnapshotLimit:         config.SnapshotCache,
+			TriesInMemory:         config.TriesInMemory,
+			Preimages:             config.Preimages,
+			StateHistory:          config.StateHistory,
+			StateScheme:           config.StateScheme,
+			PathSyncFlush:         config.PathSyncFlush,
+			JournalFilePath:       journalFilePath,
+			JournalFile:           config.JournalFileEnabled,
+			EnableIncr:            config.EnableIncrSnapshots,
+			IncrHistoryPath:       config.IncrSnapshotPath,
+			IncrHistory:           config.IncrSnapshotBlockInterval,
+			IncrStateBuffer:       config.IncrSnapshotStateBuffer,
+			IncrKeptBlocks:        config.IncrSnapshotKeptBlocks,
+			UseRemoteIncrSnapshot: config.UseRemoteIncrSnapshot,
+			RemoteIncrURL:         config.RemoteIncrSnapshotURL,
+			ChainHistoryMode:      config.HistoryMode,
+			TxLookupLimit:         int64(min(config.TransactionHistory, math.MaxInt64)),
 			VmConfig: vm.Config{
-				EnablePreimageRecording: config.EnablePreimageRecording,
+				EnablePreimageRecording:   config.EnablePreimageRecording,
+				EnableOpcodeOptimizations: config.EnableOpcodeOptimizing,
 			},
 		}
 	)
@@ -425,8 +439,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		RequiredBlocks:            config.RequiredBlocks,
 		DirectBroadcast:           config.DirectBroadcast,
 		EnableEVNFeatures:         stack.Config().EnableEVNFeatures,
+		EnableBAL:                 config.EnableBAL,
 		EVNNodeIdsWhitelist:       stack.Config().P2P.EVNNodeIdsWhitelist,
 		ProxyedValidatorAddresses: stack.Config().P2P.ProxyedValidatorAddresses,
+		ProxyedNodeIds:            stack.Config().P2P.ProxyedNodeIds,
 		DisablePeerTxBroadcast:    config.DisablePeerTxBroadcast,
 		PeerSet:                   newPeerSet(),
 		EnableQuickBlockFetching:  stack.Config().EnableQuickBlockFetching,
