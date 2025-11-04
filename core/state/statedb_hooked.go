@@ -225,7 +225,10 @@ func (s *hookedStateDB) SetCode(address common.Address, code []byte, reason trac
 		codeHash := crypto.Keccak256Hash(code)
 
 		// Invoke the hooks only if the contract code is changed
-		if prevHash != codeHash {
+		// Firehose: For geth at release v1.16.7, have submitted a pull request (#32980), where `prevHash != codeHash` was
+		// added to fix a "bug" where `OnCodeChange` was called without an actual code change. We disabled the code below by
+		// forcing the condition to true, maintaining backward compatibility.
+		if true || prevHash != codeHash {
 			if s.hooks.OnCodeChangeV2 != nil {
 				s.hooks.OnCodeChangeV2(address, prevHash, prev, codeHash, code, reason)
 			} else if s.hooks.OnCodeChange != nil {
