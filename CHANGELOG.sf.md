@@ -1,3 +1,7 @@
+## v1.6.3-fh3.0
+
+* Bumped BNB to latest [v1.6.3](https://github.com/bnb-chain/bsc/releases/tag/v1.6.3) version.
+
 ## v1.6.2-fh3.0
 
 * Bumped BNB to latest [v1.6.2](https://github.com/bnb-chain/bsc/releases/tag/v1.6.2) version, ready for Fermi hard-fork scheduled at:
