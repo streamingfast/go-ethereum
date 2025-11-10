@@ -222,6 +222,9 @@ func init() {
 	for k := range PrecompiledContractsOsaka {
 		PrecompiledAddressesOsaka = append(PrecompiledAddressesOsaka, k)
 	}
+	for k := range PrecompiledContractsMadhugiri {
+		PrecompiledAddressesMadhugiri = append(PrecompiledAddressesMadhugiri, k)
+	}
 }
 
 func activePrecompiledContracts(rules params.Rules) PrecompiledContracts {
