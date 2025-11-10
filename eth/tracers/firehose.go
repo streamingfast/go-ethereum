@@ -756,6 +756,21 @@ func (f *Firehose) onTxStart(tx *types.Transaction, hash common.Hash, from, to c
 
 	case types.SetCodeTxType:
 		trx.SetCodeAuthorizations = newSetCodeAuthorizationsFromChain(tx.SetCodeAuthorizations())
+
+	case types.StateSyncTxType:
+		/*
+		   // from https://github.com/0xPolygon/Polygon-Improvement-Proposals/blob/main/PIPs/PIP-74.md
+		   type: 0x7F (typed, system transaction; not user‑signed)
+		   from: 0x0000000000000000000000000000000000000000
+		   to: 0x0000000000000000000000000000000000000000
+		   nonce: 0
+		   value: 0
+		   gasLimit: 0
+		   maxFeePerGas / maxPriorityFeePerGas: 0
+		   data: 0x (empty)
+		*/
+
+		// Nothing to do here, these values should all be set correctly
 	}
 
 	f.transaction = trx
@@ -2146,6 +2161,8 @@ func transactionTypeFromChainTxType(txType uint8) pbeth.TransactionTrace_Type {
 		return pbeth.TransactionTrace_TRX_TYPE_BLOB
 	case types.SetCodeTxType:
 		return pbeth.TransactionTrace_TRX_TYPE_SET_CODE
+	case types.StateSyncTxType:
+		return pbeth.TransactionTrace_TRX_TYPE_BOR_STATE_SYNC
 	default:
 		panic(fmt.Errorf("unknown transaction type %d", txType))
 	}
@@ -2362,7 +2379,7 @@ func gasChangeReasonFromChain(reason tracing.GasChangeReason) pbeth.GasChange_Re
 
 func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 	switch tx.Type() {
-	case types.LegacyTxType, types.AccessListTxType:
+	case types.LegacyTxType, types.AccessListTxType, types.StateSyncTxType:
 		return nil
 
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
@@ -2386,7 +2403,7 @@ func maxPriorityFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 
 func gasPrice(tx *types.Transaction, baseFee *big.Int) *pbeth.BigInt {
 	switch tx.Type() {
-	case types.LegacyTxType, types.AccessListTxType:
+	case types.LegacyTxType, types.AccessListTxType, types.StateSyncTxType:
 		return firehoseBigIntFromNative(tx.GasPrice())
 
 	// In the context of dynamic fee transactions, `GasPrice() == GasFeeCap()`
@@ -2787,6 +2804,7 @@ func staticFirehoseChainValidationOnInit() {
 		types.DynamicFeeTxType: true,
 		types.BlobTxType:       true,
 		types.SetCodeTxType:    true,
+		types.StateSyncTxType:  true,
 	}
 
 	for txType := byte(0); txType < 255; txType++ {
