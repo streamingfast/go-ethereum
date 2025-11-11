@@ -141,16 +141,16 @@ func ApplyMessage(
 				Value:    msg.Value(),
 				Data:     msg.Data(),
 			})
-		}
 
-		switch {
-		case tracer.OnTxStartWithHash != nil: // firehose has this hook that allows forcing a hash to some special system transactions
-			txHash := getFirehose2CompatibleHash(spanID, msg)
-			tracer.OnTxStartWithHash(vmenv.GetVMContext(), tx, msg.From(), txHash)
-		case tracer.OnTxStart != nil:
-			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
+			switch {
+			case tracer.OnTxStartWithHash != nil: // firehose has this hook that allows forcing a hash to some special system transactions
+				txHash := getFirehose2CompatibleHash(spanID, msg)
+				tracer.OnTxStartWithHash(vmenv.GetVMContext(), tx, msg.From(), txHash)
+			case tracer.OnTxStart != nil:
+				tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
+			}
+			state.Inner().SetTxContext(tx.Hash(), 0)
 		}
-		state.Inner().SetTxContext(tx.Hash(), 0)
 	}
 
 	// nolint : contextcheck
