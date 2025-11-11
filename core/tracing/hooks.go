@@ -224,7 +224,8 @@ type Hooks struct {
 	// Firehose requirements.
 	//
 	// Search a368bc8a3737 within the repository to find all the details
-	OnNewAccount func(address common.Address)
+	OnNewAccount       func(address common.Address)
+	OnStateSyncReceipt func(tx *types.Transaction, receipt *types.Receipt)
 
 	// Firehose requirements.
 	//
