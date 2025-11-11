@@ -82,7 +82,7 @@ require (
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/status-im/keycard-go v0.3.2
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20251110182433-4e380bff4ee0
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20251111200523-c16658551010
 	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.14
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d

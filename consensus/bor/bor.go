@@ -1045,15 +1045,15 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 	)
 
 	var tracer *tracing.Hooks
+	switch c := chain.(type) {
+	case *core.HeaderChain:
+		tracer = c.GetTracingHooks()
+	case *core.BlockChain:
+		tracer = c.GetTracingHooks()
+	}
 	if IsSprintStart(headerNumber, c.config.CalculateSprint(headerNumber)) {
 		start := time.Now()
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
-		switch c := chain.(type) {
-		case *core.HeaderChain:
-			tracer = c.GetTracingHooks()
-		case *core.BlockChain:
-			tracer = c.GetTracingHooks()
-		}
 		// check and commit span
 		if !c.config.IsRio(header.Number) {
 			if err := c.checkAndCommitSpan(wrappedState, header, cx, tracer); err != nil {

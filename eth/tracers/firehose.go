@@ -2172,7 +2172,7 @@ func transactionTypeFromChainTxType(txType uint8) pbeth.TransactionTrace_Type {
 	case types.SetCodeTxType:
 		return pbeth.TransactionTrace_TRX_TYPE_SET_CODE
 	case types.StateSyncTxType:
-		return pbeth.TransactionTrace_TRX_TYPE_BOR_STATE_SYNC
+		return pbeth.TransactionTrace_TRX_TYPE_POLYGON_STATE_SYNC
 	default:
 		panic(fmt.Errorf("unknown transaction type %d", txType))
 	}
@@ -3124,8 +3124,8 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 		if f.stateSyncReceipt != nil {
 			firehoseInfo("using state sync receipt for hash %s instead of %s", f.stateSyncReceipt.TxHash.String(), hex.EncodeToString(mergedHash))
 			mergedHash = f.stateSyncReceipt.TxHash[:]
-			txType = pbeth.TransactionTrace_TRX_TYPE_BOR_STATE_SYNC
-			receipt = newTxReceiptFromChain(f.stateSyncReceipt, pbeth.TransactionTrace_TRX_TYPE_BOR_STATE_SYNC)
+			txType = pbeth.TransactionTrace_TRX_TYPE_POLYGON_STATE_SYNC
+			receipt = newTxReceiptFromChain(f.stateSyncReceipt, pbeth.TransactionTrace_TRX_TYPE_POLYGON_STATE_SYNC)
 		}
 		mergedSystemTrx := &pbeth.TransactionTrace{
 			Hash:         mergedHash,
