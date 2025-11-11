@@ -1044,10 +1044,10 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 		err           error
 	)
 
+	var tracer *tracing.Hooks
 	if IsSprintStart(headerNumber, c.config.CalculateSprint(headerNumber)) {
 		start := time.Now()
 		cx := statefull.ChainContext{Chain: chain, Bor: c}
-		var tracer *tracing.Hooks
 		switch c := chain.(type) {
 		case *core.HeaderChain:
 			tracer = c.GetTracingHooks()
@@ -1088,6 +1088,7 @@ func (c *Bor) Finalize(chain consensus.ChainHeaderReader, header *types.Header, 
 			lastTx := body.Transactions[len(body.Transactions)-1]
 			if lastTx.Type() == types.StateSyncTxType {
 				receipts = insertStateSyncTransactionAndCalculateReceipt(lastTx, header, body, wrappedState, receipts)
+				tracer.OnTxEnd(receipts[len(receipts)-1], nil)
 			}
 		}
 	} else {
