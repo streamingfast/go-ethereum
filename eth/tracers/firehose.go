@@ -137,7 +137,8 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 		// what it needs to do.
 		//
 		// Comment a368bc8a3737 (search 'a368bc8a3737' within the repository to see all related code locations)
-		OnNewAccount: tracer.OnNewAccount,
+		OnNewAccount:       tracer.OnNewAccount,
+		OnStateSyncReceipt: tracer.OnStateSyncReceipt,
 	}
 }
 
@@ -197,6 +198,7 @@ type Firehose struct {
 	// if it's a network for which we must reproduce the legacy bugs.
 	applyBackwardCompatibility *bool
 	concurrentBlockFlushing    int
+	stateSyncReceipt           *types.Receipt
 
 	// Block state
 	block                       *pbeth.Block
@@ -335,6 +337,7 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalSnapshot = 0
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
+	f.stateSyncReceipt = nil
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
@@ -1760,6 +1763,13 @@ func (f *Firehose) OnLog(l *types.Log) {
 	f.transactionLogIndex++
 }
 
+func (f *Firehose) OnStateSyncReceipt(_ *types.Transaction, receipt *types.Receipt) {
+	f.ensureInBlock(0)
+	firehoseInfo("state sync receipt (hash=%s)", receipt.TxHash.Hex())
+
+	f.stateSyncReceipt = receipt
+}
+
 func (f *Firehose) OnNewAccount(a common.Address) {
 	// Newer Firehose instrumentation does not track OnNewAccount anymore since it's bogus
 	// and was removed from the Geth live tracer.
@@ -3102,7 +3112,21 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 		}
 		allCalls = append([]*pbeth.Call{artificialTopLevelCall}, allCalls...)
 
+		txType := pbeth.TransactionTrace_TRX_TYPE_LEGACY
 		mergedHash := computePolygonHash(f.block.Number, f.block.Hash)
+		receipt := &pbeth.TransactionReceipt{
+			Logs:      allLogs,
+			LogsBloom: computeLogsBloom(allLogs),
+			// CumulativeGasUsed // Reported as empty from the API. does not impact much because it is the last transaction in the block, this is reset every block.
+			// StateRoot // Deprecated EIP 658
+		}
+
+		if f.stateSyncReceipt != nil {
+			firehoseInfo("using state sync receipt for hash %s instead of %s", f.stateSyncReceipt.TxHash.String(), hex.EncodeToString(mergedHash))
+			mergedHash = f.stateSyncReceipt.TxHash[:]
+			txType = pbeth.TransactionTrace_TRX_TYPE_BOR_STATE_SYNC
+			receipt = newTxReceiptFromChain(f.stateSyncReceipt, pbeth.TransactionTrace_TRX_TYPE_BOR_STATE_SYNC)
+		}
 		mergedSystemTrx := &pbeth.TransactionTrace{
 			Hash:         mergedHash,
 			From:         nullAddress.Bytes(),
@@ -3114,17 +3138,12 @@ func (f *Firehose) combinePolygonSystemTransactions() {
 			Index:        uint32(highestTrxIndex + 1),
 			Input:        nil,
 			GasUsed:      0,
-			Type:         pbeth.TransactionTrace_TRX_TYPE_LEGACY,
+			Type:         txType,
 			BeginOrdinal: beginOrdinal,
 			EndOrdinal:   endOrdinal,
 			Calls:        allCalls,
 			Status:       pbeth.TransactionTraceStatus_SUCCEEDED,
-			Receipt: &pbeth.TransactionReceipt{
-				Logs:      allLogs,
-				LogsBloom: computeLogsBloom(allLogs),
-				// CumulativeGasUsed // Reported as empty from the API. does not impact much because it is the last transaction in the block, this is reset every block.
-				// StateRoot // Deprecated EIP 658
-			},
+			Receipt:      receipt,
 		}
 		out = append(out, mergedSystemTrx)
 		highestTrxIndex++
