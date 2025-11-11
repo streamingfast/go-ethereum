@@ -2391,7 +2391,7 @@ func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 
 func maxPriorityFeePerGas(tx *types.Transaction) *pbeth.BigInt {
 	switch tx.Type() {
-	case types.LegacyTxType, types.AccessListTxType:
+	case types.LegacyTxType, types.AccessListTxType, types.StateSyncTxType:
 		return nil
 
 	case types.DynamicFeeTxType, types.BlobTxType, types.SetCodeTxType:
