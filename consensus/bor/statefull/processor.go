@@ -126,22 +126,14 @@ func ApplyMessage(
 
 	var tx *types.Transaction
 	if tracer != nil {
-		if chainConfig.Bor.IsMadhugiri(header.Number) {
-			tx = types.NewTx(&types.StateSyncTx{
-				// StateSyncData: // not tracked in firehoe
-			})
-			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
-
-		} else {
-			tx = types.NewTx(&types.LegacyTx{
-				Nonce:    msg.Nonce(),
-				GasPrice: msg.GasPrice(),
-				Gas:      msg.Gas(),
-				To:       msg.To(),
-				Value:    msg.Value(),
-				Data:     msg.Data(),
-			})
-		}
+		tx = types.NewTx(&types.LegacyTx{
+			Nonce:    msg.Nonce(),
+			GasPrice: msg.GasPrice(),
+			Gas:      msg.Gas(),
+			To:       msg.To(),
+			Value:    msg.Value(),
+			Data:     msg.Data(),
+		})
 
 		switch {
 		case tracer.OnTxStartWithHash != nil: // firehose has this hook that allows forcing a hash to some special system transactions
@@ -186,7 +178,7 @@ func ApplyMessage(
 
 	gasUsed := initialGas - gasLeft
 
-	if tracer != nil && !chainConfig.Bor.IsMadhugiri(header.Number) {
+	if tracer != nil {
 		blockHash := header.Hash()
 		cumulativeGasUsed := gasUsed
 
