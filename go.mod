@@ -24,7 +24,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0
 	github.com/donovanhide/eventsource v0.0.0-20210830082556-c59027999da0
 	github.com/dop251/goja v0.0.0-20230806174421-c933cf95e127
-	github.com/ethereum/c-kzg-4844/v2 v2.1.0
+	github.com/ethereum/c-kzg-4844/v2 v2.1.5
 	github.com/ethereum/go-verkle v0.2.2
 	github.com/fatih/color v1.16.0
 	github.com/ferranbt/fastssz v0.1.2
@@ -39,7 +39,7 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/graph-gophers/graphql-go v1.3.0
 	github.com/hashicorp/go-bexpr v0.1.10
-	github.com/holiman/billy v0.0.0-20240216141850-2abb0c79d3c4
+	github.com/holiman/billy v0.0.0-20250707135307-f2f9b9aae7db
 	github.com/holiman/bloomfilter/v2 v2.0.3
 	github.com/holiman/uint256 v1.3.2
 	github.com/huin/goupnp v1.3.0
@@ -64,7 +64,7 @@ require (
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250507011922-e3d3efeda61d
 	github.com/stretchr/testify v1.10.0
-	github.com/supranational/blst v0.3.14
+	github.com/supranational/blst v0.3.15
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/automaxprocs v1.5.2
