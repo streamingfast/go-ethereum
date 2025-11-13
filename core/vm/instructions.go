@@ -732,7 +732,6 @@ func opCreate2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 	// Apply EIP150
 	gas -= gas / 64
-	// Firehose: We changed that to use the `GasChangeCallContractCreation2` reason, see https://github.com/OffchainLabs/go-ethereum/pull/575
 	scope.Contract.UseMultiGas(multigas.ComputationGas(gas), evm.Config.Tracer, tracing.GasChangeCallContractCreation2)
 	// reuse size int for stackvalue
 	stackvalue := size

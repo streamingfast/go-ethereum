@@ -232,7 +232,7 @@ func (db *Database) repairHistory() error {
 			// Purge all state history indexing data first
 			batch := db.diskdb.NewBatch()
 			rawdb.DeleteStateHistoryIndexMetadata(batch)
-			rawdb.DeleteStateHistoryIndex(batch)
+			rawdb.DeleteStateHistoryIndexes(batch)
 			if err := batch.Write(); err != nil {
 				log.Crit("Failed to purge state history index", "err", err)
 			}
@@ -342,7 +342,7 @@ func (db *Database) Update(root common.Hash, parentRoot common.Hash, block uint6
 	// - head-1 layer is paired with HEAD-1 state
 	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
 	// - head-128 layer(disk layer) is paired with HEAD-128 state
-	return db.tree.cap(root, maxDiffLayers)
+	return db.tree.cap(root, db.config.MaxDiffLayers)
 }
 
 // Commit traverses downwards the layer tree from a specified layer with the
@@ -426,7 +426,7 @@ func (db *Database) Enable(root common.Hash) error {
 		// Purge all state history indexing data first
 		batch.Reset()
 		rawdb.DeleteStateHistoryIndexMetadata(batch)
-		rawdb.DeleteStateHistoryIndex(batch)
+		rawdb.DeleteStateHistoryIndexes(batch)
 		if err := batch.Write(); err != nil {
 			return err
 		}
