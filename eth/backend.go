@@ -61,6 +61,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/node/flash"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/dnsdisc"
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -136,6 +137,9 @@ type Ethereum struct {
 	historicalRPCService *rpc.Client
 	interopRPC           *interop.InteropClient
 	supervisorFailsafe   atomic.Bool
+
+	// Firehose additions
+	flashblockCtrl *flash.Controller
 
 	nodeCloser func() error
 }
@@ -432,6 +436,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		eth.interopRPC = interop.NewInteropClient(config.InteropMessageRPC)
 	}
 
+	if err := eth.initFlashblockController(); err != nil {
+		return nil, err
+	}
+
 	// Start the RPC service
 	eth.netRPCService = ethapi.NewNetAPI(eth.p2pServer, networkID)
 
@@ -542,6 +550,10 @@ func (s *Ethereum) Start() error {
 
 	// start log indexer
 	s.filterMaps.Start()
+
+	// Firehose: Start (maybe) the flash block controller
+	s.startFlashblockController()
+
 	go s.updateFilterMapsHeads()
 	return nil
 }
@@ -660,6 +672,9 @@ func (s *Ethereum) setupDiscovery() error {
 // Stop implements node.Lifecycle, terminating all internal goroutines used by the
 // Ethereum protocol.
 func (s *Ethereum) Stop() error {
+	// Firehose: Stop (maybe) the flash block controller
+	s.stopFlashblockController()
+
 	// Stop all the peer-related stuff first.
 	s.discmix.Close()
 	s.dropper.Stop()
