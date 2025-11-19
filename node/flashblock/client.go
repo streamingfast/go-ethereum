@@ -1,4 +1,4 @@
-package flash
+package flashblock
 
 import (
 	"bytes"
@@ -9,72 +9,9 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/gorilla/websocket"
 )
-
-// FlashblockMessageProvider is an interface for reading flashblock messages
-type FlashblockMessageProvider interface {
-	ReadMessage() (*FlashblocksPayloadV1, error)
-	Close() error
-}
-
-// FlashblocksPayloadV1 represents the complete flashblock message received over WebSocket
-type FlashblocksPayloadV1 struct {
-	// Version is actually exactly 4 bytes according to the spec, refactor to have the
-	// correct type exact type
-	Version hexutil.Bytes `json:"version"`
-	// PayloadID is actually 8 bytes according to the spec, refactor to have the
-	// correct type
-	PayloadID       hexutil.Bytes                     `json:"payload_id"`
-	ParentFlashHash *common.Hash                      `json:"parent_flash_hash,omitempty"`
-	Index           uint64                            `json:"index"`
-	Static          *ExecutionPayloadStaticV1         `json:"base,omitempty"`
-	Diff            ExecutionPayloadFlashblockDeltaV1 `json:"diff"`
-	Metadata        FlashblocksMetadata               `json:"metadata"`
-}
-
-// ExecutionPayloadStaticV1 contains the initial block properties (only present when index is 0)
-type ExecutionPayloadStaticV1 struct {
-	ParentBeaconBlockRoot *common.Hash   `json:"parent_beacon_block_root,omitempty"`
-	ParentHash            common.Hash    `json:"parent_hash"`
-	FeeRecipient          common.Address `json:"fee_recipient"`
-	PrevRandao            common.Hash    `json:"prev_randao"`
-	BlockNumber           hexutil.Uint64 `json:"block_number"`
-	GasLimit              hexutil.Uint64 `json:"gas_limit"`
-	Timestamp             hexutil.Uint64 `json:"timestamp"`
-	ExtraData             hexutil.Bytes  `json:"extra_data"`
-	BaseFeePerGas         hexutil.Big    `json:"base_fee_per_gas"`
-}
-
-// ExecutionPayloadFlashblockDeltaV1 contains the incremental changes for each flashblock
-type ExecutionPayloadFlashblockDeltaV1 struct {
-	StateRoot       common.Hash         `json:"state_root"`
-	ReceiptsRoot    common.Hash         `json:"receipts_root"`
-	LogsBloom       hexutil.Bytes       `json:"logs_bloom"`
-	GasUsed         hexutil.Uint64      `json:"gas_used"`
-	BlockHash       common.Hash         `json:"block_hash"`
-	Transactions    []hexutil.Bytes     `json:"transactions"`
-	Withdrawals     []*types.Withdrawal `json:"withdrawals,omitempty"`
-	WithdrawalsRoot *common.Hash        `json:"withdrawals_root,omitempty"`
-}
-
-// FlashblocksMetadata contains additional information for flashblocks
-type FlashblocksMetadata struct {
-	BlockNumber        uint64                 `json:"block_number"`
-	NewAccountBalances map[string]hexutil.Big `json:"new_account_balances,omitempty"`
-	Receipts           map[string]*Receipt    `json:"receipts,omitempty"`
-}
-
-// Receipt represents a transaction receipt
-type Receipt struct {
-	Status  hexutil.Uint64    `json:"status"`
-	GasUsed hexutil.Uint64    `json:"gasUsed"`
-	Logs    []json.RawMessage `json:"logs"`
-}
 
 // Client represents a flashblock WebSocket client with automatic reconnection
 type Client struct {
@@ -297,7 +234,6 @@ func (c *Client) printMessage(msg *FlashblocksPayloadV1, count int) {
 		"index", msg.Index,
 	)
 
-	// Print base information (only present in index 0)
 	if msg.Static != nil {
 		c.logger.Trace("  Base",
 			"parent_hash", msg.Static.ParentHash.Hex(),
@@ -309,7 +245,6 @@ func (c *Client) printMessage(msg *FlashblocksPayloadV1, count int) {
 		)
 	}
 
-	// Print diff information
 	c.logger.Trace("  Diff",
 		"state_root", msg.Diff.StateRoot.Hex(),
 		"block_hash", msg.Diff.BlockHash.Hex(),
@@ -317,30 +252,7 @@ func (c *Client) printMessage(msg *FlashblocksPayloadV1, count int) {
 		"tx_count", len(msg.Diff.Transactions),
 	)
 
-	// Print transaction hashes
 	for i, tx := range msg.Diff.Transactions {
 		c.logger.Trace("    Transaction", "index", i, "data_len", len(tx))
-	}
-
-	// Print metadata information
-	c.logger.Trace("  Metadata",
-		"block_number", msg.Metadata.BlockNumber,
-		"new_balances_count", len(msg.Metadata.NewAccountBalances),
-		"receipts_count", len(msg.Metadata.Receipts),
-	)
-
-	// Print new account balances
-	for addr, balance := range msg.Metadata.NewAccountBalances {
-		c.logger.Debug("    New balance", "address", addr, "balance", balance.ToInt())
-	}
-
-	// Print receipts
-	for txHash, receipt := range msg.Metadata.Receipts {
-		c.logger.Debug("    Receipt",
-			"tx_hash", txHash,
-			"status", uint64(receipt.Status),
-			"gas_used", uint64(receipt.GasUsed),
-			"logs_count", len(receipt.Logs),
-		)
 	}
 }

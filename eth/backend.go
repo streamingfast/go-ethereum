@@ -61,7 +61,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/node/flash"
+	"github.com/ethereum/go-ethereum/node/flashblock"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/dnsdisc"
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -139,7 +139,7 @@ type Ethereum struct {
 	supervisorFailsafe   atomic.Bool
 
 	// Firehose additions
-	flashblockCtrl *flash.Controller
+	flashblockCtrl *flashblock.Controller
 
 	nodeCloser func() error
 }

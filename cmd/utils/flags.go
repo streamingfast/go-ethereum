@@ -2063,6 +2063,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.VMTraceJsonConfig = ctx.String(VMTraceJsonConfigFlag.Name)
 		}
 	}
+
+	// Firehose: Flashblock config from flags
+	fillFlashblockConfigFromFlags(ctx, cfg)
 }
 
 // MakeBeaconLightConfig constructs a beacon light client config based on the

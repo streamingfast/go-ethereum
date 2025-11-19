@@ -195,6 +195,10 @@ type Config struct {
 
 	InteropMessageRPC       string `toml:",omitempty"`
 	InteropMempoolFiltering bool   `toml:",omitempty"`
+
+	// Firehose: Flashblocks configuration
+	FlashblocksEnabled bool   `toml:",omitempty"`
+	FlashblocksWSURL   string `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.
