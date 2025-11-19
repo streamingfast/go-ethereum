@@ -17,6 +17,12 @@ var (
 	}
 )
 
+var (
+	FlashblockFlags = []cli.Flag{
+		FlashblockAddress,
+	}
+)
+
 func fillFlashblockConfigFromFlags(ctx *cli.Context, cfg *ethconfig.Config) {
 	if !ctx.IsSet(FlashblockAddress.Name) {
 		return
