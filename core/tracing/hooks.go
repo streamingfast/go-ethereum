@@ -70,9 +70,10 @@ type VMContext struct {
 // BlockEvent is emitted upon tracing an incoming block.
 // It contains the block as well as consensus related information.
 type BlockEvent struct {
-	Block     *types.Block
-	Finalized *types.Header
-	Safe      *types.Header
+	Block      *types.Block
+	Finalized  *types.Header
+	Safe       *types.Header
+	FlashBlock *types.FlashBlock
 }
 
 type (

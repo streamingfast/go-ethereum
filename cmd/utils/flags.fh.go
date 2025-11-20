@@ -14,6 +14,7 @@ var (
 		Name:     "flashblock.address",
 		Usage:    "Address where to reach the Flashblock provider WebSocket endpoint, e.g. ws://localhost:1114",
 		Category: FlashblockCategory,
+		Value:    "ws://localhost:1114",
 	}
 )
 
@@ -24,12 +25,9 @@ var (
 )
 
 func fillFlashblockConfigFromFlags(ctx *cli.Context, cfg *ethconfig.Config) {
-	if !ctx.IsSet(FlashblockAddress.Name) {
-		return
-	}
-
-	FlashblockAddress := ctx.String(FlashblockAddress.Name)
-	if FlashblockAddress != "" {
+	flashblockAddress := ctx.String(FlashblockAddress.Name)
+	if flashblockAddress != "" {
+		cfg.FlashblocksWSURL = flashblockAddress
 		cfg.FlashblocksEnabled = true
 	}
 }

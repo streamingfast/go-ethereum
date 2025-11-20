@@ -241,6 +241,11 @@ type Block struct {
 	ReceivedFrom interface{}
 }
 
+type FlashBlock struct {
+	Block *Block
+	Idx   uint64
+}
+
 // "external" block encoding. used for eth protocol, etc.
 type extblock struct {
 	Header      *Header

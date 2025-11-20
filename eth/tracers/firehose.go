@@ -158,6 +158,7 @@ type Firehose struct {
 
 	// Block state
 	block                       *pbeth.Block
+	flashblockIndex             uint64
 	blockBaseFee                *big.Int
 	blockOrdinal                *Ordinal
 	blockFinality               *FinalityStatus
@@ -186,7 +187,7 @@ type Firehose struct {
 	testingIgnoreGenesisBlock bool
 }
 
-const FirehoseProtocolVersion = "3.0"
+const FirehoseProtocolVersion = "3.1"
 
 func NewFirehoseFromRawJSON(cfg json.RawMessage) (*Firehose, error) {
 	var config FirehoseConfig
@@ -291,6 +292,7 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalSnapshot = 0
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
+	f.flashblockIndex = 0
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
@@ -371,11 +373,16 @@ func chainNeedsLegacyBackwardCompatibility(id *big.Int) bool {
 func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	f.ensureBlockChainInit()
 
-	// Hash is usually pre-computed within `event.Block`, so it's better to take from there
 	block := event.Block
+	if event.FlashBlock != nil {
+		f.flashblockIndex = event.FlashBlock.Idx
+		block = event.FlashBlock.Block
+	}
+
+	// Hash is usually pre-computed within `event.Block`, so it's better to take from there
 	hash := block.Hash()
 	// FIXME: Avoid calling 'Header()', it makes a copy while accessing event.Block getters directly avoids it
-	header := event.Block.Header()
+	header := block.Header()
 
 	// There was a lot of "over time" bugs introduced in Firehose 2.x, e.g. bugs that were fixed or
 	// introduced in a version without even knowing it. This means that for example, reprocessing
@@ -391,7 +398,7 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	//
 	// Also, it means it limits our needed back processing up to Prague only, stopping the "contagion"
 	// at some point.
-	blockRules := f.chainConfig.Rules(header.Number, blockIsMerge(event.Block), block.Time())
+	blockRules := f.chainConfig.Rules(header.Number, blockIsMerge(block), block.Time())
 
 	// If are applying backward compatibility and the block is now Prague, stop applying backward compatibility
 	if *f.applyBackwardCompatibility && blockRules.IsPrague && !f.config.ForcedBackwardCompatibility() {
@@ -1902,7 +1909,7 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	}
 
 	// **Important* The final space in the Sprintf template is mandatory!
-	f.outputBuffer.WriteString(fmt.Sprintf("FIRE BLOCK %d %s %d %s %d %d ", block.Number, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano()))
+	fmt.Fprintf(f.outputBuffer, "FIRE BLOCK %d %d %s %d %s %d %d ", block.Number, f.flashblockIndex, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano())
 
 	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
 	if _, err = encoder.Write(marshalled); err != nil {

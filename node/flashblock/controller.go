@@ -275,7 +275,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 	// Check if parent block and state exist
 	parentBlock := c.chain.GetBlock(c.state.ExecutableData.ParentHash, c.state.ExecutableData.Number-1)
 	if parentBlock == nil {
-		c.logger.Debug("Parent block not found, skipping execution",
+		c.logger.Info("Parent block not found, skipping execution",
 			"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
 			"parent_number", c.state.ExecutableData.Number-1,
 		)
@@ -285,7 +285,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 	parentStateDB, err := c.chain.StateAt(parentBlock.Root())
 	if err != nil {
 		if errors.Is(err, errors.New("not found")) {
-			c.logger.Debug("parent state not found, skipping execution",
+			c.logger.Info("parent state not found, skipping execution",
 				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
 				"parent_number", c.state.ExecutableData.Number-1,
 			)
@@ -316,10 +316,15 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		"tx_count", len(block.Transactions()),
 	)
 
+	currentIndex := c.state.CurrentIndex
+	currentFinalBlock := c.chain.CurrentFinalBlock()
 	executor := func() (err error) {
 		c.tracer.OnBlockStart(tracing.BlockEvent{
-			Block:     block,
-			Finalized: c.chain.CurrentFinalBlock(),
+			FlashBlock: &types.FlashBlock{
+				Block: block,
+				Idx:   currentIndex,
+			},
+			Finalized: currentFinalBlock,
 		})
 		defer func() {
 			stats.err = err
