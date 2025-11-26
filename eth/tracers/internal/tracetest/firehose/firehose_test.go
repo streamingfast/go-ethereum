@@ -198,7 +198,7 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 
 			chain.SetBlockValidatorAndProcessorForTesting(
 				ignoreValidateStateValidator{core.NewBlockValidator(genesisSpec.Config, chain)},
-				core.NewStateProcessor(genesisSpec.Config, chain.HeaderChain()),
+				core.NewStateProcessor(chain.HeaderChain()),
 			)
 
 			defer chain.Stop()

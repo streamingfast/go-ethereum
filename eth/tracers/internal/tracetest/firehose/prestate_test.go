@@ -63,6 +63,21 @@ func (p *prestateData) Engine() consensus.Engine {
 	return ethash.NewFullFaker()
 }
 
+// CurrentHeader implements core.ChainContext.
+func (p *prestateData) CurrentHeader() *types.Header {
+	return p.GetHeaderByNumber(0)
+}
+
+// GetHeaderByHash implements core.ChainContext.
+func (p *prestateData) GetHeaderByHash(hash common.Hash) *types.Header {
+	return p.GetHeader(hash, 0)
+}
+
+// GetHeaderByNumber implements core.ChainContext.
+func (p *prestateData) GetHeaderByNumber(number uint64) *types.Header {
+	return p.GetHeader(common.Hash{}, number)
+}
+
 // GetHeader implements core.ChainContext.
 func (p *prestateData) GetHeader(hash common.Hash, number uint64) *types.Header {
 	if p.Genesis == nil {
