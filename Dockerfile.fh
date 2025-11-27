@@ -1,4 +1,4 @@
-ARG FIREHOSE_ETHEREUM="v2.13.1"
+ARG FIREHOSE_ETHEREUM="47bda47"
 
 FROM us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.16.1 as optimism-node
 
