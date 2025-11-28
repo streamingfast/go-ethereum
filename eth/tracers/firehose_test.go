@@ -545,3 +545,290 @@ func TestMemory_GetPtr(t *testing.T) {
 		})
 	}
 }
+
+func TestFirehose_FlashBlockHandling(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+
+	// Create a mock block
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Initialize blockchain first
+	tracer.OnBlockchainInit(chainConfig)
+
+	// Test 1: First flash block
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent1)
+
+	// Simulate some transactions for first flash block
+	tx1 := types.NewTransaction(1, common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(1000), 21000, big.NewInt(1000000000), nil)
+	from1 := common.HexToAddress("0xfrom1111111111111111111111111111111111111111")
+	to1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	tracer.onTxStart(tx1, tx1.Hash(), from1, to1)
+	tracer.OnCallEnter(0, byte(vm.CALL), from1, to1, nil, 21000, big.NewInt(1000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 0,
+	}, nil)
+
+	tx2 := types.NewTransaction(2, common.HexToAddress("0x2222222222222222222222222222222222222222"), big.NewInt(2000), 21000, big.NewInt(1000000000), nil)
+	from2 := common.HexToAddress("0xfrom2222222222222222222222222222222222222222")
+	to2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+
+	tracer.onTxStart(tx2, tx2.Hash(), from2, to2)
+	tracer.OnCallEnter(0, byte(vm.CALL), from2, to2, nil, 21000, big.NewInt(2000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 1,
+	}, nil)
+
+	tracer.OnBlockEnd(nil)
+
+	// Verify first flash block has 2 transactions
+	require.NotNil(t, tracer.lastFlashBlock)
+	require.Len(t, tracer.lastFlashBlock.TransactionTraces, 2)
+	assert.Equal(t, uint64(1), tracer.lastFlashBlock.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.lastFlashBlock.TransactionTraces[1].Nonce)
+
+	// Test 2: Second flash block with same number, different index
+	flashEvent2 := tracing.BlockEvent{
+		Block: block1, // Same block number
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   2, // Next index
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent2)
+
+	// Simulate different transactions for second flash block
+	tx3 := types.NewTransaction(3, common.HexToAddress("0x3333333333333333333333333333333333333333"), big.NewInt(3000), 21000, big.NewInt(1000000000), nil)
+	from3 := common.HexToAddress("0xfrom3333333333333333333333333333333333333333")
+	to3 := common.HexToAddress("0x3333333333333333333333333333333333333333")
+
+	tracer.onTxStart(tx3, tx3.Hash(), from3, to3)
+	tracer.OnCallEnter(0, byte(vm.CALL), from3, to3, nil, 21000, big.NewInt(3000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 0,
+	}, nil)
+
+	tx4 := types.NewTransaction(4, common.HexToAddress("0x4444444444444444444444444444444444444444"), big.NewInt(4000), 21000, big.NewInt(1000000000), nil)
+	from4 := common.HexToAddress("0xfrom4444444444444444444444444444444444444444")
+	to4 := common.HexToAddress("0x4444444444444444444444444444444444444444")
+
+	tracer.onTxStart(tx4, tx4.Hash(), from4, to4)
+	tracer.OnCallEnter(0, byte(vm.CALL), from4, to4, nil, 21000, big.NewInt(4000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 1,
+	}, nil)
+
+	tracer.OnBlockEnd(nil)
+
+	// Test 3: Verify the final block contains all transactions in correct order
+	// Should have: [tx1, tx2] (from first flash block) + [tx3, tx4] (from second flash block)
+	require.NotNil(t, tracer.lastFlashBlock)
+	require.Len(t, tracer.lastFlashBlock.TransactionTraces, 4)
+
+	// Verify transaction order: first flash block transactions come first
+	assert.Equal(t, uint64(1), tracer.lastFlashBlock.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.lastFlashBlock.TransactionTraces[1].Nonce)
+	assert.Equal(t, uint64(3), tracer.lastFlashBlock.TransactionTraces[2].Nonce)
+	assert.Equal(t, uint64(4), tracer.lastFlashBlock.TransactionTraces[3].Nonce)
+
+	// Verify the block header is from the second flash block (latest)
+	assert.Equal(t, block1.NumberU64(), tracer.lastFlashBlock.Number)
+}
+
+func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+
+	// Create mock blocks
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	block2 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(101), // Different number
+		Time:       1001,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Initialize blockchain first
+	tracer.OnBlockchainInit(chainConfig)
+
+	// Start first flash block
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   0,
+		},
+	}
+	tracer.OnBlockStart(flashEvent1)
+	tracer.OnBlockEnd(nil)
+
+	// Test 1: Wrong block number should panic
+	flashEventWrongNumber := tracing.BlockEvent{
+		Block: block2, // Different number
+		FlashBlock: &tracing.FlashBlock{
+			Block: block2,
+			Idx:   1,
+		},
+	}
+
+	require.Panics(t, func() {
+		tracer.OnBlockStart(flashEventWrongNumber)
+	})
+
+	// Test 2: Non-sequential index should panic
+	flashEventWrongIndex := tracing.BlockEvent{
+		Block: block1, // Same number
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   2, // Should be 1, not 2
+		},
+	}
+
+	require.Panics(t, func() {
+		tracer.OnBlockStart(flashEventWrongIndex)
+	})
+
+	// Test 3: Correct sequence should work
+	flashEventCorrect := tracing.BlockEvent{
+		Block: block1, // Same number
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1, // Correct next index
+		},
+	}
+
+	require.NotPanics(t, func() {
+		tracer.OnBlockStart(flashEventCorrect)
+		tracer.OnBlockEnd(nil)
+	})
+}
+
+func TestFirehose_FlashBlockResetOnRegularBlock(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+
+	// Create mock blocks
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	block2 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(101),
+		Time:       1001,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Initialize blockchain first
+	tracer.OnBlockchainInit(chainConfig)
+
+	// Start flash block
+	flashEvent := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   0,
+		},
+	}
+	tracer.OnBlockStart(flashEvent)
+	tracer.OnBlockEnd(nil)
+
+	// Verify currentFlashBlock is set
+	require.NotNil(t, tracer.lastFlashBlock)
+
+	// Start regular block (non-flash)
+	regularEvent := tracing.BlockEvent{
+		Block: block2,
+		// No FlashBlock field means regular block
+	}
+	tracer.OnBlockStart(regularEvent)
+
+	// Verify currentFlashBlock is reset
+	assert.Nil(t, tracer.lastFlashBlock)
+	assert.Zero(t, tracer.lastFlashBlockIndex)
+
+	tracer.OnBlockEnd(nil)
+}

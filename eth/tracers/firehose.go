@@ -158,7 +158,9 @@ type Firehose struct {
 
 	// Block state
 	block                       *pbeth.Block
-	flashblockIndex             uint64
+	lastFlashBlock              *pbeth.Block
+	lastFlashBlockIndex         uint64
+	flashBlockIndex             uint64
 	blockBaseFee                *big.Int
 	blockOrdinal                *Ordinal
 	blockFinality               *FinalityStatus
@@ -292,7 +294,7 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalSnapshot = 0
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
-	f.flashblockIndex = 0
+	f.flashBlockIndex = 0
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
@@ -375,8 +377,23 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 	block := event.Block
 	if event.FlashBlock != nil {
-		f.flashblockIndex = event.FlashBlock.Idx
 		block = event.FlashBlock.Block
+
+		// Handle flash block sequence
+		if f.lastFlashBlock != nil {
+			// Validate flash block sequence
+			if f.lastFlashBlock.Number != block.NumberU64() {
+				panic(fmt.Errorf("flash block number mismatch: current=%d, new=%d", f.lastFlashBlock.Number, block.NumberU64()))
+			}
+			if f.lastFlashBlockIndex != event.FlashBlock.Idx-1 {
+				panic(fmt.Errorf("flash block index not sequential: expected=%d, got=%d", f.flashBlockIndex+1, event.FlashBlock.Idx))
+			}
+		}
+		f.flashBlockIndex = event.FlashBlock.Idx
+		f.lastFlashBlockIndex = f.flashBlockIndex
+	} else {
+		// Reset currentFlashBlock for regular blocks
+		f.lastFlashBlock = nil
 	}
 
 	// Hash is usually pre-computed within `event.Block`, so it's better to take from there
@@ -424,6 +441,14 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		f.block.Ver = 3
 	}
 
+	// Copy existing transaction traces from currentFlashBlock if this is a flash block
+	if event.FlashBlock != nil && f.lastFlashBlock != nil {
+		if f.lastFlashBlock.TransactionTraces != nil {
+			f.block.TransactionTraces = make([]*pbeth.TransactionTrace, len(f.lastFlashBlock.TransactionTraces))
+			copy(f.block.TransactionTraces, f.lastFlashBlock.TransactionTraces)
+		}
+	}
+
 	for _, uncle := range block.Uncles() {
 		f.block.Uncles = append(f.block.Uncles, newBlockHeaderFromChainHeader(uncle.Hash(), uncle))
 	}
@@ -433,6 +458,11 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	}
 
 	f.blockFinality.populateFromChain(event.Finalized)
+
+	// Set current flash block if this is a flash block
+	if event.FlashBlock != nil {
+		f.lastFlashBlock = f.block
+	}
 }
 
 func blockIsMerge(block *types.Block) bool {
@@ -1909,7 +1939,7 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	}
 
 	// **Important* The final space in the Sprintf template is mandatory!
-	fmt.Fprintf(f.outputBuffer, "FIRE BLOCK %d %d %s %d %s %d %d ", block.Number, f.flashblockIndex, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano())
+	fmt.Fprintf(f.outputBuffer, "FIRE BLOCK %d %d %s %d %s %d %d ", block.Number, f.flashBlockIndex, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano())
 
 	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
 	if _, err = encoder.Write(marshalled); err != nil {
