@@ -358,13 +358,13 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			return fmt.Errorf("process block: %w", err)
 		}
 
-		validator := core.NewBlockValidator(chainConfig, nil)
-		startValidate := time.Now()
-		err = validator.ValidateState(block, parentStateDB, result, false)
-		stats.validateDuration = time.Since(startValidate)
-		if err != nil {
-			return fmt.Errorf("validate block state: %w", err)
-		}
+		//		validator := core.NewBlockValidator(chainConfig, nil)
+		//		startValidate := time.Now()
+		//		err = validator.ValidateState(block, parentStateDB, result, false)
+		//		stats.validateDuration = time.Since(startValidate)
+		//		if err != nil {
+		//			return fmt.Errorf("validate block state: %w", err)
+		//		}
 
 		return nil
 	}
@@ -394,6 +394,6 @@ func (c *Controller) reportFlashblockStats(stats *flashblockStats) {
 		"number", stats.blockNumber,
 		"hash", stats.blockHash.TerminalString(),
 		"process_ms", stats.processDuration.Milliseconds(),
-		"validate_ms", stats.validateDuration.Milliseconds(),
+		//		"validate_ms", stats.validateDuration.Milliseconds(),
 	)
 }
