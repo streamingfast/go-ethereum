@@ -17,7 +17,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"go.uber.org/zap"
 )
 
 // ChainInterface defines the minimal interface required from the chain
@@ -142,8 +141,8 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	if msg.Index == 0 {
 		c.resetState(msg)
 
-		if delay := time.Since(time.Unix(int64(msg.Static.Timestamp), 0)); delay > time.Second*2 {
-			c.logger.Info("Skipping flashblock because we are too far behind", zap.Duration("delayed", delay))
+		if delay := time.Since(time.Unix(int64(msg.Static.Timestamp), 0)); delay > 0 {
+			c.logger.Info("Skipping flashblock because we are too far behind: %dms", delay.Milliseconds())
 			c.state.Skipping = true
 		} else {
 			c.logger.Info("Received base flashblock, resetting state", "payload_id", msg.PayloadID.String())
