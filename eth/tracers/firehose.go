@@ -382,18 +382,14 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		// Handle flash block sequence
 		if f.lastFlashBlock != nil {
 			// Validate flash block sequence
-			if f.lastFlashBlock.Number != block.NumberU64() {
-				panic(fmt.Errorf("flash block number mismatch: current=%d, new=%d", f.lastFlashBlock.Number, block.NumberU64()))
-			}
-			if f.lastFlashBlockIndex != event.FlashBlock.Idx-1 {
-				panic(fmt.Errorf("flash block index not sequential: expected=%d, got=%d", f.flashBlockIndex+1, event.FlashBlock.Idx))
+			if f.lastFlashBlock.Number == block.NumberU64() {
+				if f.lastFlashBlockIndex >= event.FlashBlock.Idx-1 {
+					panic(fmt.Errorf("flash block index not higher than previous: expected=%d, got=%d", f.flashBlockIndex+1, event.FlashBlock.Idx))
+				}
 			}
 		}
 		f.flashBlockIndex = event.FlashBlock.Idx
 		f.lastFlashBlockIndex = f.flashBlockIndex
-	} else {
-		// Reset currentFlashBlock for regular blocks
-		f.lastFlashBlock = nil
 	}
 
 	// Hash is usually pre-computed within `event.Block`, so it's better to take from there
