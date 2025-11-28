@@ -386,7 +386,7 @@ func (c *Controller) reportFlashblockStats(stats *flashblockStats) {
 	logLevel := log.LevelInfo
 
 	if stats.err != nil {
-		logMsg = "Failed to execute block"
+		logMsg = fmt.Sprintf("Failed to execute block: %s", stats.err.Error())
 		logLevel = log.LevelError
 	}
 
