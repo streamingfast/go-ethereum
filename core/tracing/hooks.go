@@ -73,7 +73,12 @@ type BlockEvent struct {
 	Block      *types.Block
 	Finalized  *types.Header
 	Safe       *types.Header
-	FlashBlock *types.FlashBlock
+	FlashBlock *FlashBlock
+}
+
+type FlashBlock struct {
+	Block *types.Block
+	Idx   uint64
 }
 
 type (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -184,6 +185,10 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 			"received", msg.PayloadID.String())
 	}
 
+	// We would need to offload that processing to a separate goroutine to stop blocking the
+	// websocket reading loop. We probably need to re-think the overall approach anyway to
+	// improve the overall architecture of our flashblock handling.
+
 	c.logger.Debug("Accumulating flashblock delta", "index", msg.Index, "payload_id", msg.PayloadID.String())
 	c.accumulateDelta(msg)
 
@@ -282,28 +287,40 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		blockNumber: c.state.ExecutableData.Number,
 	}
 
-	// Check if parent block and state exist
-	parentBlock := c.chain.GetBlock(c.state.ExecutableData.ParentHash, c.state.ExecutableData.Number-1)
-	if parentBlock == nil {
-		c.logger.Info("Parent block not found, skipping execution",
-			"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
-			"parent_number", c.state.ExecutableData.Number-1,
-		)
-		return nil
-	}
-
-	parentStateDB, err := c.chain.StateAt(parentBlock.Root())
-	if err != nil {
-		if errors.Is(err, errors.New("not found")) {
-			c.logger.Info("parent state not found, skipping execution",
+	if c.state.Processor == nil {
+		// Check if parent block and state exist
+		parentBlock := c.chain.GetBlock(c.state.ExecutableData.ParentHash, c.state.ExecutableData.Number-1)
+		if parentBlock == nil {
+			c.logger.Info("Parent block not found, skipping execution",
 				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
 				"parent_number", c.state.ExecutableData.Number-1,
 			)
 			return nil
 		}
 
-		return fmt.Errorf("failed to get parent state: hash=%s, number=%d",
-			c.state.ExecutableData.ParentHash.Hex(), c.state.ExecutableData.Number-1)
+		parentStateDB, err := c.chain.StateAt(parentBlock.Root())
+		if err != nil {
+			if errors.Is(err, errors.New("not found")) {
+				c.logger.Info("parent state not found, skipping execution",
+					"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
+					"parent_number", c.state.ExecutableData.Number-1,
+				)
+				return nil
+			}
+
+			return fmt.Errorf("failed to get parent state: hash=%s, number=%d",
+				c.state.ExecutableData.ParentHash.Hex(), c.state.ExecutableData.Number-1)
+		}
+
+		c.state.Processor = NewStateProcessor(
+			c.chain.Config(),
+			c.chain.HeaderChain(),
+			parentStateDB,
+			// TODO: We could cache that once since it's static for the whole sequence
+			new(big.Int).SetUint64(c.state.ExecutableData.Number),
+			c.state.ExecutableData.Timestamp,
+			c.state.ExecutableData.GasLimit,
+		)
 	}
 
 	chainConfig := c.chain.Config()
@@ -330,7 +347,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 	currentFinalBlock := c.chain.CurrentFinalBlock()
 	executor := func() (err error) {
 		c.tracer.OnBlockStart(tracing.BlockEvent{
-			FlashBlock: &types.FlashBlock{
+			FlashBlock: &tracing.FlashBlock{
 				Block: block,
 				Idx:   currentIndex,
 			},
@@ -347,10 +364,8 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			c.reportFlashblockStats(stats)
 		}()
 
-		processor := core.NewStateProcessor(chainConfig, c.chain.HeaderChain())
-
 		startProcess := time.Now()
-		result, err := processor.Process(block, parentStateDB, vm.Config{
+		result, err := c.state.Processor.Process(block, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
 		})
 		stats.processDuration = time.Since(startProcess)
@@ -358,14 +373,12 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			return fmt.Errorf("process block: %w", err)
 		}
 
-		_ = result // we don,t validate for now
-		//		validator := core.NewBlockValidator(chainConfig, nil)
-		//		startValidate := time.Now()
-		//		err = validator.ValidateState(block, parentStateDB, result, false)
-		//		stats.validateDuration = time.Since(startValidate)
-		//		if err != nil {
-		//			return fmt.Errorf("validate block state: %w", err)
-		//		}
+		startValidate := time.Now()
+		err = c.state.Processor.ValidateState(block, result)
+		stats.validateDuration = time.Since(startValidate)
+		if err != nil {
+			log.Error("Block state validation failed", "error", err)
+		}
 
 		return nil
 	}

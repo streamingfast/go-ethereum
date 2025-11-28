@@ -14,6 +14,10 @@ type Sequence struct {
 	// ExecutableData contains the block execution data that gets updated over time
 	ExecutableData engine.ExecutableData
 
+	// StateProcessor is stateful in regards to the sequence of partial blocks,
+	// it is nil initially until the execution can be performed.
+	Processor *StateProcessor
+
 	// Flashblock-specific fields
 	PayloadID             hexutil.Bytes
 	ParentBeaconBlockRoot *common.Hash
