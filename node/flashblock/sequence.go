@@ -9,6 +9,8 @@ import (
 
 // Sequence represents the accumulated state of a flashblock
 type Sequence struct {
+	// Skipping indicates whether the flashblock is being skipped due to being too far behind
+	Skipping bool
 	// ExecutableData contains the block execution data that gets updated over time
 	ExecutableData engine.ExecutableData
 

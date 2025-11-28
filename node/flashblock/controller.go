@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"go.uber.org/zap"
 )
 
 // ChainInterface defines the minimal interface required from the chain
@@ -134,6 +135,26 @@ func (c *Controller) run() {
 
 // processMessage processes a flashblock message and updates the state
 func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// If this is a base message (index 0), reset the state
+	if msg.Index == 0 {
+		c.resetState(msg)
+
+		if delay := time.Since(time.Unix(int64(msg.Static.Timestamp), 0)); delay > time.Second*2 {
+			c.logger.Info("Skipping flashblock because we are too far behind", zap.Duration("delayed", delay))
+			c.state.Skipping = true
+		} else {
+			c.logger.Info("Received base flashblock, resetting state", "payload_id", msg.PayloadID.String())
+		}
+		return nil
+	}
+
+	if c.state.Skipping {
+		return nil
+	}
+
 	defer func(start time.Time) {
 		duration := time.Since(start)
 
@@ -151,16 +172,6 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 			"duration_ms", duration.Milliseconds(),
 		)
 	}(time.Now())
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// If this is a base message (index 0), reset the state
-	if msg.Index == 0 {
-		c.logger.Info("Received base flashblock, resetting state", "payload_id", msg.PayloadID.String())
-		c.resetState(msg)
-		return nil
-	}
 
 	// Verify this is the expected next index
 	if msg.Index != c.state.CurrentIndex+1 {
