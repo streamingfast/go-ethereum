@@ -358,6 +358,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			return fmt.Errorf("process block: %w", err)
 		}
 
+		_ = result // we don,t validate for now
 		//		validator := core.NewBlockValidator(chainConfig, nil)
 		//		startValidate := time.Now()
 		//		err = validator.ValidateState(block, parentStateDB, result, false)
