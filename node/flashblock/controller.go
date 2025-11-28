@@ -122,7 +122,7 @@ func (c *Controller) run() {
 			msg, err := c.provider.ReadMessage()
 			if err != nil {
 				c.logger.Error("Error reading flashblock message", "error", err)
-				return
+				continue
 			}
 
 			if err := c.processMessage(msg); err != nil {
