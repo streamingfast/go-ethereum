@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -51,6 +53,12 @@ func NewStateProcessor(
 	}
 }
 
+type txmsg struct {
+	msg  *core.Message
+	tx   *types.Transaction
+	hash common.Hash
+}
+
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
@@ -93,16 +101,61 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config) (*core.Proce
 		transactions = allTransactions[*p.lastTxIndex:]
 	}
 
-	// Iterate over and process the individual transactions
-	for i, tx := range transactions {
-		msg, err := core.TransactionToMessage(tx, p.signer, header.BaseFee)
-		if err != nil {
-			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+	txmsgs := make([]txmsg, len(transactions))
+
+	// Convert all transactions to messages in parallel with 10 workers max
+	const maxWorkers = 10
+	numWorkers := min(len(transactions), maxWorkers)
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(transactions))
+
+	// Worker function to convert transactions to messages
+	worker := func(jobs <-chan int) {
+		defer wg.Done()
+		for i := range jobs {
+			tx := transactions[i]
+			msg, err := core.TransactionToMessage(tx, p.signer, header.BaseFee)
+			if err != nil {
+				errChan <- fmt.Errorf("could not convert tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+				return
+			}
+			txmsgs[i] = txmsg{
+				msg:  msg,
+				tx:   tx,
+				hash: tx.Hash(),
+			}
 		}
-		p.statedb.SetTxContext(tx.Hash(), i)
-		receipt, err := core.ApplyTransactionWithEVM(msg, p.gp, p.statedb, blockNumber, blockHash, context.Time, tx, p.usedGas, evm)
+	}
+
+	// Create job channel and start workers
+	jobs := make(chan int, len(transactions))
+	for range numWorkers {
+		wg.Add(1)
+		go worker(jobs)
+	}
+
+	// Send jobs
+	for i := range transactions {
+		jobs <- i
+	}
+	close(jobs)
+
+	// Wait for all workers to complete
+	wg.Wait()
+
+	// Check for errors
+	close(errChan)
+	if len(errChan) > 0 {
+		return nil, <-errChan
+	}
+
+	// Process the individual transactions using prepared txmsgs
+	for i, txmsg := range txmsgs {
+		p.statedb.SetTxContext(txmsg.hash, i)
+		receipt, err := core.ApplyTransactionWithEVM(txmsg.msg, p.gp, p.statedb, blockNumber, blockHash, context.Time, txmsg.tx, p.usedGas, evm)
 		if err != nil {
-			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, txmsg.hash.Hex(), err)
 		}
 		p.receipts = append(p.receipts, receipt)
 		p.allLogs = append(p.allLogs, receipt.Logs...)
