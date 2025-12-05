@@ -17,6 +17,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"slices"
@@ -250,6 +251,13 @@ func ExecutableDataToBlock(data ExecutableData, versionedHashes []common.Hash, b
 		return nil, err
 	}
 	if block.Hash() != data.BlockHash {
+		if block.NumberU64()%5 == 0 {
+			pl, err := json.Marshal(block.Header())
+			if err != nil {
+				return nil, err
+			}
+			fmt.Println("HEADER", string(pl))
+		}
 		return nil, fmt.Errorf("blockhash mismatch, want %x, got %x", data.BlockHash, block.Hash())
 	}
 	return block, nil
