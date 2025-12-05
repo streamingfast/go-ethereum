@@ -383,8 +383,9 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		if f.lastFlashBlock != nil {
 			// Validate flash block sequence
 			if f.lastFlashBlock.Number == block.NumberU64() {
-				if f.lastFlashBlockIndex >= event.FlashBlock.Idx-1 {
-					panic(fmt.Errorf("flash block index not higher than previous: expected=%d, got=%d", f.flashBlockIndex+1, event.FlashBlock.Idx))
+				if event.FlashBlock.Idx <= f.lastFlashBlockIndex {
+					panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.lastFlashBlock.Number, f.lastFlashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
+
 				}
 			}
 		}
