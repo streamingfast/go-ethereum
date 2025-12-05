@@ -48,6 +48,7 @@ type ExecutionPayloadFlashblockDeltaV1 struct {
 	ReceiptsRoot    common.Hash         `json:"receipts_root"`
 	LogsBloom       hexutil.Bytes       `json:"logs_bloom"`
 	GasUsed         hexutil.Uint64      `json:"gas_used"`
+	BlobGasUsed     hexutil.Uint64      `json:"blob_gas_used"`
 	BlockHash       common.Hash         `json:"block_hash"`
 	Transactions    []hexutil.Bytes     `json:"transactions"`
 	Withdrawals     []*types.Withdrawal `json:"withdrawals,omitempty"`

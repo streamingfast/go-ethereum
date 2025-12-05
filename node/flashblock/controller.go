@@ -255,6 +255,7 @@ func (c *Controller) applyDiff(diff *ExecutionPayloadFlashblockDeltaV1) {
 	c.state.ExecutableData.LogsBloom = []byte(diff.LogsBloom)
 	c.state.ExecutableData.BlockHash = diff.BlockHash
 	c.state.ExecutableData.GasUsed = uint64(diff.GasUsed)
+	c.state.ExecutableData.BlobGasUsed = (*uint64)(&diff.BlobGasUsed)
 	c.state.ExecutableData.WithdrawalsRoot = diff.WithdrawalsRoot
 
 	// Append new transactions (convert from hexutil.Bytes to []byte)
