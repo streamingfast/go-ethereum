@@ -1,11 +1,11 @@
 module github.com/ethereum/go-ethereum
 
 // Note: Change the go image version in Dockerfile if you change this.
-go 1.24.9
+go 1.25.5
 
 require (
 	github.com/0xPolygon/crand v1.0.3
-	github.com/0xPolygon/heimdall-v2 v0.3.1
+	github.com/0xPolygon/heimdall-v2 v0.4.5
 	github.com/0xPolygon/polyproto v0.0.7
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.2
 	github.com/BurntSushi/toml v1.4.0
@@ -20,7 +20,7 @@ require (
 	github.com/cespare/cp v1.1.1
 	github.com/cloudflare/cloudflare-go v0.114.0
 	github.com/cockroachdb/pebble v1.1.5
-	github.com/cometbft/cometbft v0.38.17
+	github.com/cometbft/cometbft v0.38.19
 	github.com/consensys/gnark-crypto v0.18.1
 	github.com/cosmos/cosmos-sdk v0.50.14
 	github.com/cosmos/gogoproto v1.7.0
@@ -150,7 +150,7 @@ require (
 	github.com/influxdata/line-protocol v0.0.0-20210922203350-b1ad95c89adf // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/kilic/bls12-381 v0.1.0 // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -166,7 +166,7 @@ require (
 	github.com/pion/transport/v3 v3.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.20.5 // indirect
+	github.com/prometheus/client_golang v1.21.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
@@ -314,7 +314,7 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/spf13/cobra v1.8.1 // indirect
+	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/spf13/viper v1.19.0 // indirect
 	github.com/streadway/amqp v1.1.0 // indirect
@@ -335,10 +335,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
 	golang.org/x/term v0.33.0 // indirect
-	google.golang.org/api v0.230.0 // indirect
+	google.golang.org/api v0.218.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250218202821-56aae31c358a // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250414145226-207652e42e2e // indirect
-	gotest.tools/v3 v3.5.1 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250227231956-55c901821b1e // indirect
+	gotest.tools/v3 v3.5.2 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
@@ -358,9 +358,10 @@ require (
 replace (
 	cosmossdk.io/client/v2 => github.com/0xPolygon/cosmos-sdk/client/v2 v2.0.0-beta.6 // Same as heimdall-v2.
 	github.com/Masterminds/goutils => github.com/Masterminds/goutils v1.1.1
-	github.com/cometbft/cometbft => github.com/0xPolygon/cometbft v0.3.0-polygon
+	github.com/cometbft/cometbft => github.com/0xPolygon/cometbft v0.3.4-polygon
+	github.com/cometbft/cometbft-db => github.com/0xPolygon/cometbft-db v0.14.1-polygon
 	github.com/cosmos/cosmos-sdk => github.com/0xPolygon/cosmos-sdk v0.2.6-polygon
-	github.com/ethereum/go-ethereum => github.com/0xPolygon/bor/v2 v2.2.11
+	github.com/ethereum/go-ethereum => github.com/0xPolygon/bor v1.14.14-0.20251125190736-ff906a05db96
 	github.com/ethereum/go-ethereum/common/math => github.com/0xPolygon/bor/common/math v1.5.5
 	go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.14.0
 )
