@@ -440,11 +440,16 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	}
 
 	// Copy existing transaction traces from currentFlashBlock if this is a flash block
-	if event.FlashBlock != nil && f.lastFlashBlock != nil {
-		if f.lastFlashBlock.TransactionTraces != nil {
-			f.block.TransactionTraces = make([]*pbeth.TransactionTrace, len(f.lastFlashBlock.TransactionTraces))
-			copy(f.block.TransactionTraces, f.lastFlashBlock.TransactionTraces)
+	if event.FlashBlock != nil {
+		if f.lastFlashBlock != nil {
+			// Copy existing transaction traces from lastFlashBlock, we will append more...
+			if f.lastFlashBlock.TransactionTraces != nil {
+				f.block.TransactionTraces = append(f.block.TransactionTraces, f.lastFlashBlock.TransactionTraces...)
+			}
+
 		}
+		// this block becomes the lastFlashBlock
+		f.lastFlashBlock = f.block
 	}
 
 	for _, uncle := range block.Uncles() {
@@ -457,10 +462,6 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 	f.blockFinality.populateFromChain(event.Finalized)
 
-	// Set current flash block if this is a flash block
-	if event.FlashBlock != nil {
-		f.lastFlashBlock = f.block
-	}
 }
 
 func blockIsMerge(block *types.Block) bool {
