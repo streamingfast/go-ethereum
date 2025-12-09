@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +22,26 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
+
+var flashblocksOnlyIdx map[uint64]bool
+
+func init() {
+	flashblocksOnlyIdx = make(map[uint64]bool)
+
+	envVal := os.Getenv("FLASHBLOCKS_ONLY_IDX")
+	if envVal == "" {
+		flashblocksOnlyIdx[5] = true // halfway
+		return
+	}
+
+	indices := strings.Split(envVal, ",")
+	for _, indexStr := range indices {
+		indexStr = strings.TrimSpace(indexStr)
+		if index, err := strconv.ParseUint(indexStr, 10, 64); err == nil {
+			flashblocksOnlyIdx[index] = true
+		}
+	}
+}
 
 // ChainInterface defines the minimal interface required from the chain
 // to implement the flash block functionality. This is usually provided by
@@ -192,10 +215,14 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	c.logger.Debug("Accumulating flashblock delta", "index", msg.Index, "payload_id", msg.PayloadID.String())
 	c.accumulateDelta(msg)
 
-	// Ready for execution - execute and validate the block
-	if err := c.executeAndValidateBlock(); err != nil {
-		c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
-		return err
+	// Ready for execution - execute and validate the block only if index is allowed
+	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
+		if err := c.executeAndValidateBlock(); err != nil {
+			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
+			return err
+		}
+	} else {
+		c.logger.Debug("Skipping execution for index not in FLASHBLOCKS_ONLY_IDX", "index", msg.Index)
 	}
 
 	return nil
