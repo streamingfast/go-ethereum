@@ -295,6 +295,7 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
 	f.flashBlockIndex = 0
+	f.lastFlashBlock = nil
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
