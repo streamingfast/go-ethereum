@@ -613,17 +613,17 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 	tracer.OnBlockEnd(nil)
 
 	// Verify first flash block has 2 transactions
-	require.NotNil(t, tracer.lastFlashBlock)
-	require.Len(t, tracer.lastFlashBlock.TransactionTraces, 2)
-	assert.Equal(t, uint64(1), tracer.lastFlashBlock.TransactionTraces[0].Nonce)
-	assert.Equal(t, uint64(2), tracer.lastFlashBlock.TransactionTraces[1].Nonce)
+	require.NotNil(t, tracer.previousFlashBlock)
+	require.Len(t, tracer.previousFlashBlock.TransactionTraces, 2)
+	assert.Equal(t, uint64(1), tracer.previousFlashBlock.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.previousFlashBlock.TransactionTraces[1].Nonce)
 
 	// Test 2: Second flash block with same number, different index
 	flashEvent2 := tracing.BlockEvent{
 		Block: block1, // Same block number
 		FlashBlock: &tracing.FlashBlock{
 			Block: block1,
-			Idx:   2, // Next index
+			Idx:   3, // sometimes Idx2 will be skipped
 		},
 	}
 
@@ -658,17 +658,17 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 
 	// Test 3: Verify the final block contains all transactions in correct order
 	// Should have: [tx1, tx2] (from first flash block) + [tx3, tx4] (from second flash block)
-	require.NotNil(t, tracer.lastFlashBlock)
-	require.Len(t, tracer.lastFlashBlock.TransactionTraces, 4)
+	require.NotNil(t, tracer.previousFlashBlock)
+	require.Len(t, tracer.previousFlashBlock.TransactionTraces, 4)
 
 	// Verify transaction order: first flash block transactions come first
-	assert.Equal(t, uint64(1), tracer.lastFlashBlock.TransactionTraces[0].Nonce)
-	assert.Equal(t, uint64(2), tracer.lastFlashBlock.TransactionTraces[1].Nonce)
-	assert.Equal(t, uint64(3), tracer.lastFlashBlock.TransactionTraces[2].Nonce)
-	assert.Equal(t, uint64(4), tracer.lastFlashBlock.TransactionTraces[3].Nonce)
+	assert.Equal(t, uint64(1), tracer.previousFlashBlock.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.previousFlashBlock.TransactionTraces[1].Nonce)
+	assert.Equal(t, uint64(3), tracer.previousFlashBlock.TransactionTraces[2].Nonce)
+	assert.Equal(t, uint64(4), tracer.previousFlashBlock.TransactionTraces[3].Nonce)
 
 	// Verify the block header is from the second flash block (latest)
-	assert.Equal(t, block1.NumberU64(), tracer.lastFlashBlock.Number)
+	assert.Equal(t, block1.NumberU64(), tracer.previousFlashBlock.Number)
 }
 
 func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
@@ -717,54 +717,60 @@ func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
 		Block: block1,
 		FlashBlock: &tracing.FlashBlock{
 			Block: block1,
-			Idx:   0,
+			Idx:   1,
 		},
 	}
 	tracer.OnBlockStart(flashEvent1)
 	tracer.OnBlockEnd(nil)
 
-	// Test 1: Wrong block number should panic
-	flashEventWrongNumber := tracing.BlockEvent{
+	// Test 1: Same block index not progressing should panic
+
+	require.Panics(t, func() {
+		tracer.OnBlockStart(flashEvent1)
+	})
+
+	// Test 2: Same block, index backwards should panic
+
+	flashEventBackwards := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   0,
+		},
+	}
+	require.Panics(t, func() {
+		tracer.OnBlockStart(flashEventBackwards)
+	})
+
+	// Test 3: Increased block number should not panic even if index goes backwards
+	flashEventBackwardsNextBlock := tracing.BlockEvent{
 		Block: block2, // Different number
 		FlashBlock: &tracing.FlashBlock{
 			Block: block2,
-			Idx:   1,
+			Idx:   0,
 		},
 	}
-
-	require.Panics(t, func() {
-		tracer.OnBlockStart(flashEventWrongNumber)
+	require.NotPanics(t, func() {
+		tracer.OnBlockStart(flashEventBackwardsNextBlock)
 	})
 
-	// Test 2: Non-sequential index should panic
-	flashEventWrongIndex := tracing.BlockEvent{
+	// Test 4: Non-sequential index same block should not panic
+	flashEventNonsequentialIndex := tracing.BlockEvent{
 		Block: block1, // Same number
 		FlashBlock: &tracing.FlashBlock{
-			Block: block1,
-			Idx:   2, // Should be 1, not 2
-		},
-	}
-
-	require.Panics(t, func() {
-		tracer.OnBlockStart(flashEventWrongIndex)
-	})
-
-	// Test 3: Correct sequence should work
-	flashEventCorrect := tracing.BlockEvent{
-		Block: block1, // Same number
-		FlashBlock: &tracing.FlashBlock{
-			Block: block1,
-			Idx:   1, // Correct next index
+			Block: block2,
+			Idx:   3, // We skipped index 1 and 2
 		},
 	}
 
 	require.NotPanics(t, func() {
-		tracer.OnBlockStart(flashEventCorrect)
-		tracer.OnBlockEnd(nil)
+		tracer.OnBlockStart(flashEventNonsequentialIndex)
 	})
+
 }
 
-func TestFirehose_FlashBlockResetOnRegularBlock(t *testing.T) {
+// TestFirehose_FlashBlockPersistsOnRegularBlock tests that processing a normal block does not affect the state of the "lastFlashBlock" and last index.
+func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 	config := &FirehoseConfig{}
 	config.ApplyBackwardCompatibility = new(bool)
 	*config.ApplyBackwardCompatibility = false
@@ -805,19 +811,21 @@ func TestFirehose_FlashBlockResetOnRegularBlock(t *testing.T) {
 	// Initialize blockchain first
 	tracer.OnBlockchainInit(chainConfig)
 
-	// Start flash block
+	// Start flash block with index 1
 	flashEvent := tracing.BlockEvent{
 		Block: block1,
 		FlashBlock: &tracing.FlashBlock{
 			Block: block1,
-			Idx:   0,
+			Idx:   1,
 		},
 	}
 	tracer.OnBlockStart(flashEvent)
+	require.True(t, tracer.blockIsFlashBlock)
 	tracer.OnBlockEnd(nil)
 
 	// Verify currentFlashBlock is set
-	require.NotNil(t, tracer.lastFlashBlock)
+	require.NotNil(t, tracer.previousFlashBlock)
+	require.False(t, tracer.blockIsFlashBlock)
 
 	// Start regular block (non-flash)
 	regularEvent := tracing.BlockEvent{
@@ -825,10 +833,11 @@ func TestFirehose_FlashBlockResetOnRegularBlock(t *testing.T) {
 		// No FlashBlock field means regular block
 	}
 	tracer.OnBlockStart(regularEvent)
+	require.False(t, tracer.blockIsFlashBlock)
 
-	// Verify currentFlashBlock is reset
-	assert.Nil(t, tracer.lastFlashBlock)
-	assert.Zero(t, tracer.lastFlashBlockIndex)
+	// Verify currentFlashBlock is NOT reset
+	assert.NotNil(t, tracer.previousFlashBlock)
+	assert.Equal(t, uint64(1), tracer.flashBlockIndex)
 
 	tracer.OnBlockEnd(nil)
 }

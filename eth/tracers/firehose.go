@@ -157,10 +157,11 @@ type Firehose struct {
 	applyBackwardCompatibility *bool
 
 	// Block state
-	block                       *pbeth.Block
-	lastFlashBlock              *pbeth.Block
-	lastFlashBlockIndex         uint64
-	flashBlockIndex             uint64
+	block              *pbeth.Block
+	previousFlashBlock *pbeth.Block
+	flashBlockIndex    uint64
+	blockIsFlashBlock  bool
+
 	blockBaseFee                *big.Int
 	blockOrdinal                *Ordinal
 	blockFinality               *FinalityStatus
@@ -294,8 +295,7 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalSnapshot = 0
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
-	f.flashBlockIndex = 0
-	f.lastFlashBlock = nil
+	f.blockIsFlashBlock = false
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
@@ -380,18 +380,17 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	if event.FlashBlock != nil {
 		block = event.FlashBlock.Block
 
-		// Handle flash block sequence
-		if f.lastFlashBlock != nil {
-			// Validate flash block sequence
-			if f.lastFlashBlock.Number == block.NumberU64() {
-				if event.FlashBlock.Idx <= f.lastFlashBlockIndex {
-					panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.lastFlashBlock.Number, f.lastFlashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
-
-				}
+		// ensure that we flashblocks with same number have higher index
+		// ensure that flashblocks with different number are increasing
+		if f.previousFlashBlock != nil && f.previousFlashBlock.Number == block.NumberU64() {
+			if event.FlashBlock.Idx <= f.flashBlockIndex {
+				panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.previousFlashBlock.Number, f.flashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
 			}
 		}
+
+		// stores current flashBlock index for reference
 		f.flashBlockIndex = event.FlashBlock.Idx
-		f.lastFlashBlockIndex = f.flashBlockIndex
+		f.blockIsFlashBlock = true
 	}
 
 	// Hash is usually pre-computed within `event.Block`, so it's better to take from there
@@ -439,17 +438,9 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		f.block.Ver = 3
 	}
 
-	// Copy existing transaction traces from currentFlashBlock if this is a flash block
-	if event.FlashBlock != nil {
-		if f.lastFlashBlock != nil {
-			// Copy existing transaction traces from lastFlashBlock, we will append more...
-			if f.lastFlashBlock.TransactionTraces != nil {
-				f.block.TransactionTraces = append(f.block.TransactionTraces, f.lastFlashBlock.TransactionTraces...)
-			}
-
-		}
-		// this block becomes the lastFlashBlock
-		f.lastFlashBlock = f.block
+	if f.blockIsFlashBlock && f.previousFlashBlock != nil {
+		// Copy existing transaction traces from previousFlashBlock if this is a flash block
+		f.block.TransactionTraces = append(f.block.TransactionTraces, f.previousFlashBlock.TransactionTraces...)
 	}
 
 	for _, uncle := range block.Uncles() {
@@ -503,6 +494,10 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 
 func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
+
+	if f.blockIsFlashBlock {
+		f.previousFlashBlock = f.block
+	}
 
 	if err == nil {
 		if f.blockReorderOrdinal {
