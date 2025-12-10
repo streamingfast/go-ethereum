@@ -157,10 +157,10 @@ type Firehose struct {
 	applyBackwardCompatibility *bool
 
 	// Block state
-	block              *pbeth.Block
-	previousFlashBlock *pbeth.Block
-	flashBlockIndex    uint64
-	blockIsFlashBlock  bool
+	block                       *pbeth.Block
+	previousVersionOfFlashBlock *pbeth.Block
+	flashBlockIndex             uint64
+	blockIsFlashBlock           bool
 
 	blockBaseFee                *big.Int
 	blockOrdinal                *Ordinal
@@ -382,9 +382,13 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 		// ensure that we flashblocks with same number have higher index
 		// ensure that flashblocks with different number are increasing
-		if f.previousFlashBlock != nil && f.previousFlashBlock.Number == block.NumberU64() {
-			if event.FlashBlock.Idx <= f.flashBlockIndex {
-				panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.previousFlashBlock.Number, f.flashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
+		if f.previousVersionOfFlashBlock != nil {
+			if f.previousVersionOfFlashBlock.Number == block.NumberU64() {
+				if event.FlashBlock.Idx <= f.flashBlockIndex {
+					panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.previousVersionOfFlashBlock.Number, f.flashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
+				}
+			} else {
+				f.previousVersionOfFlashBlock = nil // number has moved, discard previous version
 			}
 		}
 
@@ -438,9 +442,9 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		f.block.Ver = 3
 	}
 
-	if f.blockIsFlashBlock && f.previousFlashBlock != nil {
+	if f.blockIsFlashBlock && f.previousVersionOfFlashBlock != nil {
 		// Copy existing transaction traces from previousFlashBlock if this is a flash block
-		f.block.TransactionTraces = append(f.block.TransactionTraces, f.previousFlashBlock.TransactionTraces...)
+		f.block.TransactionTraces = append(f.block.TransactionTraces, f.previousVersionOfFlashBlock.TransactionTraces...)
 	}
 
 	for _, uncle := range block.Uncles() {
@@ -496,7 +500,7 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if f.blockIsFlashBlock {
-		f.previousFlashBlock = f.block
+		f.previousVersionOfFlashBlock = f.block
 	}
 
 	if err == nil {

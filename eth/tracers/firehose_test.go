@@ -613,10 +613,10 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 	tracer.OnBlockEnd(nil)
 
 	// Verify first flash block has 2 transactions
-	require.NotNil(t, tracer.previousFlashBlock)
-	require.Len(t, tracer.previousFlashBlock.TransactionTraces, 2)
-	assert.Equal(t, uint64(1), tracer.previousFlashBlock.TransactionTraces[0].Nonce)
-	assert.Equal(t, uint64(2), tracer.previousFlashBlock.TransactionTraces[1].Nonce)
+	require.NotNil(t, tracer.previousVersionOfFlashBlock)
+	require.Len(t, tracer.previousVersionOfFlashBlock.TransactionTraces, 2)
+	assert.Equal(t, uint64(1), tracer.previousVersionOfFlashBlock.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.previousVersionOfFlashBlock.TransactionTraces[1].Nonce)
 
 	// Test 2: Second flash block with same number, different index
 	flashEvent2 := tracing.BlockEvent{
@@ -658,17 +658,17 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 
 	// Test 3: Verify the final block contains all transactions in correct order
 	// Should have: [tx1, tx2] (from first flash block) + [tx3, tx4] (from second flash block)
-	require.NotNil(t, tracer.previousFlashBlock)
-	require.Len(t, tracer.previousFlashBlock.TransactionTraces, 4)
+	require.NotNil(t, tracer.previousVersionOfFlashBlock)
+	require.Len(t, tracer.previousVersionOfFlashBlock.TransactionTraces, 4)
 
 	// Verify transaction order: first flash block transactions come first
-	assert.Equal(t, uint64(1), tracer.previousFlashBlock.TransactionTraces[0].Nonce)
-	assert.Equal(t, uint64(2), tracer.previousFlashBlock.TransactionTraces[1].Nonce)
-	assert.Equal(t, uint64(3), tracer.previousFlashBlock.TransactionTraces[2].Nonce)
-	assert.Equal(t, uint64(4), tracer.previousFlashBlock.TransactionTraces[3].Nonce)
+	assert.Equal(t, uint64(1), tracer.previousVersionOfFlashBlock.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.previousVersionOfFlashBlock.TransactionTraces[1].Nonce)
+	assert.Equal(t, uint64(3), tracer.previousVersionOfFlashBlock.TransactionTraces[2].Nonce)
+	assert.Equal(t, uint64(4), tracer.previousVersionOfFlashBlock.TransactionTraces[3].Nonce)
 
 	// Verify the block header is from the second flash block (latest)
-	assert.Equal(t, block1.NumberU64(), tracer.previousFlashBlock.Number)
+	assert.Equal(t, block1.NumberU64(), tracer.previousVersionOfFlashBlock.Number)
 }
 
 func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
@@ -824,7 +824,7 @@ func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 	tracer.OnBlockEnd(nil)
 
 	// Verify currentFlashBlock is set
-	require.NotNil(t, tracer.previousFlashBlock)
+	require.NotNil(t, tracer.previousVersionOfFlashBlock)
 	require.False(t, tracer.blockIsFlashBlock)
 
 	// Start regular block (non-flash)
@@ -836,7 +836,7 @@ func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 	require.False(t, tracer.blockIsFlashBlock)
 
 	// Verify currentFlashBlock is NOT reset
-	assert.NotNil(t, tracer.previousFlashBlock)
+	assert.NotNil(t, tracer.previousVersionOfFlashBlock)
 	assert.Equal(t, uint64(1), tracer.flashBlockIndex)
 
 	tracer.OnBlockEnd(nil)
