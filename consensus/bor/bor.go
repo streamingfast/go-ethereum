@@ -1032,16 +1032,6 @@ func (c *Bor) Prepare(chain consensus.ChainHeaderReader, header *types.Header) e
 
 	if header.Time < uint64(time.Now().Unix()) {
 		header.Time = uint64(time.Now().Unix())
-	} else {
-		// For primary validators, wait until the current block production window
-		// starts. This prevents bor from starting to build next block before time
-		// as we'd like to wait for new transactions. Although this change doesn't
-		// need a check for hard fork as it doesn't change any consensus rules, we
-		// still keep it for safety and testing.
-		if c.config.IsBhilai(big.NewInt(int64(number))) && succession == 0 {
-			startTime := header.GetActualTime().Add(-time.Duration(c.config.CalculatePeriod(number)) * time.Second)
-			time.Sleep(time.Until(startTime))
-		}
 	}
 
 	return nil
