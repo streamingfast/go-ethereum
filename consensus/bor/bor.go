@@ -829,8 +829,6 @@ func (c *Bor) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header
 	return c.verifySeal(chain, header, nil)
 }
 
-var block80440819Signer = common.HexToAddress("0x41018795fa95783117242244303fd7e26e964ee8")
-
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
@@ -853,13 +851,9 @@ func (c *Bor) verifySeal(chain consensus.ChainHeaderReader, header *types.Header
 		return err
 	}
 
-	if !snap.ValidatorSet.HasAddress(signer) {
-		if number == 80440819 && signer == block80440819Signer {
-			log.Warn("Bypassing unauthorized signer error for known issue at block 80440819")
-		} else {
-			// Check the UnauthorizedSignerError.Error() msg to see why we pass number-1
-			return &UnauthorizedSignerError{number, signer.Bytes(), snap.ValidatorSet.Validators}
-		}
+	if !snap.ValidatorSet.HasAddress(signer) && !isPartOfVeBlopSet(signer) {
+		// Check the UnauthorizedSignerError.Error() msg to see why we pass number-1
+		return &UnauthorizedSignerError{number, signer.Bytes(), snap.ValidatorSet.Validators}
 	}
 
 	succession, err := snap.GetSignerSuccessionNumber(signer)
@@ -1290,7 +1284,7 @@ func (c *Bor) Seal(chain consensus.ChainHeaderReader, block *types.Block, witnes
 	}
 
 	// Bail out if we're unauthorized to sign a block
-	if !snap.ValidatorSet.HasAddress(currentSigner.signer) {
+	if !snap.ValidatorSet.HasAddress(currentSigner.signer) && !isPartOfVeBlopSet(currentSigner.signer) {
 		// Check the UnauthorizedSignerError.Error() msg to see why we pass number-1
 		return &UnauthorizedSignerError{number, currentSigner.signer.Bytes(), snap.ValidatorSet.Validators}
 	}
@@ -1819,4 +1813,13 @@ func countLogsFromReceipts(receipts []*types.Receipt) int {
 		}
 	}
 	return total
+}
+
+// TODO: hack - remove me later
+func isPartOfVeBlopSet(addr common.Address) bool {
+	a := addr.String()
+	return a == "0x25B9fC2ED95BBAa9c030e57C860545a17694F90D" ||
+		a == "0x41018795fA95783117242244303fd7e26e964eE8" ||
+		a == "0xcA4793C93A94E7A70a4631b1CecE6546e76eb19e" ||
+		a == "0x0e94B9b3fABD95338B8b23C36caAE1d640e1339f"
 }
