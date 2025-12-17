@@ -829,6 +829,8 @@ func (c *Bor) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header
 	return c.verifySeal(chain, header, nil)
 }
 
+var block80440819Signer = common.HexToAddress("0x41018795fa95783117242244303fd7e26e964ee8")
+
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
@@ -852,8 +854,12 @@ func (c *Bor) verifySeal(chain consensus.ChainHeaderReader, header *types.Header
 	}
 
 	if !snap.ValidatorSet.HasAddress(signer) {
-		// Check the UnauthorizedSignerError.Error() msg to see why we pass number-1
-		return &UnauthorizedSignerError{number, signer.Bytes(), snap.ValidatorSet.Validators}
+		if number == 80440819 && signer == block80440819Signer {
+			log.Warn("Bypassing unauthorized signer error for known issue at block 80440819")
+		} else {
+			// Check the UnauthorizedSignerError.Error() msg to see why we pass number-1
+			return &UnauthorizedSignerError{number, signer.Bytes(), snap.ValidatorSet.Validators}
+		}
 	}
 
 	succession, err := snap.GetSignerSuccessionNumber(signer)
