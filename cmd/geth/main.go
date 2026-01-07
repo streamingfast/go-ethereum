@@ -76,6 +76,8 @@ var (
 		utils.OverrideLorentz,
 		utils.OverrideMaxwell,
 		utils.OverrideFermi,
+		utils.OverrideOsaka,
+		utils.OverrideMendel,
 		utils.OverrideVerkle,
 		utils.OverrideFullImmutabilityThreshold,
 		utils.OverrideMinBlocksForBlobRequests,
@@ -96,6 +98,7 @@ var (
 		utils.TxPoolOverflowPoolSlotsFlag,
 		utils.TxPoolLifetimeFlag,
 		utils.TxPoolReannounceTimeFlag,
+		utils.MinerTxGasLimitFlag,
 		utils.BlobPoolDataDirFlag,
 		utils.BlobPoolDataCapFlag,
 		utils.BlobPoolPriceBumpFlag,
@@ -128,7 +131,7 @@ var (
 		utils.CacheSnapshotFlag,
 		// utils.CacheNoPrefetchFlag,
 		utils.CachePreimagesFlag,
-		utils.MultiDataBaseFlag,
+		// utils.MultiDataBaseFlag,
 		utils.PruneAncientDataFlag, // deprecated
 		utils.CacheLogSizeFlag,
 		utils.FDLimitFlag,
@@ -453,9 +456,19 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 	// Start auxiliary services if enabled
 	ethBackend, ok := backend.(*eth.EthAPIBackend)
 	gasCeil := ethBackend.Miner().GasCeil()
+	maxTxGas := uint64(0)
 	if gasCeil > params.SystemTxsGasSoftLimit {
-		ethBackend.TxPool().SetMaxGas(gasCeil - params.SystemTxsGasSoftLimit)
+		maxTxGas = gasCeil - params.SystemTxsGasSoftLimit
 	}
+	if txGasLimit := ethBackend.Miner().TxGasLimit(); txGasLimit > 0 {
+		if maxTxGas == 0 || txGasLimit < maxTxGas {
+			maxTxGas = txGasLimit
+		}
+	}
+	if maxTxGas > 0 {
+		ethBackend.TxPool().SetMaxGas(maxTxGas)
+	}
+
 	if ctx.Bool(utils.MiningEnabledFlag.Name) {
 		// Mining only makes sense if a full Ethereum node is running
 		if ctx.String(utils.SyncModeFlag.Name) == "light" {

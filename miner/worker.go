@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -298,6 +299,12 @@ func (w *worker) getGasCeil() uint64 {
 	w.confMu.Lock()
 	defer w.confMu.Unlock()
 	return w.config.GasCeil
+}
+
+func (w *worker) getTxGasLimit() uint64 {
+	w.confMu.RLock()
+	defer w.confMu.RUnlock()
+	return w.config.TxGasLimit
 }
 
 // setExtra sets the content used to initialize the block extra field.
@@ -589,15 +596,12 @@ func (w *worker) resultLoop() {
 			if prev, ok := w.recentMinedBlocks.Get(block.NumberU64()); ok {
 				doubleSign := false
 				prevParents := prev
-				for _, prevParent := range prevParents {
-					if prevParent == block.ParentHash() {
-						log.Error("Reject Double Sign!!", "block", block.NumberU64(),
-							"hash", block.Hash(),
-							"root", block.Root(),
-							"ParentHash", block.ParentHash())
-						doubleSign = true
-						break
-					}
+				if slices.Contains(prevParents, block.ParentHash()) {
+					log.Error("Reject Double Sign!!", "block", block.NumberU64(),
+						"hash", block.Hash(),
+						"root", block.Root(),
+						"ParentHash", block.ParentHash())
+					doubleSign = true
 				}
 				if doubleSign {
 					continue
@@ -1042,6 +1046,10 @@ func (w *worker) fillTransactions(interruptCh chan int32, env *environment, stop
 	}
 	if env.header.ExcessBlobGas != nil {
 		filter.BlobFee = uint256.MustFromBig(eip4844.CalcBlobFee(w.chainConfig, env.header))
+	}
+
+	if cap := w.getTxGasLimit(); cap > 0 {
+		filter.GasLimitCap = cap
 	}
 
 	filter.OnlyPlainTxs, filter.OnlyBlobTxs = true, false
