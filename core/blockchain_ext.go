@@ -49,13 +49,14 @@ func (bc *BlockChain) logFinalizedHeaderMismatch(prefix string, current *types.H
 		return
 	}
 
-	if finalizedRelative.Number != current.Number || finalizedRelative.Hash() != current.Hash() {
-		log.Info(fmt.Sprintf("CurrentFinalBlock() and GetFinalizedHeader(tracedBlock) differs %s", prefix),
-			"current", (*headerView)(current),
-			"relative", (*headerView)(finalizedRelative),
-			"relative_against", (*longHeaderView)(against),
-		)
-	}
+	// removed this heavy log: this seems to be a normal condition
+	//if finalizedRelative.Number != current.Number || finalizedRelative.Hash() != current.Hash() {
+	//	log.Info(fmt.Sprintf("CurrentFinalBlock() and GetFinalizedHeader(tracedBlock) differs %s", prefix),
+	//		"current", (*headerView)(current),
+	//		"relative", (*headerView)(finalizedRelative),
+	//		"relative_against", (*longHeaderView)(against),
+	//	)
+	//}
 }
 
 type headerView types.Header
