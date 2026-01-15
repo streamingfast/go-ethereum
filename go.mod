@@ -1,6 +1,6 @@
 module github.com/ethereum/go-ethereum
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
@@ -25,6 +25,7 @@ require (
 	github.com/deckarep/golang-set/v2 v2.6.0
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/dop251/goja v0.0.0-20230806174421-c933cf95e127
+	github.com/emmansun/base64 v0.8.0
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0
 	github.com/ethereum/go-verkle v0.2.2
 	github.com/fatih/color v1.16.0
