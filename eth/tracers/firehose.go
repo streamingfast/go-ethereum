@@ -1958,7 +1958,7 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	bufferSize := headerSize + int(base64Size)
 	buf := bytes.NewBuffer(make([]byte, 0, bufferSize))
 
-	marshalled, err := proto.Marshal(block)
+	marshalled, err := block.MarshalVT()
 
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal block: %w", err))
