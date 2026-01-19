@@ -2,7 +2,6 @@ package tracers
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/emmansun/base64"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -31,7 +31,6 @@ import (
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"golang.org/x/exp/maps"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -1587,7 +1586,7 @@ func (f *Firehose) panicInvalidState(msg string, callerSkip int) string {
 //
 // It flushes this through [flushToFirehose] to the `os.Stdout` writer.
 func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *FinalityStatus) {
-	marshalled, err := proto.Marshal(block)
+	marshalled, err := block.MarshalVT()
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal block: %w", err))
 	}
