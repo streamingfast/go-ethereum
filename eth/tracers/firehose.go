@@ -3,7 +3,6 @@ package tracers
 import (
 	"bytes"
 	"cmp"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/emmansun/base64"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -2006,7 +2006,7 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	bufferSize := headerSize + int(base64Size)
 	buf := bytes.NewBuffer(make([]byte, 0, bufferSize))
 
-	marshalled, err := proto.Marshal(block)
+	marshalled, err := block.MarshalVT()
 
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal block: %w", err))
