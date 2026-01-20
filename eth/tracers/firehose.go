@@ -398,8 +398,15 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 	// Hash is usually pre-computed within `event.Block`, so it's better to take from there
 	hash := block.Hash()
+
 	// FIXME: Avoid calling 'Header()', it makes a copy while accessing event.Block getters directly avoids it
 	header := block.Header()
+	oldRoot := header.Root
+	header.Root = common.Hash{}
+
+	secondHash := header.Hash()
+	fmt.Printf("Block %d: Hash:%s, hash without root: %s:", event.Block.NumberU64(), hash.String(), secondHash.String())
+	header.Root = oldRoot
 
 	// There was a lot of "over time" bugs introduced in Firehose 2.x, e.g. bugs that were fixed or
 	// introduced in a version without even knowing it. This means that for example, reprocessing
