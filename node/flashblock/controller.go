@@ -427,6 +427,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 				c.state.ExecutableData.GasLimit,
 			)
 			c.state.Processor.Reset(c.state.ExecutableData.GasLimit)
+			c.previousStateDB = nil
 		}
 	}
 

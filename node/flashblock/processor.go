@@ -24,14 +24,13 @@ type StateProcessor struct {
 	signer types.Signer
 
 	// State accumulation
-	statedb              *state.StateDB // State database to apply changes to, incrementally
-	usedGas              *uint64        // Total gas used so far, incrementally
-	allLogs              []*types.Log
-	receipts             types.Receipts
-	requests             [][]byte
-	gp                   *core.GasPool
-	lastTxIndex          *uint64
-	lastPostTxSnapshotID int
+	statedb     *state.StateDB // State database to apply changes to, incrementally
+	usedGas     *uint64        // Total gas used so far, incrementally
+	allLogs     []*types.Log
+	receipts    types.Receipts
+	requests    [][]byte
+	gp          *core.GasPool
+	lastTxIndex *uint64
 }
 
 func NewStateProcessor(
@@ -54,7 +53,6 @@ func NewStateProcessor(
 }
 
 func (p *StateProcessor) Reset(gasLimit uint64) {
-	p.lastPostTxSnapshotID = 0
 	p.lastTxIndex = nil
 	p.usedGas = new(uint64)
 	p.requests = [][]byte{}
