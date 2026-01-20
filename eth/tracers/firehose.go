@@ -405,7 +405,7 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	header.Root = common.Hash{}
 
 	secondHash := header.Hash()
-	fmt.Printf("Block %d: Hash:%s, hash without root: %s:", event.Block.NumberU64(), hash.String(), secondHash.String())
+	fmt.Printf("Block %d: Hash:%s, hash without root: %s:\n", event.Block.NumberU64(), hash.String(), secondHash.String())
 	header.Root = oldRoot
 
 	// There was a lot of "over time" bugs introduced in Firehose 2.x, e.g. bugs that were fixed or
