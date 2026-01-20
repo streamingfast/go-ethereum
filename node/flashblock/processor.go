@@ -53,6 +53,14 @@ func NewStateProcessor(
 	}
 }
 
+func (p *StateProcessor) Reset(gasLimit uint64) {
+	p.lastPostTxSnapshotID = 0
+	p.lastTxIndex = nil
+	p.usedGas = new(uint64)
+	p.requests = [][]byte{}
+	p.gp = new(core.GasPool).AddGas(gasLimit)
+}
+
 type txmsg struct {
 	msg  *core.Message
 	tx   *types.Transaction
@@ -62,7 +70,7 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-func (p *StateProcessor) Process(block *types.Block, cfg vm.Config) (*core.ProcessResult, error) {
+func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartial bool) (*core.ProcessResult, error) {
 	var (
 		header      = block.Header()
 		blockHash   = block.Hash()
@@ -168,40 +176,41 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config) (*core.Proce
 		*p.lastTxIndex += uint64(len(transactions))
 	}
 
-	// Let's not deal with the requests parts for now.
-	// isIsthmus := p.config.IsIsthmus(block.Time())
+	if isLastPartial {
+		isIsthmus := p.config.IsIsthmus(block.Time())
 
-	// secondStateDB := p.statedb.Copy()
-	// evm.StateDB = secondStateDB
+		secondStateDB := p.statedb.Copy()
+		evm.StateDB = secondStateDB
 
-	// // Read requests if Prague is enabled.
-	// var requests [][]byte
-	// if p.config.IsPrague(block.Number(), block.Time()) && !isIsthmus {
-	// 	requests = [][]byte{}
-	// 	// EIP-6110
-	// 	if err := core.ParseDepositLogs(&requests, p.allLogs, p.config); err != nil {
-	// 		return nil, fmt.Errorf("failed to parse deposit logs: %w", err)
-	// 	}
+		// Read requests if Prague is enabled.
+		var requests [][]byte
+		if p.config.IsPrague(block.Number(), block.Time()) && !isIsthmus {
+			requests = [][]byte{}
+			// EIP-6110
+			if err := core.ParseDepositLogs(&requests, p.allLogs, p.config); err != nil {
+				return nil, fmt.Errorf("failed to parse deposit logs: %w", err)
+			}
 
-	// 	// EIP-7002
-	// 	if err := core.ProcessWithdrawalQueue(&requests, evm); err != nil {
-	// 		return nil, fmt.Errorf("failed to process withdrawal queue: %w", err)
-	// 	}
-	// 	// EIP-7251
-	// 	if err := core.ProcessConsolidationQueue(&requests, evm); err != nil {
-	// 		return nil, fmt.Errorf("failed to process consolidation queue: %w", err)
-	// 	}
+			// EIP-7002
+			if err := core.ProcessWithdrawalQueue(&requests, evm); err != nil {
+				return nil, fmt.Errorf("failed to process withdrawal queue: %w", err)
+			}
+			// EIP-7251
+			if err := core.ProcessConsolidationQueue(&requests, evm); err != nil {
+				return nil, fmt.Errorf("failed to process consolidation queue: %w", err)
+			}
 
-	// 	// Accumulate the requests for the full block
-	// 	p.requests = append(p.requests, requests...)
-	// }
+			// Accumulate the requests for the full block
+			p.requests = append(p.requests, requests...)
+		}
 
-	// if isIsthmus {
-	// 	requests = [][]byte{}
-	// }
+		if isIsthmus {
+			requests = [][]byte{}
+		}
 
-	// // Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	// p.chain.Engine().Finalize(p.chain, header, secondStateDB, block.Body())
+		// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
+		p.chain.Engine().Finalize(p.chain, header, secondStateDB, block.Body())
+	}
 
 	return &core.ProcessResult{
 		Receipts: p.receipts,

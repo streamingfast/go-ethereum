@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,7 +31,6 @@ func init() {
 
 	envVal := os.Getenv("FLASHBLOCKS_ONLY_IDX")
 	if envVal == "" {
-		flashblocksOnlyIdx[5] = true // halfway
 		return
 	}
 
@@ -60,8 +60,9 @@ type Controller struct {
 	provider ProtocolMessageProvider
 	logger   log.Logger
 
-	mu    sync.RWMutex
-	state *Sequence
+	mu              sync.RWMutex
+	state           *Sequence
+	previousStateDB *state.StateDB
 
 	// Lifecycle management
 	ctx      context.Context
@@ -163,6 +164,19 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
+		if c.state != nil && !c.state.Skipping && msg.Static != nil {
+			// first we re-send previous block with the right hash
+			c.state.ExecutableData.BlockHash = msg.Static.ParentHash
+			c.state.CurrentIndex++
+			c.state.MessageCount++
+			if err := c.executeAndValidateBlock(true); err != nil {
+				c.logger.Error("Failed to execute and validate previous block with correct hash", "error", err, "index", msg.Index)
+				return err
+			}
+			// store final stateDB of previous block if
+			c.previousStateDB = c.getStateDB(uint64(msg.Static.BlockNumber))
+		}
+
 		c.resetState(msg)
 
 		if delay := time.Since(time.Unix(int64(msg.Static.Timestamp), 0)); delay > 0 {
@@ -217,7 +231,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// Ready for execution - execute and validate the block only if index is allowed
 	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
-		if err := c.executeAndValidateBlock(); err != nil {
+		if err := c.executeAndValidateBlock(false); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 			return err
 		}
@@ -307,37 +321,90 @@ func (c *Controller) applyDiff(diff *ExecutionPayloadFlashblockDeltaV1) {
 	}
 }
 
+func (c *Controller) getStateDB(curBlockNumber uint64) *state.StateDB {
+	if c == nil {
+		return nil
+	}
+	if c.state == nil {
+		return nil
+	}
+	if c.state.Processor == nil {
+		return nil
+	}
+	if c.state.Processor.statedb == nil {
+		return nil
+	}
+	if c.state.ExecutableData.Number+1 != curBlockNumber {
+		return nil
+	}
+
+	c.logger.Info("got statedb from previous block", "block_num", c.state.ExecutableData.Number)
+	return c.state.Processor.statedb // we keep that statedb for now
+}
+
+func (c *Controller) getParentStateDB() (*state.StateDB, error) {
+	// Check if parent block and state exist
+	parentBlock := c.chain.GetBlock(c.state.ExecutableData.ParentHash, c.state.ExecutableData.Number-1)
+	if parentBlock == nil {
+		c.logger.Info("Parent block not found, skipping execution",
+			"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
+			"parent_number", c.state.ExecutableData.Number-1,
+		)
+		return nil, nil
+	}
+
+	parentStateDB, err := c.chain.StateAt(parentBlock.Root())
+	if err != nil {
+		if errors.Is(err, errors.New("not found")) {
+			c.logger.Info("parent state not found, skipping execution",
+				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
+				"parent_number", c.state.ExecutableData.Number-1,
+			)
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("failed to get parent state: hash=%s, number=%d",
+			c.state.ExecutableData.ParentHash.Hex(), c.state.ExecutableData.Number-1)
+	}
+	return parentStateDB, nil
+
+}
+
 // executeAndValidateBlock executes and validates the current flashblock state
 // Assumes the lock is already held by the caller
-func (c *Controller) executeAndValidateBlock() (err error) {
+func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 	stats := &flashblockStats{
 		blockHash:   c.state.ExecutableData.BlockHash,
 		blockNumber: c.state.ExecutableData.Number,
 	}
 
 	if c.state.Processor == nil {
-		// Check if parent block and state exist
-		parentBlock := c.chain.GetBlock(c.state.ExecutableData.ParentHash, c.state.ExecutableData.Number-1)
-		if parentBlock == nil {
-			c.logger.Info("Parent block not found, skipping execution",
-				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
-				"parent_number", c.state.ExecutableData.Number-1,
-			)
-			return nil
+		parentStateDB, err := c.getParentStateDB()
+		if err != nil {
+			return err
 		}
 
-		parentStateDB, err := c.chain.StateAt(parentBlock.Root())
-		if err != nil {
-			if errors.Is(err, errors.New("not found")) {
-				c.logger.Info("parent state not found, skipping execution",
+		if parentStateDB == nil {
+			// we use previous stateDB for the first flash blocks when we are not ready
+			if c.previousStateDB != nil {
+				parentStateDB = c.previousStateDB
+				c.logger.Info("Using previous stateDB for first flash block",
+					"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
+					"parent_number", c.state.ExecutableData.Number-1,
+				)
+			} else {
+				c.logger.Info("Parent block not found, skipping execution",
 					"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
 					"parent_number", c.state.ExecutableData.Number-1,
 				)
 				return nil
 			}
-
-			return fmt.Errorf("failed to get parent state: hash=%s, number=%d",
-				c.state.ExecutableData.ParentHash.Hex(), c.state.ExecutableData.Number-1)
+		} else {
+			c.logger.Debug("Got stateDB from chain state",
+				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
+				"parent_number", c.state.ExecutableData.Number-1,
+			)
+			c.previousStateDB = nil
 		}
 
 		c.state.Processor = NewStateProcessor(
@@ -349,6 +416,18 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			c.state.ExecutableData.Timestamp,
 			c.state.ExecutableData.GasLimit,
 		)
+	} else if c.previousStateDB != nil {
+		if parentStateDB, err := c.getParentStateDB(); err == nil {
+			c.state.Processor = NewStateProcessor(
+				c.chain.Config(),
+				c.chain.HeaderChain(),
+				parentStateDB,
+				new(big.Int).SetUint64(c.state.ExecutableData.Number),
+				c.state.ExecutableData.Timestamp,
+				c.state.ExecutableData.GasLimit,
+			)
+			c.state.Processor.Reset(c.state.ExecutableData.GasLimit)
+		}
 	}
 
 	chainConfig := c.chain.Config()
@@ -360,9 +439,17 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		requests = [][]byte{}
 	}
 
-	block, err := engine.ExecutableDataToBlock(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
-	if err != nil {
-		return fmt.Errorf("failed to convert executable data to block: %w", err)
+	var block *types.Block
+	if isLastPartial {
+		block, err = engine.ExecutableDataToBlockNoHash(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
+		if err != nil {
+			return fmt.Errorf("failed to convert executable data to block: %w", err)
+		}
+	} else {
+		block, err = engine.ExecutableDataToBlock(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
+		if err != nil {
+			return fmt.Errorf("failed to convert executable data to block: %w", err)
+		}
 	}
 
 	c.logger.Info("Converted flashblock to block",
@@ -385,6 +472,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			stats.err = err
 			if r := recover(); r != nil {
 				stats.err = errors.Join(err, fmt.Errorf("panic during block execution: %v", r))
+				debug.PrintStack()
 			}
 
 			c.tracer.OnBlockEnd(stats.err)
@@ -395,7 +483,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		startProcess := time.Now()
 		result, err := c.state.Processor.Process(block, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
-		})
+		}, isLastPartial)
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)
