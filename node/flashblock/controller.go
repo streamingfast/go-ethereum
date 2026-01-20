@@ -346,20 +346,12 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 	// Check if parent block and state exist
 	parentBlock := c.chain.GetBlock(c.state.ExecutableData.ParentHash, c.state.ExecutableData.Number-1)
 	if parentBlock == nil {
-		c.logger.Info("Parent block not found, skipping execution",
-			"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
-			"parent_number", c.state.ExecutableData.Number-1,
-		)
 		return nil, nil
 	}
 
 	parentStateDB, err := c.chain.StateAt(parentBlock.Root())
 	if err != nil {
 		if errors.Is(err, errors.New("not found")) {
-			c.logger.Info("parent state not found, skipping execution",
-				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
-				"parent_number", c.state.ExecutableData.Number-1,
-			)
 			return nil, nil
 		}
 
@@ -417,7 +409,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 			c.state.ExecutableData.GasLimit,
 		)
 	} else if c.previousStateDB != nil {
-		if parentStateDB, err := c.getParentStateDB(); err == nil {
+		if parentStateDB, _ := c.getParentStateDB(); parentStateDB != nil {
 			c.state.Processor = NewStateProcessor(
 				c.chain.Config(),
 				c.chain.HeaderChain(),
