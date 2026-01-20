@@ -208,6 +208,8 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 
 		// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 		p.chain.Engine().Finalize(p.chain, header, secondStateDB, block.Body())
+
+		header.Root = p.statedb.IntermediateRoot(true)
 	}
 
 	return &core.ProcessResult{
