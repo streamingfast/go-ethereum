@@ -510,6 +510,7 @@ func (f *Firehose) SetStateRoot(stateRoot common.Hash) {
 
 func (f *Firehose) SetHash(hash common.Hash) {
 	f.block.Hash = hash.Bytes()
+	f.block.Header.Hash = hash.Bytes()
 }
 
 func (f *Firehose) OnBlockEnd(err error) {
