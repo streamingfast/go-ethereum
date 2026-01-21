@@ -165,20 +165,13 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
 		if c.state != nil && !c.state.Skipping && msg.Static != nil {
-			// first we re-send previous block with the right hash
-			c.state.ExecutableData.BlockHash = msg.Static.ParentHash
-			c.state.CurrentIndex++
-			c.state.MessageCount++
-			if err := c.executeAndValidateBlock(true); err != nil {
-				c.logger.Error("Failed to execute and validate previous block with correct hash", "error", err, "index", msg.Index)
-				return err
-			}
 			// store final stateDB of previous block if
 			c.previousStateDB = c.getStateDB(uint64(msg.Static.BlockNumber))
+		} else {
+			c.previousStateDB = nil
 		}
 
 		c.resetState(msg)
-
 		if delay := time.Since(time.Unix(int64(msg.Static.Timestamp), 0)); delay > 0 {
 			c.logger.Info("Skipping flashblock because we are too far behind: %dms", delay.Milliseconds())
 			c.state.Skipping = true
@@ -231,7 +224,10 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// Ready for execution - execute and validate the block only if index is allowed
 	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
-		if err := c.executeAndValidateBlock(false); err != nil {
+		if msg.Index > 10 {
+			c.logger.Error("Flash Block Index out of range", "index", msg.Index)
+		}
+		if err := c.executeAndValidateBlock(msg.Index == 10); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 			return err
 		}
@@ -449,6 +445,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 		"block_number", block.NumberU64(),
 		"block_hash", block.Hash().TerminalString(),
 		"tx_count", len(block.Transactions()),
+		"is_last_partial", isLastPartial,
 	)
 
 	currentIndex := c.state.CurrentIndex
