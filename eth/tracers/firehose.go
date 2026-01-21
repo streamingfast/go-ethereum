@@ -504,6 +504,14 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 	}
 }
 
+func (f *Firehose) SetStateRoot(stateRoot common.Hash) {
+	f.block.Header.StateRoot = stateRoot.Bytes()
+}
+
+func (f *Firehose) SetHash(hash common.Hash) {
+	f.block.Hash = hash.Bytes()
+}
+
 func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 

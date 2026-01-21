@@ -21,6 +21,7 @@ type Sequence struct {
 	// Flashblock-specific fields
 	PayloadID             hexutil.Bytes
 	ParentBeaconBlockRoot *common.Hash
+	ProcessedLastBlock    bool
 
 	CurrentIndex uint64
 	MessageCount uint64

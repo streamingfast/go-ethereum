@@ -68,11 +68,14 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartial bool) (*core.ProcessResult, error) {
+// on last partial block, it will also return the calculated stateRoot of that block and new block hash
+func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartial bool) (*core.ProcessResult, *common.Hash, *common.Hash, error) {
 	var (
-		header      = block.Header()
-		blockHash   = block.Hash()
-		blockNumber = block.Number()
+		header       = block.Header()
+		blockHash    = block.Hash()
+		blockNumber  = block.Number()
+		stateRoot    *common.Hash
+		newBlockHash *common.Hash // tweaked with the calculated stateRoot
 	)
 
 	isFirstExecution := p.lastTxIndex == nil
@@ -153,7 +156,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 	// Check for errors
 	close(errChan)
 	if len(errChan) > 0 {
-		return nil, <-errChan
+		return nil, nil, nil, <-errChan
 	}
 
 	// Process the individual transactions using prepared txmsgs
@@ -161,7 +164,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		p.statedb.SetTxContext(txmsg.hash, i)
 		receipt, err := core.ApplyTransactionWithEVM(txmsg.msg, p.gp, p.statedb, blockNumber, blockHash, context.Time, txmsg.tx, p.usedGas, evm)
 		if err != nil {
-			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, txmsg.hash.Hex(), err)
+			return nil, nil, nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, txmsg.hash.Hex(), err)
 		}
 		p.receipts = append(p.receipts, receipt)
 		p.allLogs = append(p.allLogs, receipt.Logs...)
@@ -186,16 +189,16 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 			requests = [][]byte{}
 			// EIP-6110
 			if err := core.ParseDepositLogs(&requests, p.allLogs, p.config); err != nil {
-				return nil, fmt.Errorf("failed to parse deposit logs: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to parse deposit logs: %w", err)
 			}
 
 			// EIP-7002
 			if err := core.ProcessWithdrawalQueue(&requests, evm); err != nil {
-				return nil, fmt.Errorf("failed to process withdrawal queue: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to process withdrawal queue: %w", err)
 			}
 			// EIP-7251
 			if err := core.ProcessConsolidationQueue(&requests, evm); err != nil {
-				return nil, fmt.Errorf("failed to process consolidation queue: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to process consolidation queue: %w", err)
 			}
 
 			// Accumulate the requests for the full block
@@ -209,8 +212,12 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 		p.chain.Engine().Finalize(p.chain, header, secondStateDB, block.Body())
 
-		header.Root = p.statedb.IntermediateRoot(true)
-		fmt.Println("Partial block: ", header.Number.Uint64(), "state root", header.Root.String(), "corrected hash:", header.Hash().String())
+		s := p.statedb.IntermediateRoot(true)
+		header.Root = s
+		blockHash = header.Hash()
+		newBlockHash = &blockHash
+		stateRoot = &s
+		fmt.Println("Partial block: ", header.Number.Uint64(), "state root", header.Root.String(), "corrected hash:", stateRoot.String())
 	}
 
 	return &core.ProcessResult{
@@ -218,7 +225,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		Requests: nil,
 		Logs:     p.allLogs,
 		GasUsed:  *p.usedGas,
-	}, nil
+	}, stateRoot, newBlockHash, nil
 }
 
 // ValidateState validates the various changes that happen after a state transition,

@@ -164,7 +164,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
-		if c.state != nil && !c.state.Skipping && msg.Static != nil {
+		if c.state != nil && !c.state.Skipping && msg.Static != nil && c.state.ProcessedLastBlock {
 			// store final stateDB of previous block if
 			c.previousStateDB = c.getStateDB(uint64(msg.Static.BlockNumber))
 		} else {
@@ -227,9 +227,13 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 		if msg.Index > 10 {
 			c.logger.Error("Flash Block Index out of range", "index", msg.Index)
 		}
-		if err := c.executeAndValidateBlock(msg.Index == 10); err != nil {
+		isLastFlashBlock := msg.Index == 10
+		if err := c.executeAndValidateBlock(isLastFlashBlock); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 			return err
+		}
+		if isLastFlashBlock {
+			c.state.ProcessedLastBlock = true
 		}
 	} else {
 		c.logger.Debug("Skipping execution for index not in FLASHBLOCKS_ONLY_IDX", "index", msg.Index)
@@ -245,6 +249,7 @@ func (c *Controller) resetState(msg *FlashblocksPayloadV1) {
 	c.state.PayloadID = msg.PayloadID
 	c.state.CurrentIndex = 0
 	c.state.MessageCount = 1
+	c.state.ProcessedLastBlock = false
 
 	// Set base properties
 	if msg.Static != nil {
@@ -471,12 +476,19 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 		}()
 
 		startProcess := time.Now()
-		result, err := c.state.Processor.Process(block, vm.Config{
+		result, newStateRoot, newHash, err := c.state.Processor.Process(block, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
 		}, isLastPartial)
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)
+		}
+
+		if newStateRoot != nil {
+			c.tracer.SetStateRoot(*newStateRoot)
+		}
+		if newHash != nil {
+			c.tracer.SetHash(*newHash)
 		}
 
 		startValidate := time.Now()
