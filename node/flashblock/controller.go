@@ -205,7 +205,11 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// Verify this is the expected next index
 	if msg.Index != c.state.CurrentIndex+1 {
-		return fmt.Errorf("received unexpected index %d, expected %d", msg.Index, c.state.CurrentIndex+1)
+		c.logger.Warn("Did not receive expected index message",
+			"expected", c.state.CurrentIndex+1,
+			"received", msg.Index)
+		c.state.Skipping = true
+		return nil
 	}
 
 	// Verify payload ID matches
@@ -213,6 +217,8 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 		c.logger.Warn("Payload ID mismatch, may indicate new block sequence",
 			"current", c.state.PayloadID.String(),
 			"received", msg.PayloadID.String())
+		c.state.Skipping = true
+		return nil
 	}
 
 	// We would need to offload that processing to a separate goroutine to stop blocking the
@@ -421,6 +427,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 			)
 			c.state.Processor.Reset(c.state.ExecutableData.GasLimit)
 			c.previousStateDB = nil
+			c.tracer.ResetCurrentFlashBlock()
 		}
 	}
 

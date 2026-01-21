@@ -504,6 +504,13 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 	}
 }
 
+// ResetCurrentFlashBlock resets the current flash block state.
+func (f *Firehose) ResetCurrentFlashBlock() {
+	f.previousVersionOfFlashBlock = nil
+	f.flashBlockIndex = 0
+	f.blockIsFlashBlock = false
+}
+
 func (f *Firehose) SetStateRoot(stateRoot common.Hash) {
 	f.block.Header.StateRoot = stateRoot.Bytes()
 }
