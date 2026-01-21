@@ -210,6 +210,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		p.chain.Engine().Finalize(p.chain, header, secondStateDB, block.Body())
 
 		header.Root = p.statedb.IntermediateRoot(true)
+		fmt.Println("Partial block: ", header.Number.Uint64(), "state root", header.Root.String(), "corrected hash:", header.Hash().String())
 	}
 
 	return &core.ProcessResult{
