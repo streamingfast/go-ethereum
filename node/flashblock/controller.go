@@ -371,7 +371,7 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 
 // executeAndValidateBlock executes and validates the current flashblock state
 // Assumes the lock is already held by the caller
-func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
+func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) {
 	stats := &flashblockStats{
 		blockHash:   c.state.ExecutableData.BlockHash,
 		blockNumber: c.state.ExecutableData.Number,
@@ -441,7 +441,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 	}
 
 	var block *types.Block
-	if isLastPartial {
+	if isLastFlashBlock {
 		block, err = engine.ExecutableDataToBlockNoHash(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
 		if err != nil {
 			return fmt.Errorf("failed to convert executable data to block: %w", err)
@@ -457,7 +457,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 		"block_number", block.NumberU64(),
 		"block_hash", block.Hash().TerminalString(),
 		"tx_count", len(block.Transactions()),
-		"is_last_partial", isLastPartial,
+		"is_last_flash_block", isLastFlashBlock,
 	)
 
 	currentIndex := c.state.CurrentIndex
@@ -477,6 +477,9 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 				debug.PrintStack()
 			}
 
+			if isLastFlashBlock {
+				c.tracer.SetLastFlashBlock() // tell the firehose tracer that this is the last flash block
+			}
 			c.tracer.OnBlockEnd(stats.err)
 
 			c.reportFlashblockStats(stats)
@@ -485,7 +488,7 @@ func (c *Controller) executeAndValidateBlock(isLastPartial bool) (err error) {
 		startProcess := time.Now()
 		result, newStateRoot, newHash, err := c.state.Processor.Process(block, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
-		}, isLastPartial)
+		}, isLastFlashBlock)
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)

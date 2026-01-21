@@ -17,7 +17,7 @@ import (
 )
 
 // StateProcessor is a copy of [core.StateProcessor] adapted for flashblocks, e.g. that it's able to
-// process partial block and apply only the transactions included in the flashblock.
+// process flash block and apply only the transactions included in the flashblock.
 type StateProcessor struct {
 	config *params.ChainConfig // Chain configuration options
 	chain  *core.HeaderChain   // Canonical header chain
@@ -68,8 +68,8 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-// on last partial block, it will also return the calculated stateRoot of that block and new block hash
-func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartial bool) (*core.ProcessResult, *common.Hash, *common.Hash, error) {
+// on last flash block, it will also return the calculated stateRoot of that block and new block hash
+func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashBlock bool) (*core.ProcessResult, *common.Hash, *common.Hash, error) {
 	var (
 		header       = block.Header()
 		blockHash    = block.Hash()
@@ -177,7 +177,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		*p.lastTxIndex += uint64(len(transactions))
 	}
 
-	if isLastPartial {
+	if isLastFlashBlock {
 		isIsthmus := p.config.IsIsthmus(block.Time())
 
 		// Read requests if Prague is enabled.
@@ -214,7 +214,6 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		blockHash = header.Hash()
 		newBlockHash = &blockHash
 		stateRoot = &s
-		fmt.Println("Partial block: ", header.Number.Uint64(), "state root", header.Root.String(), "corrected hash:", stateRoot.String())
 	}
 
 	return &core.ProcessResult{

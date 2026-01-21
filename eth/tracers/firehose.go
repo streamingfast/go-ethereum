@@ -161,6 +161,7 @@ type Firehose struct {
 	previousFlashBlockOrdinal   uint64
 	flashBlockIndex             uint64
 	blockIsFlashBlock           bool
+	blockIsLastFlashblock       bool
 
 	blockBaseFee                *big.Int
 	blockOrdinal                *Ordinal
@@ -523,6 +524,11 @@ func (f *Firehose) SetHash(hash common.Hash) {
 	f.block.Header.Hash = hash.Bytes()
 }
 
+// this must be called right before OnBlockEnd
+func (f *Firehose) SetLastFlashBlock() {
+	f.blockIsLastFlashblock = true
+}
+
 func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
@@ -534,7 +540,7 @@ func (f *Firehose) OnBlockEnd(err error) {
 		f.previousFlashBlockOrdinal = f.blockOrdinal.Save()
 	}
 
-	if err == nil {
+	if err == nil && (!f.blockIsFlashBlock || f.blockIsLastFlashblock) { // only real blocks and lastFlashblock get this reordering
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
