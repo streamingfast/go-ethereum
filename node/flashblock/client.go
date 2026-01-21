@@ -135,45 +135,27 @@ func (c *Client) ReadMessage() (*FlashblocksPayloadV1, error) {
 
 	_, rawMessage, err := c.conn.ReadMessage()
 	if err != nil {
-		// Check if reconnection should be attempted
-		shouldReconnect := false
-		isTimeout := false
+		// Any error on an infinite stream means we need to reconnect
+		c.logger.Warn("WebSocket read error, attempting reconnection", "error", err)
 
-		// Check for timeout errors
-		if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-			c.logger.Warn("Read timeout, attempting reconnection", "timeout", c.readTimeout)
-			shouldReconnect = true
-			isTimeout = true
-		} else if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) ||
-			websocket.IsCloseError(err, websocket.CloseAbnormalClosure) {
-			c.logger.Warn("WebSocket connection lost, attempting reconnection", "error", err)
-			shouldReconnect = true
+		// Close the old connection
+		if c.conn != nil {
+			c.conn.Close()
+			c.conn = nil
 		}
 
-		if shouldReconnect {
-			// Close the old connection
-			if c.conn != nil {
-				c.conn.Close()
-				c.conn = nil
-			}
+		// Attempt to reconnect
+		ctx, cancel := context.WithTimeout(context.Background(), c.handshakeTimeout*time.Duration(c.maxRetries+1))
+		defer cancel()
 
-			// Attempt to reconnect
-			ctx, cancel := context.WithTimeout(context.Background(), c.handshakeTimeout*time.Duration(c.maxRetries+1))
-			defer cancel()
-
-			if reconnectErr := c.connectWithRetry(ctx); reconnectErr != nil {
-				return nil, fmt.Errorf("failed to reconnect after %s: %w",
-					map[bool]string{true: "timeout", false: "connection loss"}[isTimeout],
-					reconnectErr)
-			}
-
-			c.logger.Info("Successfully reconnected, note: messages may have been missed during reconnection")
-
-			// After reconnection, try reading again immediately
-			return c.ReadMessage()
+		if reconnectErr := c.connectWithRetry(ctx); reconnectErr != nil {
+			return nil, fmt.Errorf("failed to reconnect after error: %w", reconnectErr)
 		}
 
-		return nil, fmt.Errorf("failed to read WebSocket message: %w", err)
+		c.logger.Info("Successfully reconnected, note: messages may have been missed during reconnection")
+
+		// After reconnection, try reading again immediately
+		return c.ReadMessage()
 	}
 
 	return c.decodeMessage(rawMessage)

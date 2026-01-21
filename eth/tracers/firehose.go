@@ -529,6 +529,9 @@ func (f *Firehose) OnBlockEnd(err error) {
 	if f.blockIsFlashBlock {
 		f.previousVersionOfFlashBlock = f.block
 		f.previousFlashBlockOrdinal = f.blockOrdinal.Save()
+		if f.block.SystemCalls == nil {
+			f.block.SystemCalls = f.previousVersionOfFlashBlock.SystemCalls // take system calls from first partial
+		}
 	}
 
 	if err == nil {
