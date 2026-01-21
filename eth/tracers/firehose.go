@@ -158,6 +158,7 @@ type Firehose struct {
 	// Block state
 	block                       *pbeth.Block
 	previousVersionOfFlashBlock *pbeth.Block
+	previousFlashBlockOrdinal   uint64
 	flashBlockIndex             uint64
 	blockIsFlashBlock           bool
 
@@ -379,13 +380,14 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	if event.FlashBlock != nil {
 		block = event.FlashBlock.Block
 
-		// ensure that we flashblocks with same number have higher index
+		// ensure that flashblocks with same number have higher index
 		// ensure that flashblocks with different number are increasing
 		if f.previousVersionOfFlashBlock != nil {
 			if f.previousVersionOfFlashBlock.Number == block.NumberU64() {
 				if event.FlashBlock.Idx <= f.flashBlockIndex {
 					panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.previousVersionOfFlashBlock.Number, f.flashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
 				}
+				f.blockOrdinal.Restore(f.previousFlashBlockOrdinal)
 			} else {
 				f.previousVersionOfFlashBlock = nil // number has moved, discard previous version
 			}
@@ -509,6 +511,7 @@ func (f *Firehose) ResetCurrentFlashBlock() {
 	f.previousVersionOfFlashBlock = nil
 	f.flashBlockIndex = 0
 	f.blockIsFlashBlock = false
+	f.previousFlashBlockOrdinal = 0
 }
 
 func (f *Firehose) SetStateRoot(stateRoot common.Hash) {
@@ -525,6 +528,7 @@ func (f *Firehose) OnBlockEnd(err error) {
 
 	if f.blockIsFlashBlock {
 		f.previousVersionOfFlashBlock = f.block
+		f.previousFlashBlockOrdinal = f.blockOrdinal.Save()
 	}
 
 	if err == nil {
@@ -2411,6 +2415,14 @@ type Ordinal struct {
 // Reset resets the ordinal to zero.
 func (o *Ordinal) Reset() {
 	o.value = 0
+}
+
+func (o *Ordinal) Save() uint64 {
+	return o.value
+}
+
+func (o *Ordinal) Restore(v uint64) {
+	o.value = v
 }
 
 // Next gives you the next sequential ordinal value that you should

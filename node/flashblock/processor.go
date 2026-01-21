@@ -180,9 +180,6 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 	if isLastPartial {
 		isIsthmus := p.config.IsIsthmus(block.Time())
 
-		secondStateDB := p.statedb.Copy()
-		evm.StateDB = secondStateDB
-
 		// Read requests if Prague is enabled.
 		var requests [][]byte
 		if p.config.IsPrague(block.Number(), block.Time()) && !isIsthmus {
@@ -210,7 +207,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastPartia
 		}
 
 		// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-		p.chain.Engine().Finalize(p.chain, header, secondStateDB, block.Body())
+		p.chain.Engine().Finalize(p.chain, header, p.statedb, block.Body())
 
 		s := p.statedb.IntermediateRoot(true)
 		header.Root = s
