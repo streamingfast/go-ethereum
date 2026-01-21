@@ -108,9 +108,11 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashB
 
 	allTransactions := block.Transactions()
 
+	var idxDelta int
 	transactions := allTransactions
 	if !isFirstExecution {
 		transactions = allTransactions[*p.lastTxIndex:]
+		idxDelta = int(*p.lastTxIndex)
 	}
 
 	txmsgs := make([]txmsg, len(transactions))
@@ -164,7 +166,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashB
 
 	// Process the individual transactions using prepared txmsgs
 	for i, txmsg := range txmsgs {
-		p.statedb.SetTxContext(txmsg.hash, i)
+		p.statedb.SetTxContext(txmsg.hash, i+idxDelta)
 		receipt, err := core.ApplyTransactionWithEVM(txmsg.msg, p.gp, p.statedb, blockNumber, blockHash, context.Time, txmsg.tx, p.usedGas, evm)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, txmsg.hash.Hex(), err)

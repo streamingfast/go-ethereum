@@ -404,14 +404,6 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 	// FIXME: Avoid calling 'Header()', it makes a copy while accessing event.Block getters directly avoids it
 	header := block.Header()
-	oldRoot := header.Root
-	header.Root = common.Hash{}
-
-	secondHash := header.Hash()
-	if event.FlashBlock == nil {
-		fmt.Printf("Real Block %d: Hash:%s, hash without root: %s root: %s:\n", block.NumberU64(), hash.String(), secondHash.String(), oldRoot.String())
-	}
-	header.Root = oldRoot
 
 	// There was a lot of "over time" bugs introduced in Firehose 2.x, e.g. bugs that were fixed or
 	// introduced in a version without even knowing it. This means that for example, reprocessing
@@ -789,7 +781,7 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 		f.resetTransaction()
 	}
 
-	firehoseInfo("trx end (tracer=%s)", f.tracerID)
+	firehoseInfo("trx end, idx=%d (tracer=%s)", receipt.TransactionIndex, f.tracerID)
 }
 
 func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.TransactionTrace {
