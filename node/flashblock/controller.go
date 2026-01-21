@@ -441,16 +441,9 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 	}
 
 	var block *types.Block
-	if isLastFlashBlock {
-		block, err = engine.ExecutableDataToBlockNoHash(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
-		if err != nil {
-			return fmt.Errorf("failed to convert executable data to block: %w", err)
-		}
-	} else {
-		block, err = engine.ExecutableDataToBlock(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
-		if err != nil {
-			return fmt.Errorf("failed to convert executable data to block: %w", err)
-		}
+	block, err = engine.ExecutableDataToBlock(c.state.ExecutableData, versionnedHash, c.state.ParentBeaconBlockRoot, requests, chainConfig)
+	if err != nil {
+		return fmt.Errorf("failed to convert executable data to block: %w", err)
 	}
 
 	c.logger.Info("Converted flashblock to block",

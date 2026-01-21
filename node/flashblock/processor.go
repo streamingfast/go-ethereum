@@ -86,9 +86,6 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashB
 		tracingStateDB = state.NewHookedState(p.statedb, hooks)
 	}
 
-	if header.ExcessBlobGas == nil {
-		header.ExcessBlobGas = new(uint64) // mimic behavior of full block
-	}
 	context := core.NewEVMBlockContext(header, p.chain, nil, p.config, p.statedb)
 	evm := vm.NewEVM(context, tracingStateDB, p.config, cfg)
 

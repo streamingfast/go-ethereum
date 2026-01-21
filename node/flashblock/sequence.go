@@ -31,8 +31,9 @@ type Sequence struct {
 func NewFlashblockState() *Sequence {
 	return &Sequence{
 		ExecutableData: engine.ExecutableData{
-			Transactions: make([][]byte, 0),
-			Withdrawals:  make([]*types.Withdrawal, 0),
+			Transactions:  make([][]byte, 0),
+			Withdrawals:   make([]*types.Withdrawal, 0),
+			ExcessBlobGas: new(uint64), // mimic behavior of full block
 		},
 	}
 }
