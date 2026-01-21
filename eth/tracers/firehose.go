@@ -527,11 +527,11 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if f.blockIsFlashBlock {
+		if f.block.SystemCalls == nil {
+			f.block.SystemCalls = f.previousVersionOfFlashBlock.SystemCalls // take system calls from first partial, keep copying it over
+		}
 		f.previousVersionOfFlashBlock = f.block
 		f.previousFlashBlockOrdinal = f.blockOrdinal.Save()
-		if f.block.SystemCalls == nil {
-			f.block.SystemCalls = f.previousVersionOfFlashBlock.SystemCalls // take system calls from first partial
-		}
 	}
 
 	if err == nil {
