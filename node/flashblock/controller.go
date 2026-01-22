@@ -60,9 +60,11 @@ type Controller struct {
 	provider ProtocolMessageProvider
 	logger   log.Logger
 
-	mu              sync.RWMutex
-	state           *Sequence
-	previousStateDB *state.StateDB
+	mu                       sync.RWMutex
+	state                    *Sequence
+	usedPreviousStateDB      *state.StateDB
+	previousFinalizedStateDB *state.StateDB
+	PreviousBlockHash        *common.Hash
 
 	// Lifecycle management
 	ctx      context.Context
@@ -164,11 +166,10 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
-		if c.state != nil && !c.state.Skipping && msg.Static != nil && c.state.ProcessedLastBlock {
-			// store final stateDB of previous block if
-			c.previousStateDB = c.getStateDB(uint64(msg.Static.BlockNumber))
+		if c.state != nil && !c.state.Skipping && msg.Static != nil {
+			c.usedPreviousStateDB = c.getStateDB(msg.Static.ParentHash)
 		} else {
-			c.previousStateDB = nil
+			c.usedPreviousStateDB = nil
 		}
 
 		c.resetState(msg)
@@ -233,13 +234,9 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 		if msg.Index > 10 {
 			c.logger.Error("Flash Block Index out of range", "index", msg.Index)
 		}
-		isLastFlashBlock := msg.Index == 10
-		if err := c.executeAndValidateBlock(isLastFlashBlock); err != nil {
+		if err := c.executeAndValidateBlock(); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 			return err
-		}
-		if isLastFlashBlock {
-			c.state.ProcessedLastBlock = true
 		}
 	} else {
 		c.logger.Debug("Skipping execution for index not in FLASHBLOCKS_ONLY_IDX", "index", msg.Index)
@@ -255,7 +252,6 @@ func (c *Controller) resetState(msg *FlashblocksPayloadV1) {
 	c.state.PayloadID = msg.PayloadID
 	c.state.CurrentIndex = 0
 	c.state.MessageCount = 1
-	c.state.ProcessedLastBlock = false
 
 	// Set base properties
 	if msg.Static != nil {
@@ -328,7 +324,7 @@ func (c *Controller) applyDiff(diff *ExecutionPayloadFlashblockDeltaV1) {
 	}
 }
 
-func (c *Controller) getStateDB(curBlockNumber uint64) *state.StateDB {
+func (c *Controller) getStateDB(parentHash common.Hash) *state.StateDB {
 	if c == nil {
 		return nil
 	}
@@ -341,12 +337,12 @@ func (c *Controller) getStateDB(curBlockNumber uint64) *state.StateDB {
 	if c.state.Processor.statedb == nil {
 		return nil
 	}
-	if c.state.ExecutableData.Number+1 != curBlockNumber {
+	if c.PreviousBlockHash.Cmp(parentHash) != 0 {
 		return nil
 	}
 
 	c.logger.Info("got statedb from previous block", "block_num", c.state.ExecutableData.Number)
-	return c.state.Processor.statedb // we keep that statedb for now
+	return c.previousFinalizedStateDB
 }
 
 func (c *Controller) getParentStateDB() (*state.StateDB, error) {
@@ -371,7 +367,7 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 
 // executeAndValidateBlock executes and validates the current flashblock state
 // Assumes the lock is already held by the caller
-func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) {
+func (c *Controller) executeAndValidateBlock() (err error) {
 	stats := &flashblockStats{
 		blockHash:   c.state.ExecutableData.BlockHash,
 		blockNumber: c.state.ExecutableData.Number,
@@ -385,12 +381,13 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 
 		if parentStateDB == nil {
 			// we use previous stateDB for the first flash blocks when we are not ready
-			if c.previousStateDB != nil {
-				parentStateDB = c.previousStateDB
+			if c.usedPreviousStateDB != nil {
+				parentStateDB = c.usedPreviousStateDB
 				c.logger.Info("Using previous stateDB for first flash block",
 					"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
 					"parent_number", c.state.ExecutableData.Number-1,
 				)
+				c.usedPreviousStateDB = nil
 			} else {
 				c.logger.Info("Parent block not found, skipping execution",
 					"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
@@ -403,7 +400,7 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 				"parent_hash", c.state.ExecutableData.ParentHash.Hex(),
 				"parent_number", c.state.ExecutableData.Number-1,
 			)
-			c.previousStateDB = nil
+			c.usedPreviousStateDB = nil
 		}
 
 		c.state.Processor = NewStateProcessor(
@@ -415,20 +412,6 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 			c.state.ExecutableData.Timestamp,
 			c.state.ExecutableData.GasLimit,
 		)
-	} else if c.previousStateDB != nil {
-		if parentStateDB, _ := c.getParentStateDB(); parentStateDB != nil {
-			c.state.Processor = NewStateProcessor(
-				c.chain.Config(),
-				c.chain.HeaderChain(),
-				parentStateDB,
-				new(big.Int).SetUint64(c.state.ExecutableData.Number),
-				c.state.ExecutableData.Timestamp,
-				c.state.ExecutableData.GasLimit,
-			)
-			c.state.Processor.Reset(c.state.ExecutableData.GasLimit)
-			c.previousStateDB = nil
-			c.tracer.ResetCurrentFlashBlock()
-		}
 	}
 
 	chainConfig := c.chain.Config()
@@ -450,7 +433,6 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 		"block_number", block.NumberU64(),
 		"block_hash", block.Hash().TerminalString(),
 		"tx_count", len(block.Transactions()),
-		"is_last_flash_block", isLastFlashBlock,
 	)
 
 	currentIndex := c.state.CurrentIndex
@@ -470,18 +452,17 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 				debug.PrintStack()
 			}
 
-			if isLastFlashBlock {
-				c.tracer.SetLastFlashBlock() // tell the firehose tracer that this is the last flash block
-			}
 			c.tracer.OnBlockEnd(stats.err)
 
 			c.reportFlashblockStats(stats)
 		}()
 
 		startProcess := time.Now()
-		result, newStateRoot, newHash, err := c.state.Processor.Process(block, vm.Config{
+		result, newStateRoot, newHash, finalizedStateDB, err := c.state.Processor.Process(block, c.tracer, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
-		}, isLastFlashBlock)
+		})
+		c.PreviousBlockHash = newHash
+		c.previousFinalizedStateDB = finalizedStateDB
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)

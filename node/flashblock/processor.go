@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -28,7 +29,6 @@ type StateProcessor struct {
 	usedGas     *uint64        // Total gas used so far, incrementally
 	allLogs     []*types.Log
 	receipts    types.Receipts
-	requests    [][]byte
 	gp          *core.GasPool
 	lastTxIndex *uint64
 }
@@ -42,20 +42,18 @@ func NewStateProcessor(
 	gasLimit uint64,
 ) *StateProcessor {
 	return &StateProcessor{
-		config:   config,
-		chain:    chain,
-		signer:   types.MakeSigner(config, blockNumber, blockTime),
-		statedb:  stateDB,
-		usedGas:  new(uint64),
-		requests: [][]byte{},
-		gp:       new(core.GasPool).AddGas(gasLimit),
+		config:  config,
+		chain:   chain,
+		signer:  types.MakeSigner(config, blockNumber, blockTime),
+		statedb: stateDB,
+		usedGas: new(uint64),
+		gp:      new(core.GasPool).AddGas(gasLimit),
 	}
 }
 
 func (p *StateProcessor) Reset(gasLimit uint64) {
 	p.lastTxIndex = nil
 	p.usedGas = new(uint64)
-	p.requests = [][]byte{}
 	p.gp = new(core.GasPool).AddGas(gasLimit)
 }
 
@@ -68,14 +66,11 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-// on last flash block, it will also return the calculated stateRoot of that block and new block hash
-func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashBlock bool) (*core.ProcessResult, *common.Hash, *common.Hash, error) {
+func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config) (*core.ProcessResult, *common.Hash, *common.Hash, *state.StateDB, error) {
 	var (
-		header       = block.Header()
-		blockHash    = block.Hash()
-		blockNumber  = block.Number()
-		stateRoot    *common.Hash
-		newBlockHash *common.Hash // tweaked with the calculated stateRoot
+		header      = block.Header()
+		blockHash   = block.Hash()
+		blockNumber = block.Number()
 	)
 
 	isFirstExecution := p.lastTxIndex == nil
@@ -158,7 +153,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashB
 	// Check for errors
 	close(errChan)
 	if len(errChan) > 0 {
-		return nil, nil, nil, <-errChan
+		return nil, nil, nil, nil, <-errChan
 	}
 
 	// Process the individual transactions using prepared txmsgs
@@ -166,7 +161,7 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashB
 		p.statedb.SetTxContext(txmsg.hash, i+idxDelta)
 		receipt, err := core.ApplyTransactionWithEVM(txmsg.msg, p.gp, p.statedb, blockNumber, blockHash, context.Time, txmsg.tx, p.usedGas, evm)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, txmsg.hash.Hex(), err)
+			return nil, nil, nil, nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, txmsg.hash.Hex(), err)
 		}
 		p.receipts = append(p.receipts, receipt)
 		p.allLogs = append(p.allLogs, receipt.Logs...)
@@ -179,51 +174,48 @@ func (p *StateProcessor) Process(block *types.Block, cfg vm.Config, isLastFlashB
 		*p.lastTxIndex += uint64(len(transactions))
 	}
 
-	if isLastFlashBlock {
-		isIsthmus := p.config.IsIsthmus(block.Time())
+	isIsthmus := p.config.IsIsthmus(block.Time())
 
-		// Read requests if Prague is enabled.
-		var requests [][]byte
-		if p.config.IsPrague(block.Number(), block.Time()) && !isIsthmus {
-			requests = [][]byte{}
-			// EIP-6110
-			if err := core.ParseDepositLogs(&requests, p.allLogs, p.config); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to parse deposit logs: %w", err)
-			}
-
-			// EIP-7002
-			if err := core.ProcessWithdrawalQueue(&requests, evm); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to process withdrawal queue: %w", err)
-			}
-			// EIP-7251
-			if err := core.ProcessConsolidationQueue(&requests, evm); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to process consolidation queue: %w", err)
-			}
-
-			// Accumulate the requests for the full block
-			p.requests = append(p.requests, requests...)
-		}
-
-		if isIsthmus {
-			requests = [][]byte{}
-		}
-
-		// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-		p.chain.Engine().Finalize(p.chain, header, p.statedb, block.Body())
-
-		s := p.statedb.IntermediateRoot(true)
-		header.Root = s
-		blockHash = header.Hash()
-		newBlockHash = &blockHash
-		stateRoot = &s
+	firehoseTracer.SnapshotFlashBlockForNextIteration()
+	stateDBClone := p.statedb.Copy()
+	if hooks := cfg.Tracer; hooks != nil {
+		evm.StateDB = state.NewHookedState(stateDBClone, hooks)
+	} else {
+		evm.StateDB = stateDBClone
 	}
+
+	var requests [][]byte
+	if p.config.IsPrague(block.Number(), block.Time()) && !isIsthmus {
+		// EIP-6110
+		if err := core.ParseDepositLogs(&requests, p.allLogs, p.config); err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("failed to parse deposit logs: %w", err)
+		}
+
+		// EIP-7002
+		if err := core.ProcessWithdrawalQueue(&requests, evm); err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("failed to process withdrawal queue: %w", err)
+		}
+		// EIP-7251
+		if err := core.ProcessConsolidationQueue(&requests, evm); err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("failed to process consolidation queue: %w", err)
+		}
+	}
+
+	if isIsthmus {
+		requests = [][]byte{}
+	}
+
+	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
+	p.chain.Engine().Finalize(p.chain, header, stateDBClone, block.Body())
+	header.Root = stateDBClone.IntermediateRoot(true)
+	newBlockHash := header.Hash()
 
 	return &core.ProcessResult{
 		Receipts: p.receipts,
-		Requests: nil,
+		Requests: requests,
 		Logs:     p.allLogs,
 		GasUsed:  *p.usedGas,
-	}, stateRoot, newBlockHash, nil
+	}, &header.Root, &newBlockHash, stateDBClone, nil
 }
 
 // ValidateState validates the various changes that happen after a state transition,

@@ -32,7 +32,6 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
-	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -156,12 +155,27 @@ type Firehose struct {
 	applyBackwardCompatibility *bool
 
 	// Block state
-	block                       *pbeth.Block
-	previousVersionOfFlashBlock *pbeth.Block
-	previousFlashBlockOrdinal   uint64
-	flashBlockIndex             uint64
-	blockIsFlashBlock           bool
-	blockIsLastFlashblock       bool
+	block             *pbeth.Block
+	flashBlockIndex   uint64
+	blockIsFlashBlock bool
+
+	// Snapshot of flash block state before running the 'termination' system calls
+	// Used to build a partial on top of the previous one.
+	// Contains:
+	// - The block at snapshot time (for copying slices)
+	// - The length of each slice at snapshot time (for truncation)
+	// - The ordinal at snapshot time
+	// - the index (for validation)
+	// Used to restore this state when the next flash block iteration starts.
+	snapshotForNextFlashBlock *struct {
+		block          *pbeth.Block
+		txTracesLen    int
+		systemCallsLen int
+		balanceChanges int
+		codeChangesLen int
+		ordinal        uint64
+		flashIndex     uint64
+	}
 
 	blockBaseFee                *big.Int
 	blockOrdinal                *Ordinal
@@ -297,6 +311,8 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
 	f.blockIsFlashBlock = false
+	// Note: We don't reset flash block snapshot here - they persist across block resets
+	// until we get a flash block with a new block number (handled in OnBlockStart)
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
@@ -381,16 +397,15 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	if event.FlashBlock != nil {
 		block = event.FlashBlock.Block
 
-		// ensure that flashblocks with same number have higher index
-		// ensure that flashblocks with different number are increasing
-		if f.previousVersionOfFlashBlock != nil {
-			if f.previousVersionOfFlashBlock.Number == block.NumberU64() {
-				if event.FlashBlock.Idx <= f.flashBlockIndex {
-					panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", f.previousVersionOfFlashBlock.Number, f.flashBlockIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
+		// decide if we keep the snapshot based on number and index
+		if snap := f.snapshotForNextFlashBlock; snap != nil {
+			if snap.block.Number == block.NumberU64() {
+				if event.FlashBlock.Idx <= snap.flashIndex {
+					panic(fmt.Errorf("flash block index not higher than previous: last=%d idx:%d, got=%d idx:%d", snap.block.Number, snap.flashIndex, event.FlashBlock.Block.NumberU64(), event.FlashBlock.Idx))
 				}
-				f.blockOrdinal.Restore(f.previousFlashBlockOrdinal)
 			} else {
-				f.previousVersionOfFlashBlock = nil // number has moved, discard previous version
+				// Block number changed, discard snapshot
+				f.snapshotForNextFlashBlock = nil
 			}
 		}
 
@@ -445,9 +460,24 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 		f.block.Ver = 3
 	}
 
-	if f.blockIsFlashBlock && f.previousVersionOfFlashBlock != nil {
-		// Copy existing transaction traces from previousFlashBlock if this is a flash block
-		f.block.TransactionTraces = append(f.block.TransactionTraces, f.previousVersionOfFlashBlock.TransactionTraces...)
+	if f.blockIsFlashBlock {
+		if f.snapshotForNextFlashBlock != nil {
+			// Use snapshot: truncate previous block's slices to snapshot lengths
+			prevBlock := f.snapshotForNextFlashBlock.block
+			f.block.TransactionTraces = append(f.block.TransactionTraces, prevBlock.TransactionTraces[:f.snapshotForNextFlashBlock.txTracesLen]...)
+			if f.snapshotForNextFlashBlock.systemCallsLen > 0 && prevBlock.SystemCalls != nil {
+				f.block.SystemCalls = append(f.block.SystemCalls, prevBlock.SystemCalls[:f.snapshotForNextFlashBlock.systemCallsLen]...)
+			}
+			if f.snapshotForNextFlashBlock.balanceChanges > 0 && prevBlock.BalanceChanges != nil {
+				f.block.BalanceChanges = append(f.block.BalanceChanges, prevBlock.BalanceChanges[:f.snapshotForNextFlashBlock.balanceChanges]...)
+			}
+			if f.snapshotForNextFlashBlock.codeChangesLen > 0 && prevBlock.CodeChanges != nil {
+				f.block.CodeChanges = append(f.block.CodeChanges, prevBlock.CodeChanges[:f.snapshotForNextFlashBlock.codeChangesLen]...)
+			}
+
+			// Restore ordinal from snapshot if available
+			f.blockOrdinal.Restore(f.snapshotForNextFlashBlock.ordinal)
+		}
 	}
 
 	for _, uncle := range block.Uncles() {
@@ -499,12 +529,53 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 	}
 }
 
-// ResetCurrentFlashBlock resets the current flash block state.
-func (f *Firehose) ResetCurrentFlashBlock() {
-	f.previousVersionOfFlashBlock = nil
-	f.flashBlockIndex = 0
-	f.blockIsFlashBlock = false
-	f.previousFlashBlockOrdinal = 0
+// SnapshotFlashBlockForNextIteration creates a snapshot of the current flash block's slice lengths.
+//
+// This method is intended to be called at a specific point during block processing to "freeze" the current state.
+// When called from processor.go after regular transactions, it captures the slice lengths before additional processing
+// (e.g., EIP-6110 deposit processing, EIP-7002 withdrawal queue, EIP-7251 consolidation queue) occurs.
+//
+// When a flash block is being built incrementally across multiple iterations, this snapshot
+// allows the next iteration to start with the state from the snapshot point by truncating slices,
+// excluding any traces that were added after the snapshot was taken.
+//
+// The snapshot is automatically cleared when the block number changes (new block starts)
+//
+// Note: This only affects flash blocks. Calling this on a regular block has no effect.
+func (f *Firehose) SnapshotFlashBlockForNextIteration() {
+	if !f.blockIsFlashBlock {
+		// Only makes sense for flash blocks
+		return
+	}
+
+	// Snapshot the current block and lengths of all slices that could be modified
+	f.snapshotForNextFlashBlock = &struct {
+		block          *pbeth.Block
+		txTracesLen    int
+		systemCallsLen int
+		balanceChanges int
+		codeChangesLen int
+		ordinal        uint64
+		flashIndex     uint64
+	}{
+		block:          f.block,
+		txTracesLen:    len(f.block.TransactionTraces),
+		systemCallsLen: len(f.block.SystemCalls),
+		balanceChanges: len(f.block.BalanceChanges),
+		codeChangesLen: len(f.block.CodeChanges),
+		ordinal:        f.blockOrdinal.Save(),
+		flashIndex:     f.flashBlockIndex,
+	}
+
+	firehoseDebug("flash block snapshot created (number=%d, tx_count=%d, system_calls=%d, balance_changes=%d, code_changes=%d, flash_index=%d, ordinal=%d)",
+		f.block.Number,
+		f.snapshotForNextFlashBlock.txTracesLen,
+		f.snapshotForNextFlashBlock.systemCallsLen,
+		f.snapshotForNextFlashBlock.balanceChanges,
+		f.snapshotForNextFlashBlock.codeChangesLen,
+		f.snapshotForNextFlashBlock.flashIndex,
+		f.snapshotForNextFlashBlock.ordinal,
+	)
 }
 
 func (f *Firehose) SetStateRoot(stateRoot common.Hash) {
@@ -516,23 +587,10 @@ func (f *Firehose) SetHash(hash common.Hash) {
 	f.block.Header.Hash = hash.Bytes()
 }
 
-// this must be called right before OnBlockEnd
-func (f *Firehose) SetLastFlashBlock() {
-	f.blockIsLastFlashblock = true
-}
-
 func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
-	if f.blockIsFlashBlock {
-		if f.block.SystemCalls == nil {
-			f.block.SystemCalls = f.previousVersionOfFlashBlock.SystemCalls // take system calls from first partial, keep copying it over
-		}
-		f.previousVersionOfFlashBlock = f.block
-		f.previousFlashBlockOrdinal = f.blockOrdinal.Save()
-	}
-
-	if err == nil && (!f.blockIsFlashBlock || f.blockIsLastFlashblock) { // only real blocks and lastFlashblock get this reordering
+	if err == nil { // only real blocks and lastFlashblock get this reordering
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
@@ -1541,7 +1599,10 @@ type bytesGetter interface {
 }
 
 func sortedKeys[K bytesGetter, V any](m map[K]V) []K {
-	keys := maps.Keys(m)
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
 	slices.SortFunc(keys, func(i, j K) int {
 		return bytes.Compare(i.Bytes(), j.Bytes())
 	})

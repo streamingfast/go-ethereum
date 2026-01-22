@@ -610,13 +610,16 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 		TransactionIndex: 1,
 	}, nil)
 
-	tracer.OnBlockEnd(nil)
+	// Verify first flash block has 2 transactions (before OnBlockEnd resets it)
+	require.NotNil(t, tracer.block)
+	require.Len(t, tracer.block.TransactionTraces, 2)
+	assert.Equal(t, uint64(1), tracer.block.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.block.TransactionTraces[1].Nonce)
 
-	// Verify first flash block has 2 transactions
-	require.NotNil(t, tracer.previousVersionOfFlashBlock)
-	require.Len(t, tracer.previousVersionOfFlashBlock.TransactionTraces, 2)
-	assert.Equal(t, uint64(1), tracer.previousVersionOfFlashBlock.TransactionTraces[0].Nonce)
-	assert.Equal(t, uint64(2), tracer.previousVersionOfFlashBlock.TransactionTraces[1].Nonce)
+	// Create snapshot before ending the flash block so next flash block can build on it
+	tracer.SnapshotFlashBlockForNextIteration()
+
+	tracer.OnBlockEnd(nil)
 
 	// Test 2: Second flash block with same number, different index
 	flashEvent2 := tracing.BlockEvent{
@@ -654,21 +657,21 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 		TransactionIndex: 1,
 	}, nil)
 
-	tracer.OnBlockEnd(nil)
-
-	// Test 3: Verify the final block contains all transactions in correct order
+	// Test 3: Verify the final block contains all transactions in correct order (before OnBlockEnd resets it)
 	// Should have: [tx1, tx2] (from first flash block) + [tx3, tx4] (from second flash block)
-	require.NotNil(t, tracer.previousVersionOfFlashBlock)
-	require.Len(t, tracer.previousVersionOfFlashBlock.TransactionTraces, 4)
+	require.NotNil(t, tracer.block)
+	require.Len(t, tracer.block.TransactionTraces, 4)
 
 	// Verify transaction order: first flash block transactions come first
-	assert.Equal(t, uint64(1), tracer.previousVersionOfFlashBlock.TransactionTraces[0].Nonce)
-	assert.Equal(t, uint64(2), tracer.previousVersionOfFlashBlock.TransactionTraces[1].Nonce)
-	assert.Equal(t, uint64(3), tracer.previousVersionOfFlashBlock.TransactionTraces[2].Nonce)
-	assert.Equal(t, uint64(4), tracer.previousVersionOfFlashBlock.TransactionTraces[3].Nonce)
+	assert.Equal(t, uint64(1), tracer.block.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.block.TransactionTraces[1].Nonce)
+	assert.Equal(t, uint64(3), tracer.block.TransactionTraces[2].Nonce)
+	assert.Equal(t, uint64(4), tracer.block.TransactionTraces[3].Nonce)
 
 	// Verify the block header is from the second flash block (latest)
-	assert.Equal(t, block1.NumberU64(), tracer.previousVersionOfFlashBlock.Number)
+	assert.Equal(t, block1.NumberU64(), tracer.block.Number)
+
+	tracer.OnBlockEnd(nil)
 }
 
 func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
@@ -721,16 +724,18 @@ func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
 		},
 	}
 	tracer.OnBlockStart(flashEvent1)
+
+	// Create a snapshot so validation logic is triggered
+	tracer.SnapshotFlashBlockForNextIteration()
+
 	tracer.OnBlockEnd(nil)
 
-	// Test 1: Same block index not progressing should panic
-
+	// Test 1: Same block index not progressing should panic (snapshot exists, same block number, same index)
 	require.Panics(t, func() {
 		tracer.OnBlockStart(flashEvent1)
 	})
 
 	// Test 2: Same block, index backwards should panic
-
 	flashEventBackwards := tracing.BlockEvent{
 		Block: block1,
 		FlashBlock: &tracing.FlashBlock{
@@ -742,7 +747,7 @@ func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
 		tracer.OnBlockStart(flashEventBackwards)
 	})
 
-	// Test 3: Increased block number should not panic even if index goes backwards
+	// Test 3: Increased block number should not panic even if index goes backwards (snapshot gets cleared)
 	flashEventBackwardsNextBlock := tracing.BlockEvent{
 		Block: block2, // Different number
 		FlashBlock: &tracing.FlashBlock{
@@ -754,12 +759,16 @@ func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
 		tracer.OnBlockStart(flashEventBackwardsNextBlock)
 	})
 
-	// Test 4: Non-sequential index same block should not panic
+	// Create snapshot for next test
+	tracer.SnapshotFlashBlockForNextIteration()
+	tracer.OnBlockEnd(nil)
+
+	// Test 4: Non-sequential index on same block should not panic (as long as it's higher)
 	flashEventNonsequentialIndex := tracing.BlockEvent{
-		Block: block1, // Same number
+		Block: block2, // Same number as previous
 		FlashBlock: &tracing.FlashBlock{
 			Block: block2,
-			Idx:   3, // We skipped index 1 and 2
+			Idx:   3, // We skipped index 1 and 2, but it's higher than 0
 		},
 	}
 
@@ -769,7 +778,7 @@ func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
 
 }
 
-// TestFirehose_FlashBlockPersistsOnRegularBlock tests that processing a normal block does not affect the state of the "lastFlashBlock" and last index.
+// TestFirehose_FlashBlockPersistsOnRegularBlock tests that processing a normal block does not affect the state of the snapshot and last index.
 func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 	config := &FirehoseConfig{}
 	config.ApplyBackwardCompatibility = new(bool)
@@ -821,10 +830,14 @@ func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 	}
 	tracer.OnBlockStart(flashEvent)
 	require.True(t, tracer.blockIsFlashBlock)
+
+	// Create snapshot before ending the flash block
+	tracer.SnapshotFlashBlockForNextIteration()
+
 	tracer.OnBlockEnd(nil)
 
-	// Verify currentFlashBlock is set
-	require.NotNil(t, tracer.previousVersionOfFlashBlock)
+	// Verify snapshot is set
+	require.NotNil(t, tracer.snapshotForNextFlashBlock)
 	require.False(t, tracer.blockIsFlashBlock)
 
 	// Start regular block (non-flash)
@@ -835,9 +848,562 @@ func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 	tracer.OnBlockStart(regularEvent)
 	require.False(t, tracer.blockIsFlashBlock)
 
-	// Verify currentFlashBlock is NOT reset
-	assert.NotNil(t, tracer.previousVersionOfFlashBlock)
+	// Verify snapshot is NOT reset
+	assert.NotNil(t, tracer.snapshotForNextFlashBlock)
 	assert.Equal(t, uint64(1), tracer.flashBlockIndex)
+
+	tracer.OnBlockEnd(nil)
+}
+
+// TestFirehose_FlashBlockSnapshot_BasicUsage tests the basic snapshot functionality
+// where a snapshot is taken after regular transactions and before system calls.
+func TestFirehose_FlashBlockSnapshot_BasicUsage(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+	tracer.OnBlockchainInit(chainConfig)
+
+	// Create a mock block
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Start first flash block
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent1)
+
+	// Add two regular transactions
+	tx1 := types.NewTransaction(1, common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(1000), 21000, big.NewInt(1000000000), nil)
+	from1 := common.HexToAddress("0xfrom1111111111111111111111111111111111111111")
+	to1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	tracer.onTxStart(tx1, tx1.Hash(), from1, to1)
+	tracer.OnCallEnter(0, byte(vm.CALL), from1, to1, nil, 21000, big.NewInt(1000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 0,
+	}, nil)
+
+	tx2 := types.NewTransaction(2, common.HexToAddress("0x2222222222222222222222222222222222222222"), big.NewInt(2000), 21000, big.NewInt(1000000000), nil)
+	from2 := common.HexToAddress("0xfrom2222222222222222222222222222222222222222")
+	to2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+
+	tracer.onTxStart(tx2, tx2.Hash(), from2, to2)
+	tracer.OnCallEnter(0, byte(vm.CALL), from2, to2, nil, 21000, big.NewInt(2000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 1,
+	}, nil)
+
+	// Simulate a system call BEFORE snapshot (should be included in snapshot)
+	tracer.OnSystemCallStart()
+	fromSys1 := common.HexToAddress("0xfromaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	toSys1 := common.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	tracer.OnCallEnter(0, byte(vm.CALL), fromSys1, toSys1, nil, 21000, big.NewInt(100))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnSystemCallEnd()
+
+	// Take snapshot after regular transactions AND first system call (this is where processor.go calls it)
+	tracer.SnapshotFlashBlockForNextIteration()
+
+	// Verify snapshot was created with transactions AND system calls
+	require.NotNil(t, tracer.snapshotForNextFlashBlock)
+	require.Equal(t, 2, tracer.snapshotForNextFlashBlock.txTracesLen)
+	require.Equal(t, 1, tracer.snapshotForNextFlashBlock.systemCallsLen)
+
+	// Simulate another system call AFTER snapshot (like EIP-6110 deposit processing - should NOT be in next iteration)
+	tracer.OnSystemCallStart()
+	fromSys2 := common.HexToAddress("0xfrombbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	toSys2 := common.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	tracer.OnCallEnter(0, byte(vm.CALL), fromSys2, toSys2, nil, 21000, big.NewInt(200))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnSystemCallEnd()
+
+	// Verify block has 2 regular transactions + 2 system calls (before OnBlockEnd resets it)
+	require.NotNil(t, tracer.block)
+	require.Len(t, tracer.block.TransactionTraces, 2)
+	require.Len(t, tracer.block.SystemCalls, 2)
+
+	tracer.OnBlockEnd(nil)
+
+	// Start second flash block with same number
+	flashEvent2 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   2,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent2)
+
+	// The second flash block should start with 2 transactions and 1 system call (from snapshot, not including the second system call)
+	require.Len(t, tracer.block.TransactionTraces, 2)
+	assert.Equal(t, uint64(1), tracer.block.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.block.TransactionTraces[1].Nonce)
+	require.Len(t, tracer.block.SystemCalls, 1)
+
+	// Add new transactions to second flash block
+	tx4 := types.NewTransaction(4, common.HexToAddress("0x4444444444444444444444444444444444444444"), big.NewInt(4000), 21000, big.NewInt(1000000000), nil)
+	from4 := common.HexToAddress("0xfrom4444444444444444444444444444444444444444")
+	to4 := common.HexToAddress("0x4444444444444444444444444444444444444444")
+
+	tracer.onTxStart(tx4, tx4.Hash(), from4, to4)
+	tracer.OnCallEnter(0, byte(vm.CALL), from4, to4, nil, 21000, big.NewInt(4000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 2,
+	}, nil)
+
+	// Verify final block has 3 transactions and 1 system call: tx1, tx2 (from snapshot), tx4 (new), and 1 system call (from snapshot) (before OnBlockEnd resets it)
+	require.NotNil(t, tracer.block)
+	require.Len(t, tracer.block.TransactionTraces, 3)
+	assert.Equal(t, uint64(1), tracer.block.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.block.TransactionTraces[1].Nonce)
+	assert.Equal(t, uint64(4), tracer.block.TransactionTraces[2].Nonce)
+	require.Len(t, tracer.block.SystemCalls, 1)
+
+	tracer.OnBlockEnd(nil)
+}
+
+// TestFirehose_FlashBlockSnapshot_WithoutSnapshot tests that without snapshot,
+// flash blocks start fresh (no data is preserved from previous flash block).
+func TestFirehose_FlashBlockSnapshot_WithoutSnapshot(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+	tracer.OnBlockchainInit(chainConfig)
+
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Start first flash block
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent1)
+
+	// Add two regular transactions
+	tx1 := types.NewTransaction(1, common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(1000), 21000, big.NewInt(1000000000), nil)
+	from1 := common.HexToAddress("0xfrom1111111111111111111111111111111111111111")
+	to1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	tracer.onTxStart(tx1, tx1.Hash(), from1, to1)
+	tracer.OnCallEnter(0, byte(vm.CALL), from1, to1, nil, 21000, big.NewInt(1000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 0,
+	}, nil)
+
+	tx2 := types.NewTransaction(2, common.HexToAddress("0x2222222222222222222222222222222222222222"), big.NewInt(2000), 21000, big.NewInt(1000000000), nil)
+	from2 := common.HexToAddress("0xfrom2222222222222222222222222222222222222222")
+	to2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+
+	tracer.onTxStart(tx2, tx2.Hash(), from2, to2)
+	tracer.OnCallEnter(0, byte(vm.CALL), from2, to2, nil, 21000, big.NewInt(2000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 1,
+	}, nil)
+
+	// NO snapshot taken - this is the key difference
+
+	// Simulate system call
+	tx3 := types.NewTransaction(3, common.HexToAddress("0x3333333333333333333333333333333333333333"), big.NewInt(3000), 21000, big.NewInt(1000000000), nil)
+	from3 := common.HexToAddress("0xfrom3333333333333333333333333333333333333333")
+	to3 := common.HexToAddress("0x3333333333333333333333333333333333333333")
+
+	tracer.onTxStart(tx3, tx3.Hash(), from3, to3)
+	tracer.OnCallEnter(0, byte(vm.CALL), from3, to3, nil, 21000, big.NewInt(3000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 2,
+	}, nil)
+
+	// Verify block has all 3 transactions (before OnBlockEnd resets it)
+	require.NotNil(t, tracer.block)
+	require.Len(t, tracer.block.TransactionTraces, 3)
+
+	// Note: NOT calling SnapshotFlashBlockForNextIteration() - testing without snapshot
+
+	tracer.OnBlockEnd(nil)
+
+	// Start second flash block with same number
+	flashEvent2 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   2,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent2)
+
+	// Without snapshot, should have 0 transactions (fresh start)
+	require.Len(t, tracer.block.TransactionTraces, 0)
+
+}
+
+// TestFirehose_FlashBlockSnapshot_SnapshotClearedOnNewBlock tests that
+// the snapshot is cleared when moving to a new block number.
+func TestFirehose_FlashBlockSnapshot_SnapshotClearedOnNewBlock(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+	tracer.OnBlockchainInit(chainConfig)
+
+	// Create two blocks with different numbers
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	block2 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(101),
+		Time:       1001,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Start first flash block
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent1)
+
+	// Add transaction
+	tx1 := types.NewTransaction(1, common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(1000), 21000, big.NewInt(1000000000), nil)
+	from1 := common.HexToAddress("0xfrom1111111111111111111111111111111111111111")
+	to1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	tracer.onTxStart(tx1, tx1.Hash(), from1, to1)
+	tracer.OnCallEnter(0, byte(vm.CALL), from1, to1, nil, 21000, big.NewInt(1000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{
+		Status:           types.ReceiptStatusSuccessful,
+		TransactionIndex: 0,
+	}, nil)
+
+	// Take snapshot
+	tracer.SnapshotFlashBlockForNextIteration()
+	require.NotNil(t, tracer.snapshotForNextFlashBlock)
+
+	tracer.OnBlockEnd(nil)
+
+	// Start flash block with DIFFERENT block number
+	flashEvent2 := tracing.BlockEvent{
+		Block: block2,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block2,
+			Idx:   1,
+		},
+	}
+
+	tracer.OnBlockStart(flashEvent2)
+
+	// Snapshot should be cleared
+	assert.Nil(t, tracer.snapshotForNextFlashBlock)
+
+	// Block should start fresh with no copied transactions
+	require.Len(t, tracer.block.TransactionTraces, 0)
+}
+
+// TestFirehose_FlashBlockSnapshot_MultipleIterations tests the snapshot
+// functionality across multiple flash block iterations.
+func TestFirehose_FlashBlockSnapshot_MultipleIterations(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+	tracer.OnBlockchainInit(chainConfig)
+
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Iteration 1: Start with 1 transaction
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1,
+		},
+	}
+	tracer.OnBlockStart(flashEvent1)
+
+	tx1 := types.NewTransaction(1, common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(1000), 21000, big.NewInt(1000000000), nil)
+	from1 := common.HexToAddress("0xfrom1111111111111111111111111111111111111111")
+	to1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	tracer.onTxStart(tx1, tx1.Hash(), from1, to1)
+	tracer.OnCallEnter(0, byte(vm.CALL), from1, to1, nil, 21000, big.NewInt(1000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, TransactionIndex: 0}, nil)
+
+	tracer.SnapshotFlashBlockForNextIteration()
+
+	// Add system call
+	tx2 := types.NewTransaction(2, common.HexToAddress("0x2222222222222222222222222222222222222222"), big.NewInt(2000), 21000, big.NewInt(1000000000), nil)
+	from2 := common.HexToAddress("0xfrom2222222222222222222222222222222222222222")
+	to2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	tracer.onTxStart(tx2, tx2.Hash(), from2, to2)
+	tracer.OnCallEnter(0, byte(vm.CALL), from2, to2, nil, 21000, big.NewInt(2000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, TransactionIndex: 1}, nil)
+
+	tracer.OnBlockEnd(nil)
+
+	// Iteration 2: Should start with 1 tx (from snapshot)
+	flashEvent2 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   2,
+		},
+	}
+	tracer.OnBlockStart(flashEvent2)
+	require.Len(t, tracer.block.TransactionTraces, 1)
+
+	// Add another transaction
+	tx3 := types.NewTransaction(3, common.HexToAddress("0x3333333333333333333333333333333333333333"), big.NewInt(3000), 21000, big.NewInt(1000000000), nil)
+	from3 := common.HexToAddress("0xfrom3333333333333333333333333333333333333333")
+	to3 := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	tracer.onTxStart(tx3, tx3.Hash(), from3, to3)
+	tracer.OnCallEnter(0, byte(vm.CALL), from3, to3, nil, 21000, big.NewInt(3000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, TransactionIndex: 1}, nil)
+
+	tracer.SnapshotFlashBlockForNextIteration()
+
+	// Add another system call
+	tx4 := types.NewTransaction(4, common.HexToAddress("0x4444444444444444444444444444444444444444"), big.NewInt(4000), 21000, big.NewInt(1000000000), nil)
+	from4 := common.HexToAddress("0xfrom4444444444444444444444444444444444444444")
+	to4 := common.HexToAddress("0x4444444444444444444444444444444444444444")
+	tracer.onTxStart(tx4, tx4.Hash(), from4, to4)
+	tracer.OnCallEnter(0, byte(vm.CALL), from4, to4, nil, 21000, big.NewInt(4000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, TransactionIndex: 2}, nil)
+
+	tracer.OnBlockEnd(nil)
+
+	// Iteration 3: Should start with 2 txs (from new snapshot)
+	flashEvent3 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   3,
+		},
+	}
+	tracer.OnBlockStart(flashEvent3)
+	require.Len(t, tracer.block.TransactionTraces, 2)
+	assert.Equal(t, uint64(1), tracer.block.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(3), tracer.block.TransactionTraces[1].Nonce)
+
+	// Final check: block should have the latest 2 transactions (before OnBlockEnd resets it)
+	require.NotNil(t, tracer.block)
+	require.Len(t, tracer.block.TransactionTraces, 2)
+
+	tracer.OnBlockEnd(nil)
+}
+
+// TestFirehose_FlashBlockSnapshot_SystemCallsIncluded tests that system calls
+// are properly included in the snapshot.
+func TestFirehose_FlashBlockSnapshot_SystemCallsIncluded(t *testing.T) {
+	config := &FirehoseConfig{}
+	config.ApplyBackwardCompatibility = new(bool)
+	*config.ApplyBackwardCompatibility = false
+
+	chainConfig := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+	}
+
+	tracer := NewFirehose(config)
+	tracer.OnBlockchainInit(chainConfig)
+
+	block1 := types.NewBlock(&types.Header{
+		Number:     big.NewInt(100),
+		Time:       1000,
+		GasLimit:   1000000,
+		GasUsed:    500000,
+		Coinbase:   common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		Root:       common.HexToHash("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		TxHash:     common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		UncleHash:  types.EmptyRootHash,
+		Bloom:      types.Bloom{},
+		Difficulty: big.NewInt(0),
+	}, nil, nil, nil, types.DefaultBlockConfig)
+
+	// Start first flash block
+	flashEvent1 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   1,
+		},
+	}
+	tracer.OnBlockStart(flashEvent1)
+
+	// Add a regular transaction
+	tx1 := types.NewTransaction(1, common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(1000), 21000, big.NewInt(1000000000), nil)
+	from1 := common.HexToAddress("0xfrom1111111111111111111111111111111111111111")
+	to1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	tracer.onTxStart(tx1, tx1.Hash(), from1, to1)
+	tracer.OnCallEnter(0, byte(vm.CALL), from1, to1, nil, 21000, big.NewInt(1000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, TransactionIndex: 0}, nil)
+
+	// Add first system call
+	tracer.OnSystemCallStart()
+	fromSys1 := common.HexToAddress("0xfromaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	toSys1 := common.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	tracer.OnCallEnter(0, byte(vm.CALL), fromSys1, toSys1, nil, 21000, big.NewInt(100))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnSystemCallEnd()
+
+	// Add second system call
+	tracer.OnSystemCallStart()
+	fromSys2 := common.HexToAddress("0xfrombbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	toSys2 := common.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	tracer.OnCallEnter(0, byte(vm.CALL), fromSys2, toSys2, nil, 21000, big.NewInt(200))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnSystemCallEnd()
+
+	// Take snapshot - should include 1 tx + 2 system calls
+	tracer.SnapshotFlashBlockForNextIteration()
+
+	require.NotNil(t, tracer.snapshotForNextFlashBlock)
+	require.Equal(t, 1, tracer.snapshotForNextFlashBlock.txTracesLen)
+	require.Equal(t, 2, tracer.snapshotForNextFlashBlock.systemCallsLen)
+
+	// Add third system call AFTER snapshot
+	tracer.OnSystemCallStart()
+	fromSys3 := common.HexToAddress("0xfromcccccccccccccccccccccccccccccccccccccccc")
+	toSys3 := common.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
+	tracer.OnCallEnter(0, byte(vm.CALL), fromSys3, toSys3, nil, 21000, big.NewInt(300))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnSystemCallEnd()
+
+	// Verify block has 1 tx + 3 system calls (before OnBlockEnd resets it)
+	require.Len(t, tracer.block.TransactionTraces, 1)
+	require.Len(t, tracer.block.SystemCalls, 3)
+
+	tracer.OnBlockEnd(nil)
+
+	// Start second flash block iteration
+	flashEvent2 := tracing.BlockEvent{
+		Block: block1,
+		FlashBlock: &tracing.FlashBlock{
+			Block: block1,
+			Idx:   2,
+		},
+	}
+	tracer.OnBlockStart(flashEvent2)
+
+	// Should have snapshot state: 1 tx + 2 system calls (NOT 3)
+	require.Len(t, tracer.block.TransactionTraces, 1)
+	require.Len(t, tracer.block.SystemCalls, 2)
+
+	// Add another transaction
+	tx2 := types.NewTransaction(2, common.HexToAddress("0x2222222222222222222222222222222222222222"), big.NewInt(2000), 21000, big.NewInt(1000000000), nil)
+	from2 := common.HexToAddress("0xfrom2222222222222222222222222222222222222222")
+	to2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	tracer.onTxStart(tx2, tx2.Hash(), from2, to2)
+	tracer.OnCallEnter(0, byte(vm.CALL), from2, to2, nil, 21000, big.NewInt(2000))
+	tracer.OnCallExit(0, nil, 0, nil, false)
+	tracer.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, TransactionIndex: 1}, nil)
+
+	// Final state: 2 txs + 2 system calls (from snapshot) (before OnBlockEnd resets it)
+	require.Len(t, tracer.block.TransactionTraces, 2)
+	require.Len(t, tracer.block.SystemCalls, 2)
+	assert.Equal(t, uint64(1), tracer.block.TransactionTraces[0].Nonce)
+	assert.Equal(t, uint64(2), tracer.block.TransactionTraces[1].Nonce)
 
 	tracer.OnBlockEnd(nil)
 }
