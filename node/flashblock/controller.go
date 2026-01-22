@@ -458,11 +458,17 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		}()
 
 		startProcess := time.Now()
-		result, newStateRoot, newHash, finalizedStateDB, err := c.state.Processor.Process(block, c.tracer, vm.Config{
+		result, newStateRoot, newHash, err := c.state.Processor.Process(block, c.tracer, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
 		})
 		c.PreviousBlockHash = newHash
-		c.previousFinalizedStateDB = finalizedStateDB
+		if newStateRoot != nil {
+			sdb, err := c.chain.StateAt(*newStateRoot)
+			if err != nil {
+				return fmt.Errorf("failed to retrieve state at root %s: %w", newStateRoot, err)
+			}
+			c.previousFinalizedStateDB = sdb
+		}
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)
