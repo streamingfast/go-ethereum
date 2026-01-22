@@ -177,11 +177,12 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 	isIsthmus := p.config.IsIsthmus(block.Time())
 
 	firehoseTracer.SnapshotFlashBlockForNextIteration()
-	stateDBClone := p.statedb.Copy()
+	finalizedStateDB := p.statedb.Copy() // this is the one that we will finalize, to maybe be reused
+
 	if hooks := cfg.Tracer; hooks != nil {
-		evm.StateDB = state.NewHookedState(stateDBClone, hooks)
+		evm.StateDB = state.NewHookedState(finalizedStateDB, hooks)
 	} else {
-		evm.StateDB = stateDBClone
+		evm.StateDB = finalizedStateDB
 	}
 
 	var requests [][]byte
@@ -206,8 +207,9 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 	}
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.chain.Engine().Finalize(p.chain, header, stateDBClone, block.Body())
-	header.Root = stateDBClone.IntermediateRoot(true)
+	p.chain.Engine().Finalize(p.chain, header, finalizedStateDB, block.Body())
+	header.Root = finalizedStateDB.IntermediateRoot(true)
+	finalizedStateDB.Commit(blockNumber.Uint64(), true, true)
 	newBlockHash := header.Hash()
 
 	return &core.ProcessResult{
@@ -215,7 +217,7 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 		Requests: requests,
 		Logs:     p.allLogs,
 		GasUsed:  *p.usedGas,
-	}, &header.Root, &newBlockHash, stateDBClone, nil
+	}, &header.Root, &newBlockHash, finalizedStateDB, nil
 }
 
 // ValidateState validates the various changes that happen after a state transition,
