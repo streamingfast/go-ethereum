@@ -231,9 +231,6 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// Ready for execution - execute and validate the block only if index is allowed
 	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
-		if msg.Index > 10 {
-			c.logger.Error("Flash Block Index out of range", "index", msg.Index)
-		}
 		if err := c.executeAndValidateBlock(); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 			return err

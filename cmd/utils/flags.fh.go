@@ -14,7 +14,7 @@ var (
 		Name:     "flashblock.address",
 		Usage:    "Address where to reach the Flashblock provider WebSocket endpoint, e.g. ws://localhost:1114",
 		Category: FlashblockCategory,
-		Value:    "ws://localhost:1114",
+		Value:    "", //ws://localhost:1114"
 	}
 )
 
