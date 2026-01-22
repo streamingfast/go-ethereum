@@ -273,6 +273,17 @@ func (s *StateDB) Logs() []*types.Log {
 	return logs
 }
 
+// PrepareForNewBlock resets per-block tracking fields that should start fresh
+// when this StateDB is used as the parent state for a new block.
+// This is particularly important for flash blocks where a StateDB instance
+// may be reused across block boundaries.
+func (s *StateDB) PrepareForNewBlock() {
+	s.logs = make(map[common.Hash][]*types.Log)
+	s.logSize = 0
+	s.thash = common.Hash{}
+	s.txIndex = 0
+}
+
 // AddPreimage records a SHA3 preimage seen by the VM.
 func (s *StateDB) AddPreimage(hash common.Hash, preimage []byte) {
 	if _, ok := s.preimages[hash]; !ok {

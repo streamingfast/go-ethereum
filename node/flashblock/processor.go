@@ -209,7 +209,8 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.chain.Engine().Finalize(p.chain, header, finalizedStateDB, block.Body())
 	header.Root = finalizedStateDB.IntermediateRoot(true)
-	finalizedStateDB.Commit(blockNumber.Uint64(), true, true)
+	finalizedStateDB.PrepareForNewBlock() // we know we might reuse this for next flash block
+
 	newBlockHash := header.Hash()
 
 	return &core.ProcessResult{
