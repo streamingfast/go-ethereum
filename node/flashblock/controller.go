@@ -480,7 +480,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 			c.state.Skipping = true // don't continue if flash block failed
 		}
 
-		return nil
+		return err
 	}
 	executor()
 
