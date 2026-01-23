@@ -31,6 +31,10 @@ type StateProcessor struct {
 	receipts    types.Receipts
 	gp          *core.GasPool
 	lastTxIndex *uint64
+
+	// chainLocker coordinates state commits with the main blockchain to prevent
+	// concurrent TrieDB updates
+	chainLocker sync.Locker
 }
 
 func NewStateProcessor(
@@ -40,14 +44,16 @@ func NewStateProcessor(
 	blockNumber *big.Int,
 	blockTime uint64,
 	gasLimit uint64,
+	chainLocker sync.Locker,
 ) *StateProcessor {
 	return &StateProcessor{
-		config:  config,
-		chain:   chain,
-		signer:  types.MakeSigner(config, blockNumber, blockTime),
-		statedb: stateDB,
-		usedGas: new(uint64),
-		gp:      new(core.GasPool).AddGas(gasLimit),
+		config:      config,
+		chain:       chain,
+		signer:      types.MakeSigner(config, blockNumber, blockTime),
+		statedb:     stateDB,
+		usedGas:     new(uint64),
+		gp:          new(core.GasPool).AddGas(gasLimit),
+		chainLocker: chainLocker,
 	}
 }
 
@@ -210,7 +216,14 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.chain.Engine().Finalize(p.chain, header, p.statedb, block.Body())
+
+	// Acquire the chain lock to coordinate TrieDB updates with the main blockchain.
+	// This prevents concurrent commits from flashblock and main chain processing
+	// which could corrupt the shared TrieDB layer tree, caches, and snapshots.
+	p.chainLocker.Lock()
 	hashroot, err := p.statedb.Commit(blockNumber.Uint64(), true, true)
+	p.chainLocker.Unlock()
+
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to commit state: %w", err)
 	}

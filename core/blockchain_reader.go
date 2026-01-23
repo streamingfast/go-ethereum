@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -30,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/internal/syncx"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/triedb"
@@ -447,6 +449,30 @@ func (bc *BlockChain) Snapshots() *snapshot.Tree {
 // Validator returns the current validator.
 func (bc *BlockChain) Validator() Validator {
 	return bc.validator
+}
+
+// chainMutexLocker wraps a ClosableMutex to implement sync.Locker interface.
+// It uses MustLock which will panic if the mutex is closed (blockchain stopped).
+// This is acceptable since flashblock processing should be stopped before the
+// blockchain is stopped.
+type chainMutexLocker struct {
+	mu *syncx.ClosableMutex
+}
+
+func (l *chainMutexLocker) Lock() {
+	l.mu.MustLock()
+}
+
+func (l *chainMutexLocker) Unlock() {
+	l.mu.Unlock()
+}
+
+// ChainLocker returns the chain mutex that must be held when committing state changes.
+// This is used by flashblock processing to coordinate TrieDB updates with the main
+// blockchain, preventing concurrent commits that could corrupt the shared TrieDB
+// layer tree, caches, and snapshots.
+func (bc *BlockChain) ChainLocker() sync.Locker {
+	return &chainMutexLocker{mu: bc.chainmu}
 }
 
 // Processor returns the current processor.

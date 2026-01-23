@@ -52,6 +52,10 @@ type ChainInterface interface {
 	StateAt(stateRoot common.Hash) (*state.StateDB, error)
 	HeaderChain() *core.HeaderChain
 	Config() *params.ChainConfig
+	// ChainLocker returns a locker that must be held when committing state changes
+	// to coordinate with the main blockchain's state commits and prevent concurrent
+	// TrieDB updates
+	ChainLocker() sync.Locker
 }
 
 // Controller manages flashblock state by consuming messages from a message provider
@@ -418,6 +422,7 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 			new(big.Int).SetUint64(c.state.ExecutableData.Number),
 			c.state.ExecutableData.Timestamp,
 			c.state.ExecutableData.GasLimit,
+			c.chain.ChainLocker(),
 		)
 	}
 
