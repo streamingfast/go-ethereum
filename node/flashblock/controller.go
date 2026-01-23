@@ -483,6 +483,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		stats.validateDuration = time.Since(startValidate)
 		if err != nil {
 			log.Error("Block state validation failed", "error", err)
+			c.state.Skipping = true // don't continue if flash block failed
 		}
 
 		return nil
