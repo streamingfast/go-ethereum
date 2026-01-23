@@ -66,7 +66,7 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config) (*core.ProcessResult, *common.Hash, *common.Hash, error) {
+func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config, isLastExecution bool) (*core.ProcessResult, *common.Hash, *common.Hash, error) {
 	var (
 		header      = block.Header()
 		blockHash   = block.Hash()
@@ -176,13 +176,15 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 
 	isIsthmus := p.config.IsIsthmus(block.Time())
 
-	firehoseTracer.SnapshotFlashBlockForNextIteration()
-	finalizedStateDB := p.statedb.Copy() // this is the one that we will finalize, to maybe be reused
+	if !isLastExecution {
+		firehoseTracer.SnapshotFlashBlockForNextIteration()
 
-	if hooks := cfg.Tracer; hooks != nil {
-		evm.StateDB = state.NewHookedState(finalizedStateDB, hooks)
-	} else {
-		evm.StateDB = finalizedStateDB
+		return &core.ProcessResult{
+			Receipts: p.receipts,
+			Requests: nil,
+			Logs:     p.allLogs,
+			GasUsed:  *p.usedGas,
+		}, nil, nil, nil
 	}
 
 	var requests [][]byte
@@ -207,8 +209,8 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 	}
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.chain.Engine().Finalize(p.chain, header, finalizedStateDB, block.Body())
-	hashroot, err := finalizedStateDB.Commit(blockNumber.Uint64(), true, true)
+	p.chain.Engine().Finalize(p.chain, header, p.statedb, block.Body())
+	hashroot, err := p.statedb.Commit(blockNumber.Uint64(), true, true)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to commit state: %w", err)
 	}
