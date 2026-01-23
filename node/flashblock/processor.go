@@ -66,7 +66,7 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config, isLastExecution bool) (*core.ProcessResult, *common.Hash, *common.Hash, *state.StateDB, error) {
+func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config, isLastFlashBlock bool) (*core.ProcessResult, *common.Hash, *common.Hash, *state.StateDB, error) {
 	var (
 		header      = block.Header()
 		blockHash   = block.Hash()
@@ -176,7 +176,7 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 
 	isIsthmus := p.config.IsIsthmus(block.Time())
 
-	if !isLastExecution {
+	if !isLastFlashBlock {
 		firehoseTracer.SnapshotFlashBlockForNextIteration()
 
 		return &core.ProcessResult{

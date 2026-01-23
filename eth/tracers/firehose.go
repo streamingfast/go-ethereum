@@ -160,6 +160,7 @@ type Firehose struct {
 	block             *pbeth.Block
 	flashBlockIndex   uint64
 	blockIsFlashBlock bool
+	isFinalFlashBlock bool
 
 	// Snapshot of flash block state before running the 'termination' system calls
 	// Used to build a partial on top of the previous one.
@@ -313,6 +314,7 @@ func (f *Firehose) resetBlock() {
 	f.blockReorderOrdinalOnce = sync.Once{}
 	f.blockIsGenesis = false
 	f.blockIsFlashBlock = false
+	f.isFinalFlashBlock = false
 	// Note: We don't reset flash block snapshot here - they persist across block resets
 	// until we get a flash block with a new block number (handled in OnBlockStart)
 }
@@ -581,13 +583,11 @@ func (f *Firehose) SnapshotFlashBlockForNextIteration() {
 	)
 }
 
-func (f *Firehose) SetStateRoot(stateRoot common.Hash) {
+func (f *Firehose) SetFinalFlashBlock(blockHash, stateRoot common.Hash) {
+	f.isFinalFlashBlock = true
 	f.block.Header.StateRoot = stateRoot.Bytes()
-}
-
-func (f *Firehose) SetHash(hash common.Hash) {
-	f.block.Hash = hash.Bytes()
-	f.block.Header.Hash = hash.Bytes()
+	f.block.Hash = blockHash.Bytes()
+	f.block.Header.Hash = blockHash.Bytes()
 }
 
 func (f *Firehose) OnBlockEnd(err error) {
@@ -2032,9 +2032,13 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	if block.Number-libNum >= 200 {
 		libNum = block.Number - 200
 	}
+	printedFlashBlockIndex := f.flashBlockIndex
+	if f.isFinalFlashBlock {
+		printedFlashBlockIndex += 1000 // partials would be: 1, 2, 3, 4, 5, 6, 7, 8, 9, 1010  (meaning partial 10 which is final)
+	}
 
 	// **Important* The final space in the Sprintf template is mandatory!
-	fmt.Fprintf(f.outputBuffer, "FIRE BLOCK %d %d %s %d %s %d %d ", block.Number, f.flashBlockIndex, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano())
+	fmt.Fprintf(f.outputBuffer, "FIRE BLOCK %d %d %s %d %s %d %d ", block.Number, printedFlashBlockIndex, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano())
 
 	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
 	if _, err = encoder.Write(marshalled); err != nil {
