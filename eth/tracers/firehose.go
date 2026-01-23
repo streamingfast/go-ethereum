@@ -611,6 +611,9 @@ func (f *Firehose) OnBlockEnd(err error) {
 	} else {
 		// An error occurred, could have happen in transaction/call context, we must not check if in trx/call, only check in block
 		f.ensureInBlock(0)
+		if f.blockIsFlashBlock {
+			f.snapshotForNextFlashBlock = nil // don't keep broken flashblock for next iteration
+		}
 	}
 
 	f.resetBlock()
