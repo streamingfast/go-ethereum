@@ -167,6 +167,15 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
 		if c.state != nil && !c.state.Skipping && msg.Static != nil {
+
+			// execute "last partial" for previous block
+			c.state.CurrentIndex++
+			if err := c.executeAndValidateBlock(true); err != nil {
+				c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
+				c.state.Skipping = true // don't continue if flash block failed
+				return err
+			}
+
 			c.usedPreviousStateDB = c.getStateDB(msg.Static.ParentHash)
 		} else {
 			c.usedPreviousStateDB = nil
@@ -231,8 +240,9 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// Ready for execution - execute and validate the block only if index is allowed
 	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
-		if err := c.executeAndValidateBlock(); err != nil {
+		if err := c.executeAndValidateBlock(false); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
+			c.state.Skipping = true // don't continue if flash block failed
 			return err
 		}
 	} else {
@@ -364,7 +374,7 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 
 // executeAndValidateBlock executes and validates the current flashblock state
 // Assumes the lock is already held by the caller
-func (c *Controller) executeAndValidateBlock() (err error) {
+func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) {
 	stats := &flashblockStats{
 		blockHash:   c.state.ExecutableData.BlockHash,
 		blockNumber: c.state.ExecutableData.Number,
@@ -430,6 +440,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		"block_number", block.NumberU64(),
 		"block_hash", block.Hash().TerminalString(),
 		"tx_count", len(block.Transactions()),
+		"is_last_flash_block", isLastFlashBlock,
 	)
 
 	currentIndex := c.state.CurrentIndex
@@ -457,7 +468,7 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		startProcess := time.Now()
 		result, newStateRoot, newHash, finalizedStateDB, err := c.state.Processor.Process(block, c.tracer, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
-		})
+		}, isLastFlashBlock)
 		c.PreviousBlockHash = newHash
 		c.previousFinalizedStateDB = finalizedStateDB
 		stats.processDuration = time.Since(startProcess)
@@ -477,7 +488,6 @@ func (c *Controller) executeAndValidateBlock() (err error) {
 		stats.validateDuration = time.Since(startValidate)
 		if err != nil {
 			log.Error("Block state validation failed", "error", err)
-			c.state.Skipping = true // don't continue if flash block failed
 		}
 
 		return err

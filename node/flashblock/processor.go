@@ -66,7 +66,7 @@ type txmsg struct {
 // Process processes the state changes according to the Ethereum rules by running but using an
 // incremental approach for working with flashblocks. This code here needs to closely align with
 // [core.StateProcessor.Process] to ensure correctness.
-func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config) (*core.ProcessResult, *common.Hash, *common.Hash, *state.StateDB, error) {
+func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Firehose, cfg vm.Config, isLastExecution bool) (*core.ProcessResult, *common.Hash, *common.Hash, *state.StateDB, error) {
 	var (
 		header      = block.Header()
 		blockHash   = block.Hash()
@@ -176,14 +176,18 @@ func (p *StateProcessor) Process(block *types.Block, firehoseTracer *tracers.Fir
 
 	isIsthmus := p.config.IsIsthmus(block.Time())
 
-	firehoseTracer.SnapshotFlashBlockForNextIteration()
-	finalizedStateDB := p.statedb.Copy() // this is the one that we will finalize, to maybe be reused
+	if !isLastExecution {
+		firehoseTracer.SnapshotFlashBlockForNextIteration()
 
-	if hooks := cfg.Tracer; hooks != nil {
-		evm.StateDB = state.NewHookedState(finalizedStateDB, hooks)
-	} else {
-		evm.StateDB = finalizedStateDB
+		return &core.ProcessResult{
+			Receipts: p.receipts,
+			Requests: nil,
+			Logs:     p.allLogs,
+			GasUsed:  *p.usedGas,
+		}, nil, nil, nil, nil
 	}
+
+	finalizedStateDB := p.statedb.Copy() // this is the one that we will finalize, to maybe be reused
 
 	var requests [][]byte
 	if p.config.IsPrague(block.Number(), block.Time()) && !isIsthmus {
