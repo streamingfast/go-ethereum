@@ -469,24 +469,20 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 		result, newStateRoot, newHash, err := c.state.Processor.Process(block, c.tracer, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
 		}, isLastFlashBlock)
-		c.PreviousBlockHash = newHash
-		if newStateRoot != nil {
-			sdb, err := c.chain.StateAt(*newStateRoot)
-			if err != nil {
-				return fmt.Errorf("failed to retrieve state at root %s: %w", newStateRoot, err)
-			}
-			c.previousFinalizedStateDB = sdb
-		}
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)
 		}
 
-		if newStateRoot != nil {
-			c.tracer.SetStateRoot(*newStateRoot)
-		}
-		if newHash != nil {
-			c.tracer.SetHash(*newHash)
+		if isLastFlashBlock {
+			sdb, err := c.chain.StateAt(*newStateRoot)
+			if err != nil {
+				return fmt.Errorf("failed to retrieve state at root %s: %w", newStateRoot, err)
+			}
+			c.previousFinalizedStateDB = sdb
+			c.PreviousBlockHash = newHash
+
+			c.tracer.SetFinalFlashBlock(*newHash, *newStateRoot)
 		}
 
 		startValidate := time.Now()
