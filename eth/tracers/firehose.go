@@ -136,6 +136,8 @@ func (c *FirehoseConfig) ForcedBackwardCompatibility() bool {
 }
 
 type Firehose struct {
+	sync.Mutex
+
 	// Global state
 	outputBuffer *bytes.Buffer
 	initSent     *atomic.Bool
@@ -391,6 +393,7 @@ func chainNeedsLegacyBackwardCompatibility(id *big.Int) bool {
 }
 
 func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
+	f.Lock()
 	f.ensureBlockChainInit()
 
 	block := event.Block
@@ -588,6 +591,7 @@ func (f *Firehose) SetHash(hash common.Hash) {
 }
 
 func (f *Firehose) OnBlockEnd(err error) {
+	defer f.Unlock()
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil { // only real blocks and lastFlashblock get this reordering
