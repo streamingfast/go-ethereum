@@ -471,9 +471,11 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 		}()
 
 		startProcess := time.Now()
-		result, newStateRoot, newHash, err := c.state.Processor.Process(block, c.tracer, vm.Config{
+		result, newStateRoot, newHash, finalizedStateDB, err := c.state.Processor.Process(block, c.tracer, vm.Config{
 			Tracer: tracers.NewTracingHooksFromFirehose(c.tracer),
 		}, isLastFlashBlock)
+		c.PreviousBlockHash = newHash
+		c.previousFinalizedStateDB = finalizedStateDB
 		stats.processDuration = time.Since(startProcess)
 		if err != nil {
 			return fmt.Errorf("process block: %w", err)
