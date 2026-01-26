@@ -168,8 +168,12 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	if msg.Index == 0 {
 		if c.state != nil && !c.state.Skipping && msg.Static != nil {
 
-			// execute "last partial" for previous block
-			c.state.CurrentIndex++
+			// execute "last partial" for previous block:
+			//  - increment index if we already sent this one
+			if c.state.LastSentIndex == c.state.CurrentIndex {
+				c.state.CurrentIndex++
+			}
+			//  - proper execution
 			if err := c.executeAndValidateBlock(true); err != nil {
 				c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 				c.state.Skipping = true // don't continue if flash block failed
@@ -245,6 +249,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 			c.state.Skipping = true // don't continue if flash block failed
 			return err
 		}
+		c.state.LastSentIndex = c.state.CurrentIndex
 	} else {
 		c.logger.Debug("Skipping execution for index not in FLASHBLOCKS_ONLY_IDX", "index", msg.Index)
 	}
@@ -258,6 +263,7 @@ func (c *Controller) resetState(msg *FlashblocksPayloadV1) {
 	c.state = NewFlashblockState()
 	c.state.PayloadID = msg.PayloadID
 	c.state.CurrentIndex = 0
+	c.state.LastSentIndex = 0
 	c.state.MessageCount = 1
 
 	// Set base properties

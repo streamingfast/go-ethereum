@@ -22,8 +22,9 @@ type Sequence struct {
 	PayloadID             hexutil.Bytes
 	ParentBeaconBlockRoot *common.Hash
 
-	CurrentIndex uint64
-	MessageCount uint64
+	LastSentIndex uint64
+	CurrentIndex  uint64
+	MessageCount  uint64
 }
 
 // NewFlashblockState creates a new empty flashblock state
