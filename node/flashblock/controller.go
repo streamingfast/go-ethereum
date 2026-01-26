@@ -67,10 +67,11 @@ type Controller struct {
 	PreviousBlockHash        *common.Hash
 
 	// Lifecycle management
-	ctx      context.Context
-	cancel   context.CancelFunc
-	done     chan struct{}
-	stopOnce sync.Once
+	ctx        context.Context
+	cancel     context.CancelFunc
+	done       chan struct{}
+	stopOnce   sync.Once
+	msgChannel chan *FlashblocksPayloadV1
 
 	tracer *tracers.Firehose
 }
@@ -85,12 +86,13 @@ func NewController(chain ChainInterface, provider ProtocolMessageProvider, logge
 	tracer.OnBlockchainInit(chain.Config())
 
 	return &Controller{
-		chain:    chain,
-		provider: provider,
-		logger:   logger,
-		state:    NewFlashblockState(),
-		done:     make(chan struct{}),
-		tracer:   tracer,
+		chain:      chain,
+		provider:   provider,
+		logger:     logger,
+		state:      NewFlashblockState(),
+		done:       make(chan struct{}),
+		msgChannel: make(chan *FlashblocksPayloadV1, 10),
+		tracer:     tracer,
 	}
 }
 
@@ -103,7 +105,8 @@ func (c *Controller) Start() error {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.logger.Info("Starting flashblock controller")
 
-	go c.run()
+	go c.readLoop()
+	go c.processLoop()
 
 	return nil
 }
@@ -116,6 +119,9 @@ func (c *Controller) Stop() error {
 
 		if c.cancel != nil {
 			c.cancel()
+
+			// Close the message channel
+			close(c.msgChannel)
 
 			// Wait for the goroutine to finish
 			<-c.done
@@ -132,17 +138,14 @@ func (c *Controller) Stop() error {
 	return err
 }
 
-// run is the internal main loop, reading messages from the provider
-// and updating state accordingly. Runs until context is cancelled.
-func (c *Controller) run() {
-	defer close(c.done)
-
-	c.logger.Info("Flashblock controller loop started")
+// readLoop reads messages from the provider and sends them to the message channel
+func (c *Controller) readLoop() {
+	c.logger.Info("Flashblock read loop started")
 
 	for {
 		select {
 		case <-c.ctx.Done():
-			c.logger.Info("Flashblock controller loop stopping")
+			c.logger.Info("Flashblock read loop stopping")
 			return
 		default:
 			msg, err := c.provider.ReadMessage()
@@ -151,9 +154,42 @@ func (c *Controller) run() {
 				continue
 			}
 
+			var blkNum uint64
+			if msg.Static != nil {
+				blkNum = uint64(msg.Static.BlockNumber)
+			}
+
+			c.logger.Info("Received flashblock message", "index", msg.Index, "blockNumber", blkNum)
+
+			select {
+			case c.msgChannel <- msg:
+			case <-c.ctx.Done():
+				c.logger.Info("Flashblock read loop stopping")
+				return
+			}
+		}
+	}
+}
+
+// processLoop processes messages from the message channel
+func (c *Controller) processLoop() {
+	defer close(c.done)
+
+	c.logger.Info("Flashblock process loop started")
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			c.logger.Info("Flashblock process loop stopping")
+			return
+		case msg, ok := <-c.msgChannel:
+			if !ok {
+				c.logger.Info("Message channel closed, process loop stopping")
+				return
+			}
+
 			if err := c.processMessage(msg); err != nil {
 				c.logger.Error("Error processing flashblock message", "error", err, "index", msg.Index)
-				continue
 			}
 		}
 	}
