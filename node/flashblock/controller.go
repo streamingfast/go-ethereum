@@ -174,7 +174,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 				c.state.CurrentIndex++
 			}
 			//  - proper execution
-			if err := c.executeAndValidateBlock(true); err != nil {
+			if err := c.executeAndValidateBlock(true, &msg.Static.ParentHash); err != nil {
 				c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 				c.state.Skipping = true // don't continue if flash block failed
 				return err
@@ -244,7 +244,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	// Ready for execution - execute and validate the block only if index is allowed
 	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
-		if err := c.executeAndValidateBlock(false); err != nil {
+		if err := c.executeAndValidateBlock(false, nil); err != nil {
 			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 			c.state.Skipping = true // don't continue if flash block failed
 			return err
@@ -380,7 +380,7 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 
 // executeAndValidateBlock executes and validates the current flashblock state
 // Assumes the lock is already held by the caller
-func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) {
+func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool, expectedBlockHash *common.Hash) (err error) {
 	stats := &flashblockStats{
 		blockHash:   c.state.ExecutableData.BlockHash,
 		blockNumber: c.state.ExecutableData.Number,
@@ -492,6 +492,12 @@ func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool) (err error) 
 		stats.validateDuration = time.Since(startValidate)
 		if err != nil {
 			log.Error("Block state validation failed", "error", err)
+		}
+
+		if isLastFlashBlock {
+			if newHash.Cmp(*expectedBlockHash) != 0 {
+				return fmt.Errorf("expected root hash %s, got %s", expectedBlockHash.String(), newHash.String())
+			}
 		}
 
 		return err
