@@ -257,7 +257,6 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 		return nil
 	}
 
-	start := time.Now()
 	defer func(start time.Time) {
 		duration := time.Since(start)
 
@@ -301,8 +300,6 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	c.logger.Debug("Accumulating flashblock delta", "index", msg.Index, "payload_id", msg.PayloadID.String())
 	c.accumulateDelta(msg)
 
-	fmt.Println("since 1", time.Since(start))
-
 	var expectedBlockHash *common.Hash
 	if nextMsg, ok := c.msgChannel.Peek(); ok {
 		if nextMsg.Static != nil {
@@ -318,7 +315,6 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 		}
 	}
 
-	fmt.Println("since 2", time.Since(start))
 	isFinalBlock := expectedBlockHash != nil
 
 	// Ready for execution - execute and validate the block only if index is allowed
@@ -330,7 +326,6 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	c.state.LastSentIndex = c.state.CurrentIndex
 	c.state.FinalPartSent = isFinalBlock
 
-	fmt.Println("since 3", time.Since(start))
 	return nil
 }
 
