@@ -43,9 +43,6 @@ type Controller struct {
 	provider ProtocolMessageProvider
 	logger   log.Logger
 
-	nextMessages      []nextMessage
-	nextMessagesMutex sync.RWMutex
-
 	state                    *Sequence
 	usedPreviousStateDB      *state.StateDB
 	previousFinalizedStateDB *state.StateDB
@@ -56,9 +53,50 @@ type Controller struct {
 	cancel     context.CancelFunc
 	done       chan struct{}
 	stopOnce   sync.Once
-	msgChannel chan *FlashblocksPayloadV1
+	msgChannel *PeekChan[*FlashblocksPayloadV1]
 
 	tracer *tracers.Firehose
+}
+
+type PeekChan[T any] struct {
+	C      chan T
+	buf    T
+	hasBuf bool
+}
+
+func NewPeekChan[T any](ch chan T) *PeekChan[T] {
+	return &PeekChan[T]{C: ch}
+}
+
+func (p *PeekChan[T]) Peek() (T, bool) {
+	if !p.hasBuf {
+		v, ok := <-p.C
+		if !ok {
+			var zero T
+			return zero, false
+		}
+		p.buf = v
+		p.hasBuf = true
+	}
+	return p.buf, true
+}
+
+func (p *PeekChan[T]) Next(ctx context.Context) (T, bool) {
+	if ctx.Err() != nil {
+		var zero T
+		return zero, false
+	}
+	if p.hasBuf {
+		p.hasBuf = false
+		return p.buf, true
+	}
+	select {
+	case <-ctx.Done():
+		var zero T
+		return zero, false
+	case v, ok := <-p.C:
+		return v, ok
+	}
 }
 
 // NewController creates a new flashblock controller
@@ -76,7 +114,7 @@ func NewController(chain ChainInterface, provider ProtocolMessageProvider, logge
 		logger:     logger,
 		state:      NewFlashblockState(),
 		done:       make(chan struct{}),
-		msgChannel: make(chan *FlashblocksPayloadV1, 10),
+		msgChannel: NewPeekChan(make(chan *FlashblocksPayloadV1, 10)),
 		tracer:     tracer,
 	}
 }
@@ -106,7 +144,7 @@ func (c *Controller) Stop() error {
 			c.cancel()
 
 			// Close the message channel
-			close(c.msgChannel)
+			close(c.msgChannel.C)
 
 			// Wait for the goroutine to finish
 			<-c.done
@@ -147,7 +185,7 @@ func (c *Controller) readLoop() {
 			c.logger.Info("Received flashblock message", "index", msg.Index, "blockNumber", blkNum)
 
 			select {
-			case c.msgChannel <- msg:
+			case c.msgChannel.C <- msg:
 			case <-c.ctx.Done():
 				c.logger.Info("Flashblock read loop stopping")
 				return
@@ -163,19 +201,13 @@ func (c *Controller) processLoop() {
 	c.logger.Info("Flashblock process loop started")
 
 	for {
-		select {
-		case <-c.ctx.Done():
-			c.logger.Info("Flashblock process loop stopping")
+		msg, ok := c.msgChannel.Next(c.ctx)
+		if !ok {
+			c.logger.Info("Message channel closed, process loop stopping")
 			return
-		case msg, ok := <-c.msgChannel:
-			if !ok {
-				c.logger.Info("Message channel closed, process loop stopping")
-				return
-			}
-
-			if err := c.processMessage(msg); err != nil {
-				c.logger.Error("Error processing flashblock message", "error", err, "index", msg.Index)
-			}
+		}
+		if err := c.processMessage(msg); err != nil {
+			c.logger.Error("Error processing flashblock message", "error", err, "index", msg.Index)
 		}
 	}
 }
@@ -265,27 +297,23 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	c.logger.Debug("Accumulating flashblock delta", "index", msg.Index, "payload_id", msg.PayloadID.String())
 	c.accumulateDelta(msg)
 
-	c.nextMessagesMutex.RLock()
 	var expectedBlockHash *common.Hash
-	if len(c.nextMessages) != 0 {
-		nextMsg := c.nextMessages[0]
-		if nextMsg.blockNum == c.state.ExecutableData.Number {
-			// next flaskblock message is waiting for us in the queue. skip this one.
-			c.nextMessagesMutex.RUnlock()
-			return nil
-		}
-		if nextMsg.blockNum == c.state.ExecutableData.Number+1 {
-			// next flaskblock message can tell us if we are the canonical last flashblock: we will finalize the block and see if we match its expected parent hash
-			expectedBlockHash = nextMsg.parentHash
+	if nextMsg, ok := c.msgChannel.Peek(); ok {
+		if nextMsg.Static != nil {
+
+			if uint64(nextMsg.Static.BlockNumber) == c.state.ExecutableData.Number {
+				c.logger.Debug("skipping execution because next message is waiting with same block number", "index", msg.Index, "payload_id", msg.PayloadID.String())
+				return nil
+			}
+			if uint64(nextMsg.Static.BlockNumber) == c.state.ExecutableData.Number+1 {
+				// next flaskblock message can tell us if we are the canonical last flashblock: we will finalize the block and see if we match its expected parent hash
+				expectedBlockHash = &nextMsg.Static.ParentHash
+			}
 		}
 	}
-	c.nextMessagesMutex.RUnlock()
 
 	isFinalBlock := expectedBlockHash != nil
-	// get rid of the skipping logic with flashblocksOnlyIdx
-	// if expectedBlockHash not nil: absolutely run it (true, expectedBlockHash)
-	// if nextMessageSameBlock
-	//
+
 	// Ready for execution - execute and validate the block only if index is allowed
 	if err := c.executeAndValidateBlock(isFinalBlock, expectedBlockHash); err != nil {
 		c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
