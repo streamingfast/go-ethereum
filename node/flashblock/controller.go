@@ -5,10 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"os"
 	"runtime/debug"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,25 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-var flashblocksOnlyIdx map[uint64]bool
-
-func init() {
-	flashblocksOnlyIdx = make(map[uint64]bool)
-
-	envVal := os.Getenv("FLASHBLOCKS_ONLY_IDX")
-	if envVal == "" {
-		return
-	}
-
-	indices := strings.Split(envVal, ",")
-	for _, indexStr := range indices {
-		indexStr = strings.TrimSpace(indexStr)
-		if index, err := strconv.ParseUint(indexStr, 10, 64); err == nil {
-			flashblocksOnlyIdx[index] = true
-		}
-	}
-}
-
 // ChainInterface defines the minimal interface required from the chain
 // to implement the flash block functionality. This is usually provided by
 // the [core.Blockchain] implementation directly
@@ -54,13 +32,20 @@ type ChainInterface interface {
 	Config() *params.ChainConfig
 }
 
+type nextMessage struct {
+	blockNum   uint64
+	parentHash *common.Hash
+}
+
 // Controller manages flashblock state by consuming messages from a message provider
 type Controller struct {
 	chain    ChainInterface
 	provider ProtocolMessageProvider
 	logger   log.Logger
 
-	mu                       sync.RWMutex
+	nextMessages      []nextMessage
+	nextMessagesMutex sync.RWMutex
+
 	state                    *Sequence
 	usedPreviousStateDB      *state.StateDB
 	previousFinalizedStateDB *state.StateDB
@@ -197,26 +182,28 @@ func (c *Controller) processLoop() {
 
 // processMessage processes a flashblock message and updates the state
 func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
 		if c.state != nil && !c.state.Skipping && msg.Static != nil {
 
-			// execute "last partial" for previous block:
-			//  - increment index if we already sent this one
-			if c.state.LastSentIndex == c.state.CurrentIndex {
-				c.state.CurrentIndex++
-			}
-			//  - proper execution
-			if err := c.executeAndValidateBlock(true, &msg.Static.ParentHash); err != nil {
-				c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
-				c.state.Skipping = true // don't continue if flash block failed
-				return err
+			// we may have already sent it with the lookahead feature
+			if !c.state.FinalPartSent {
+				// execute "last partial" for previous block:
+				//  - increment index if we already sent this one
+				if c.state.LastSentIndex == c.state.CurrentIndex {
+					c.state.CurrentIndex++
+				}
+				//  - proper execution
+				if err := c.executeAndValidateBlock(true, &msg.Static.ParentHash); err != nil {
+					c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
+					c.state.Skipping = true // don't continue if flash block failed
+					return err
+				}
 			}
 
 			c.usedPreviousStateDB = c.getStateDB(msg.Static.ParentHash)
+
 		} else {
 			c.usedPreviousStateDB = nil
 		}
@@ -278,17 +265,35 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 	c.logger.Debug("Accumulating flashblock delta", "index", msg.Index, "payload_id", msg.PayloadID.String())
 	c.accumulateDelta(msg)
 
-	// Ready for execution - execute and validate the block only if index is allowed
-	if len(flashblocksOnlyIdx) == 0 || flashblocksOnlyIdx[msg.Index] {
-		if err := c.executeAndValidateBlock(false, nil); err != nil {
-			c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
-			c.state.Skipping = true // don't continue if flash block failed
-			return err
+	c.nextMessagesMutex.RLock()
+	var expectedBlockHash *common.Hash
+	if len(c.nextMessages) != 0 {
+		nextMsg := c.nextMessages[0]
+		if nextMsg.blockNum == c.state.ExecutableData.Number {
+			// next flaskblock message is waiting for us in the queue. skip this one.
+			c.nextMessagesMutex.RUnlock()
+			return nil
 		}
-		c.state.LastSentIndex = c.state.CurrentIndex
-	} else {
-		c.logger.Debug("Skipping execution for index not in FLASHBLOCKS_ONLY_IDX", "index", msg.Index)
+		if nextMsg.blockNum == c.state.ExecutableData.Number+1 {
+			// next flaskblock message can tell us if we are the canonical last flashblock: we will finalize the block and see if we match its expected parent hash
+			expectedBlockHash = nextMsg.parentHash
+		}
 	}
+	c.nextMessagesMutex.RUnlock()
+
+	isFinalBlock := expectedBlockHash != nil
+	// get rid of the skipping logic with flashblocksOnlyIdx
+	// if expectedBlockHash not nil: absolutely run it (true, expectedBlockHash)
+	// if nextMessageSameBlock
+	//
+	// Ready for execution - execute and validate the block only if index is allowed
+	if err := c.executeAndValidateBlock(isFinalBlock, expectedBlockHash); err != nil {
+		c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
+		c.state.Skipping = true // don't continue if flash block failed
+		return err
+	}
+	c.state.LastSentIndex = c.state.CurrentIndex
+	c.state.FinalPartSent = isFinalBlock
 
 	return nil
 }
@@ -301,6 +306,7 @@ func (c *Controller) resetState(msg *FlashblocksPayloadV1) {
 	c.state.CurrentIndex = 0
 	c.state.LastSentIndex = 0
 	c.state.MessageCount = 1
+	c.state.FinalPartSent = false
 
 	// Set base properties
 	if msg.Static != nil {

@@ -22,6 +22,7 @@ type Sequence struct {
 	PayloadID             hexutil.Bytes
 	ParentBeaconBlockRoot *common.Hash
 
+	FinalPartSent bool
 	LastSentIndex uint64
 	CurrentIndex  uint64
 	MessageCount  uint64
