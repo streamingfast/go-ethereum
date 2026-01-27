@@ -315,6 +315,7 @@ func (f *Firehose) resetBlock() {
 	f.blockIsGenesis = false
 	f.blockIsFlashBlock = false
 	f.isFinalFlashBlock = false
+	f.flashBlockIndex = 0
 	// Note: We don't reset flash block snapshot here - they persist across block resets
 	// until we get a flash block with a new block number (handled in OnBlockStart)
 }
