@@ -98,6 +98,26 @@ type prestateData struct {
 	genesisBlock *types.Block
 }
 
+// CurrentHeader implements core.ChainContext.
+func (p *prestateData) CurrentHeader() *types.Header {
+	return p.GetHeader(p.genesisBlock.Hash(), p.genesisBlock.NumberU64())
+}
+
+// GetHeaderByHash implements core.ChainContext.
+func (p *prestateData) GetHeaderByHash(hash common.Hash) *types.Header {
+	return p.GetHeader(p.genesisBlock.Hash(), p.genesisBlock.NumberU64())
+}
+
+// GetHeaderByNumber implements core.ChainContext.
+func (p *prestateData) GetHeaderByNumber(number uint64) *types.Header {
+	return p.GetHeader(p.genesisBlock.Hash(), p.genesisBlock.NumberU64())
+}
+
+// GetTd implements core.ChainContext.
+func (p *prestateData) GetTd(hash common.Hash, number uint64) *big.Int {
+	return p.TotalDifficulty
+}
+
 // Config implements core.ChainContext.
 func (p *prestateData) Config() *params.ChainConfig {
 	return p.Genesis.Config

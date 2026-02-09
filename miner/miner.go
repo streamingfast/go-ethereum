@@ -63,7 +63,8 @@ type Config struct {
 	CommitInterruptFlag bool          // Interrupt commit when time is up ( default = true)
 	BlockTime           time.Duration // The block time defined by the miner. Needs to be larger or equal to the consensus block time. If not set (default = 0), the miner will use the consensus block time.
 
-	NewPayloadTimeout time.Duration // The maximum time allowance for creating a new payload
+	NewPayloadTimeout   time.Duration  // The maximum time allowance for creating a new payload
+	PendingFeeRecipient common.Address `toml:"-"` // Address for pending block rewards.
 }
 
 // DefaultConfig contains default settings for miner.
@@ -83,11 +84,11 @@ var DefaultConfig = Config{
 	// consensus-layer usually will wait a half slot of time(6s)
 	// for payload generation. It should be enough for Geth to
 	// run 3 rounds.
-	Recommit:          2 * time.Second,
-	NewPayloadTimeout: 2 * time.Second,
+	Recommit: 2 * time.Second,
 }
 
-// Miner creates blocks and searches for proof-of-work values.
+// Miner is the main object which takes care of submitting new work to consensus
+// engine and gathering the sealing result.
 // nolint:staticcheck
 type Miner struct {
 	confMu  sync.RWMutex // The lock used to protect the config fields: GasCeil, GasTip and Extradata
