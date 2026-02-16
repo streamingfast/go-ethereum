@@ -529,17 +529,19 @@ func (s *Ethereum) ResetWithGenesisBlock(gb *types.Block) {
 
 func (s *Ethereum) Miner() *miner.Miner { return s.miner }
 
-func (s *Ethereum) AccountManager() *accounts.Manager  { return s.accountManager }
-func (s *Ethereum) BlockChain() *core.BlockChain       { return s.blockchain }
-func (s *Ethereum) TxPool() *txpool.TxPool             { return s.txPool }
-func (s *Ethereum) BlobTxPool() *blobpool.BlobPool     { return s.blobTxPool }
-func (s *Ethereum) Engine() consensus.Engine           { return s.engine }
-func (s *Ethereum) ChainDb() ethdb.Database            { return s.chainDb }
-func (s *Ethereum) IsListening() bool                  { return true } // Always listening
-func (s *Ethereum) Downloader() *downloader.Downloader { return s.handler.downloader }
-func (s *Ethereum) Synced() bool                       { return s.handler.synced.Load() }
-func (s *Ethereum) SetSynced()                         { s.handler.enableSyncedFeatures() }
-func (s *Ethereum) ArchiveMode() bool                  { return s.config.NoPruning }
+func (s *Ethereum) AccountManager() *accounts.Manager            { return s.accountManager }
+func (s *Ethereum) BlockChain() *core.BlockChain                 { return s.blockchain }
+func (s *Ethereum) TxPool() *txpool.TxPool                       { return s.txPool }
+func (s *Ethereum) BlobTxPool() *blobpool.BlobPool               { return s.blobTxPool }
+func (s *Ethereum) Engine() consensus.Engine                     { return s.engine }
+func (s *Ethereum) ChainDb() ethdb.Database                      { return s.chainDb }
+func (s *Ethereum) IsListening() bool                            { return true } // Always listening
+func (s *Ethereum) Downloader() *downloader.Downloader           { return s.handler.downloader }
+func (s *Ethereum) Synced() bool                                 { return s.handler.synced.Load() }
+func (s *Ethereum) SetSynced()                                   { s.handler.enableSyncedFeatures() }
+func (s *Ethereum) ArchiveMode() bool                            { return s.config.NoPruning }
+func (s *Ethereum) FlashblockController() *flashblock.Controller { return s.flashblockCtrl }
+func (s *Ethereum) Config() *ethconfig.Config                    { return s.config }
 
 // Protocols returns all the currently configured
 // network protocols to start.

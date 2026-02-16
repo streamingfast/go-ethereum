@@ -701,6 +701,12 @@ func (api *ConsensusAPI) NewPayloadV4(params engine.ExecutableData, versionedHas
 	if err := validateRequests(requests); err != nil {
 		return engine.PayloadStatusV1{Status: engine.INVALID}, engine.InvalidParams.With(err)
 	}
+
+	// Send notification to flashblock controller if enabled
+	if api.eth.Config().FlashblocksEnabled && api.eth.FlashblockController() != nil {
+		api.eth.FlashblockController().SendNotification(params.Number, params.BlockHash)
+	}
+
 	return api.newPayload(params, versionedHashes, beaconRoot, requests, false)
 }
 

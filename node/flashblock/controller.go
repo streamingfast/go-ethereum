@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -137,6 +138,49 @@ func (c *Controller) Start() error {
 	return nil
 }
 
+// SendNotification sends a notification message to the controller for logging purposes
+// This is used to notify the controller about blocks from external sources (e.g., NewPayloadV4)
+func (c *Controller) SendNotification(blockNumber uint64, blockHash common.Hash) {
+	if c.ctx == nil || c.ctx.Err() != nil {
+		// Controller not started or already stopped
+		return
+	}
+
+	// Create a special notification message with version 0xdeadbeef
+	// Hide blockNumber in Index and blockHash in ParentFlashHash
+	notification := &FlashblocksPayloadV1{
+		Version:         hexutil.Bytes{0xde, 0xad, 0xbe, 0xef},
+		Index:           blockNumber,
+		ParentFlashHash: &blockHash,
+	}
+
+	// Try to send the notification without blocking
+	select {
+	case c.msgChannel.C <- notification:
+		// Message sent successfully
+	case <-c.ctx.Done():
+		// Controller stopped
+	default:
+		// Channel full, skip this notification
+		c.logger.Warn("Failed to send flashblock notification, channel full", "blockNumber", blockNumber)
+	}
+}
+
+// isNotificationMessage checks if a message is a special notification message (version 0xdeadbeef)
+// and returns the block number, block hash, and whether it's a notification
+func isNotificationMessage(msg *FlashblocksPayloadV1) (blockNumber uint64, blockHash common.Hash, ok bool) {
+	// Check if this is a special notification message (version 0xdeadbeef)
+	if len(msg.Version) == 4 && msg.Version[0] == 0xde && msg.Version[1] == 0xad &&
+		msg.Version[2] == 0xbe && msg.Version[3] == 0xef {
+		// blockNumber is in Index, blockHash is in ParentFlashHash
+		if msg.ParentFlashHash != nil {
+			return msg.Index, *msg.ParentFlashHash, true
+		}
+		return msg.Index, common.Hash{}, true
+	}
+	return 0, common.Hash{}, false
+}
+
 // Stop stops the controller and waits for it to finish
 func (c *Controller) Stop() error {
 	var err error
@@ -209,6 +253,15 @@ func (c *Controller) processLoop() {
 			c.logger.Info("Message channel closed, process loop stopping")
 			return
 		}
+
+		// Check if this is a special notification message
+		if blockNumber, blockHash, ok := isNotificationMessage(msg); ok {
+			c.logger.Info("Received block notification from NewPayloadV4",
+				"blockNumber", blockNumber,
+				"blockHash", blockHash.Hex())
+			continue
+		}
+
 		if err := c.processMessage(msg); err != nil {
 			c.logger.Error("Error processing flashblock message", "error", err, "index", msg.Index)
 		}
@@ -302,6 +355,24 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 	var expectedBlockHash *common.Hash
 	if nextMsg, ok := c.msgChannel.Peek(); ok {
+
+		for {
+			if blockNumber, blockHash, ok := isNotificationMessage(nextMsg); ok {
+				c.logger.Info("Received block notification from NewPayloadV4",
+					"blockNumber", blockNumber,
+					"blockHash", blockHash.Hex())
+				_, _ = c.msgChannel.Next(c.ctx) // discard this notification
+				// Peek again to get the next message
+				nextMsg, ok = c.msgChannel.Peek()
+				if !ok {
+					// No more messages, break out
+					break
+				}
+			} else {
+				// Not a notification message, break out
+				break
+			}
+		}
 		if nextMsg.Static != nil {
 
 			if uint64(nextMsg.Static.BlockNumber) == c.state.ExecutableData.Number {
