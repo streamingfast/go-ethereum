@@ -273,6 +273,9 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 			)
 
 			if !c.state.FinalPartSent {
+				if c.state.LastSentIndex == c.state.CurrentIndex {
+					c.state.CurrentIndex++
+				}
 				if err := c.executeAndValidateBlock(true, &blockHash); err != nil {
 					c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
 					c.state.Skipping = true // don't continue if flash block failed
