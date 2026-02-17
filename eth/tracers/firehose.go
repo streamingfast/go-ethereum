@@ -2007,10 +2007,13 @@ func (f *Firehose) panicInvalidState(msg string, callerSkip int) string {
 
 // printBlockToFirehose is a helper function to print a block to Firehose protocl format.
 func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *FinalityStatus) {
+	now := time.Now()
 	marshalled, err := block.MarshalVT()
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal block: %w", err))
 	}
+
+	firehoseInfo("marshal time for block %d: %s", block.Number, time.Since(now))
 
 	f.outputBuffer.Reset()
 
@@ -2042,17 +2045,23 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	fmt.Fprintf(f.outputBuffer, "FIRE BLOCK %d %d %s %d %s %d %d ", block.Number, printedFlashBlockIndex, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano())
 
 	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
+	now = time.Now()
 	if _, err = encoder.Write(marshalled); err != nil {
 		panic(fmt.Errorf("write to encoder should have been infaillible: %w", err))
 	}
+	firehoseInfo("encoder write time for block %d: %s", block.Number, time.Since(now))
 
+	now = time.Now()
 	if err := encoder.Close(); err != nil {
 		panic(fmt.Errorf("closing encoder should have been infaillible: %w", err))
 	}
+	firehoseInfo("encoder close time for block %d: %s", block.Number, time.Since(now))
 
 	f.outputBuffer.WriteString("\n")
 
+	now = time.Now()
 	f.flushToFirehose(f.outputBuffer.Bytes())
+	firehoseInfo("flush time for block %d: %s", block.Number, time.Since(now))
 }
 
 // printToFirehose is an easy way to print to Firehose format, it essentially
