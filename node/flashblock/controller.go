@@ -538,8 +538,12 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 // executeAndValidateBlock executes and validates the current flashblock state
 // Assumes the lock is already held by the caller
 func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool, expectedBlockHash *common.Hash) (err error) {
+	bh := c.state.ExecutableData.BlockHash
+	if expectedBlockHash != nil {
+		bh = *expectedBlockHash
+	}
 	stats := &flashblockStats{
-		blockHash:   *expectedBlockHash,
+		blockHash:   bh,
 		blockNumber: c.state.ExecutableData.Number,
 	}
 
