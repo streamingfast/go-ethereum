@@ -139,7 +139,7 @@ func (c *Controller) Start() error {
 }
 
 // SendNotification sends a notification message to the controller for logging purposes
-// This is used to notify the controller about blocks from external sources (e.g., NewPayloadV4)
+// This is used to notify the controller about blocks from external sources (e.g., NewPayloadV4, V3...)
 func (c *Controller) SendNotification(blockNumber uint64, blockHash common.Hash) {
 	if c.ctx == nil || c.ctx.Err() != nil {
 		// Controller not started or already stopped
@@ -254,14 +254,6 @@ func (c *Controller) processLoop() {
 			return
 		}
 
-		// Check if this is a special notification message
-		if blockNumber, blockHash, ok := isNotificationMessage(msg); ok {
-			c.logger.Info("Received block notification from NewPayloadV4",
-				"blockNumber", blockNumber,
-				"blockHash", blockHash.Hex())
-			continue
-		}
-
 		if err := c.processMessage(msg); err != nil {
 			c.logger.Error("Error processing flashblock message", "error", err, "index", msg.Index)
 		}
@@ -270,6 +262,27 @@ func (c *Controller) processLoop() {
 
 // processMessage processes a flashblock message and updates the state
 func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
+
+	// Check if this is a special notification message
+	if blockNumber, blockHash, ok := isNotificationMessage(msg); ok {
+		if c.state != nil && !c.state.Skipping && c.state.ExecutableData.Number == blockNumber {
+			c.logger.Info("Received block notification from NewPayload",
+				"blockNumber", blockNumber,
+				"blockHash", blockHash.Hex(),
+				"executing", !c.state.FinalPartSent,
+			)
+
+			if !c.state.FinalPartSent {
+				if err := c.executeAndValidateBlock(true, &blockHash); err != nil {
+					c.logger.Error("Failed to execute and validate block", "error", err, "index", msg.Index)
+					c.state.Skipping = true // don't continue if flash block failed
+					return err
+				}
+				c.state.FinalPartSent = true // do not re-send this when we get the msg.Index=0
+			}
+		}
+		return nil
+	}
 
 	// If this is a base message (index 0), reset the state
 	if msg.Index == 0 {
@@ -358,7 +371,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 
 		for {
 			if blockNumber, blockHash, ok := isNotificationMessage(nextMsg); ok {
-				c.logger.Info("Received block notification from NewPayloadV4",
+				c.logger.Info("Received block notification from NewPayload",
 					"blockNumber", blockNumber,
 					"blockHash", blockHash.Hex())
 				_, _ = c.msgChannel.Next(c.ctx) // discard this notification
@@ -526,7 +539,7 @@ func (c *Controller) getParentStateDB() (*state.StateDB, error) {
 // Assumes the lock is already held by the caller
 func (c *Controller) executeAndValidateBlock(isLastFlashBlock bool, expectedBlockHash *common.Hash) (err error) {
 	stats := &flashblockStats{
-		blockHash:   c.state.ExecutableData.BlockHash,
+		blockHash:   *expectedBlockHash,
 		blockNumber: c.state.ExecutableData.Number,
 	}
 

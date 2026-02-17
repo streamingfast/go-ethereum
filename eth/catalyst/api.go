@@ -702,11 +702,6 @@ func (api *ConsensusAPI) NewPayloadV4(params engine.ExecutableData, versionedHas
 		return engine.PayloadStatusV1{Status: engine.INVALID}, engine.InvalidParams.With(err)
 	}
 
-	// Send notification to flashblock controller if enabled
-	if api.eth.Config().FlashblocksEnabled && api.eth.FlashblockController() != nil {
-		api.eth.FlashblockController().SendNotification(params.Number, params.BlockHash)
-	}
-
 	return api.newPayload(params, versionedHashes, beaconRoot, requests, false)
 }
 
@@ -730,6 +725,11 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 		if err := checkOptimismPayload(params, cfg); err != nil {
 			return api.invalid(err, nil), nil
 		}
+	}
+
+	// Send notification to flashblock controller if enabled
+	if api.eth.Config().FlashblocksEnabled && api.eth.FlashblockController() != nil {
+		api.eth.FlashblockController().SendNotification(params.Number, params.BlockHash)
 	}
 
 	api.newPayloadLock.Lock()
