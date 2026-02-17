@@ -1,3 +1,7 @@
+## geth-v1.16.9-fh3.0
+
+* Bump to geth [1.16.9](https://github.com/ethereum/go-ethereum/releases/tag/v1.16.9)
+
 ## geth-v1.16.8-fh3.0
 
 * Bump to geth [1.16.8](https://github.com/ethereum/go-ethereum/releases/tag/v1.16.8)
