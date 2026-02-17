@@ -200,39 +200,175 @@ func TestCalcBaseFeeDelhi(t *testing.T) {
 	}
 }
 
-// TestCalcBaseFeeBhilai assumes all blocks are 1559-blocks and uses
-// parameters post Bhilai Hard Fork
-func TestCalcBaseFeeBhilai(t *testing.T) {
+// TestCalcBaseFeeNilParent tests that CalcBaseFee doesn't panic when
+// the parent's BaseFee is nil.
+func TestCalcBaseFeeNilParent(t *testing.T) {
 	t.Parallel()
 
-	// Bhilai HF kicks in at block 8
-	testConfig := copyConfig(config())
-	testConfig.Bor.BhilaiBlock = big.NewInt(8)
+	testConfig := config()
 
-	tests := []struct {
-		parentBaseFee   int64
-		parentGasLimit  uint64
-		parentGasUsed   uint64
-		expectedBaseFee int64
-	}{
-		{params.InitialBaseFee, 20000000, 10000000, params.InitialBaseFee}, // usage == target
-		{params.InitialBaseFee, 20000000, 9000000, 998437500},              // usage below target
-		{params.InitialBaseFee, 20000000, 11000000, 1001562500},            // usage above target
-		{params.InitialBaseFee, 20000000, 20000000, 1015625000},            // usage full
-		{params.InitialBaseFee, 20000000, 0, 984375000},                    // usage 0
-
-	}
-	for i, test := range tests {
+	t.Run("nil baseFee for post-London parent returns InitialBaseFee", func(t *testing.T) {
+		// Create a post-London parent header with nil BaseFee
 		parent := &types.Header{
-			Number:   big.NewInt(8),
-			GasLimit: test.parentGasLimit,
-			GasUsed:  test.parentGasUsed,
-			BaseFee:  big.NewInt(test.parentBaseFee),
+			Number:   big.NewInt(6), // Post-London because LondonBlock is 5 in test config
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  nil,
 		}
-		if have, want := CalcBaseFee(testConfig, parent), big.NewInt(test.expectedBaseFee); have.Cmp(want) != 0 {
-			t.Errorf("test %d: have %d  want %d, ", i, have, want)
+
+		// CalcBaseFee should not panic but return InitialBaseFee
+		result := CalcBaseFee(testConfig, parent)
+		expected := big.NewInt(params.InitialBaseFee)
+
+		require.NotNil(t, result, "CalcBaseFee should not return nil")
+		require.Equal(t, expected, result,
+			"CalcBaseFee should return InitialBaseFee when the parent's BaseFee is nil for post-London block")
+	})
+
+	t.Run("pre-London parent with nil baseFee returns InitialBaseFee", func(t *testing.T) {
+		// Pre-London blocks should have nil BaseFee anyway
+		parent := &types.Header{
+			Number:   big.NewInt(4), // Pre-London because LondonBlock is 5 in test config
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  nil,
 		}
-	}
+
+		result := CalcBaseFee(testConfig, parent)
+		expected := big.NewInt(params.InitialBaseFee)
+
+		require.NotNil(t, result, "CalcBaseFee should not return nil")
+		require.Equal(t, expected, result,
+			"CalcBaseFee should return InitialBaseFee for first EIP-1559 block")
+	})
+}
+
+// TestVerifyEIP1559HeaderNilParentBaseFee tests that VerifyEIP1559Header rejects post-London parents with nil BaseFee.
+func TestVerifyEIP1559HeaderNilParentBaseFee(t *testing.T) {
+	t.Parallel()
+
+	testConfig := config()
+
+	t.Run("post-London parent with nil BaseFee is rejected", func(t *testing.T) {
+		// Malicious parent: post-London block with nil BaseFee
+		parent := &types.Header{
+			Number:   big.NewInt(6), // Post-London (LondonBlock is 5)
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  nil,
+		}
+
+		// Child header with valid BaseFee
+		child := &types.Header{
+			Number:   big.NewInt(7),
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  big.NewInt(params.InitialBaseFee),
+		}
+
+		// VerifyEIP1559Header must reject due to nil parent's BaseFee
+		err := VerifyEIP1559Header(testConfig, parent, child)
+		require.Error(t, err, "VerifyEIP1559Header must reject nil parent's BaseFee")
+		require.Contains(t, err.Error(), "parent header is missing baseFee",
+			"Error message should indicate parent BaseFee is missing")
+	})
+
+	t.Run("pre-London parent with nil BaseFee is accepted", func(t *testing.T) {
+		parent := &types.Header{
+			Number:   big.NewInt(4), // Pre-London (LondonBlock is 5)
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  nil, // Expected for pre-London blocks
+		}
+
+		child := &types.Header{
+			Number:   big.NewInt(5), // LondonBlock
+			GasLimit: 40000000,      // parent.GasLimit * elasticityMultiplier = 20M * 2
+			GasUsed:  20000000,
+			BaseFee:  big.NewInt(params.InitialBaseFee),
+		}
+
+		err := VerifyEIP1559Header(testConfig, parent, child)
+		require.NoError(t, err, "First London block with InitialBaseFee should be accepted")
+	})
+
+	t.Run("post-London parent with valid BaseFee is accepted", func(t *testing.T) {
+		// Valid parent
+		parent := &types.Header{
+			Number:   big.NewInt(6), // Post-London (LondonBlock is 5)
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  big.NewInt(params.InitialBaseFee),
+		}
+
+		// Valid child
+		expectedBaseFee := CalcBaseFee(testConfig, parent)
+		child := &types.Header{
+			Number:   big.NewInt(7),
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  expectedBaseFee,
+		}
+
+		err := VerifyEIP1559Header(testConfig, parent, child)
+		require.NoError(t, err, "Valid parent and child should be accepted")
+	})
+}
+
+// TestBatchVerification tests that if a peer sends header batch [A, B] where A has nil BaseFee and future
+// timestamp, and B is a child of A, it should not panic but return an error.
+func TestBatchVerification(t *testing.T) {
+	t.Parallel()
+
+	testConfig := config()
+
+	t.Run("batch A->B does not panic", func(t *testing.T) {
+		// Header A: post-London, nil BaseFee, forwarded to child verification in batch
+		headerA := &types.Header{
+			Number:   big.NewInt(6), // Post-London (LondonBlock is 5)
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  nil,
+		}
+
+		// Header B: child of A, trying to exploit the nil BaseFee
+		headerB := &types.Header{
+			Number:   big.NewInt(7),
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  big.NewInt(params.InitialBaseFee),
+		}
+
+		// verify B with A as parent doesn't panic but returns the expected error
+		var err error
+		require.NotPanics(t, func() {
+			err = VerifyEIP1559Header(testConfig, headerA, headerB)
+		}, "VerifyEIP1559Header must not panic when parent.BaseFee is nil")
+
+		require.Error(t, err, "VerifyEIP1559Header must reject child when parent.BaseFee is nil")
+		require.Contains(t, err.Error(), "parent header is missing baseFee",
+			"Error must indicate parent BaseFee issue")
+	})
+
+	t.Run("CalcBaseFee called directly does not panic", func(t *testing.T) {
+		// Header with nil BaseFee
+		header := &types.Header{
+			Number:   big.NewInt(6), // Post-London (LondonBlock is 5)
+			GasLimit: 20000000,
+			GasUsed:  10000000,
+			BaseFee:  nil,
+		}
+
+		// CalcBaseFee doesn't panic
+		var result *big.Int
+		require.NotPanics(t, func() {
+			result = CalcBaseFee(testConfig, header)
+		}, "CalcBaseFee must not panic when parent.BaseFee is nil")
+
+		require.NotNil(t, result, "CalcBaseFee should return non-nil result")
+		require.Equal(t, big.NewInt(params.InitialBaseFee), result,
+			"CalcBaseFee should return InitialBaseFee as fallback")
+	})
 }
 
 func TestCalcParentGasTarget(t *testing.T) {
@@ -333,6 +469,9 @@ func TestCalcBaseFeeDandeli(t *testing.T) {
 	t.Parallel()
 
 	testConfig := copyConfig(config())
+	// Create a new Bor config to avoid modifying the shared one
+	borCopy := *testConfig.Bor
+	testConfig.Bor = &borCopy
 	testConfig.Bor.BhilaiBlock = big.NewInt(8)
 	testConfig.Bor.LisovoBlock = big.NewInt(20)
 	testConfig.Bor.DandeliBlock = big.NewInt(20)

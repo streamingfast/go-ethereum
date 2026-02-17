@@ -53,13 +53,11 @@ func VerifyEIP1559Header(config *params.ChainConfig, parent, header *types.Heade
 	if header.BaseFee == nil {
 		return errors.New("header is missing baseFee")
 	}
-
-	// Post-Lisovo: Validate that base fee changes are within allowed boundaries
-	if config.Bor != nil && config.Bor.IsLisovo(header.Number) {
-		return verifyBaseFeeWithinBoundaries(parent, header)
+	// Verify the parent header is not malformed
+	if config.IsLondon(parent.Number) && parent.BaseFee == nil {
+		return errors.New("parent header is missing baseFee")
 	}
-
-	// Pre-Lisovo: Verify the baseFee is correct based on the parent header
+	// Verify the baseFee is correct based on the parent header.
 	expectedBaseFee := CalcBaseFee(config, parent)
 	if header.BaseFee.Cmp(expectedBaseFee) != 0 {
 		return fmt.Errorf("invalid baseFee: have %s, want %s, parentBaseFee %s, parentGasUsed %d",
@@ -105,7 +103,7 @@ func verifyBaseFeeWithinBoundaries(parent, header *types.Header) error {
 // CalcBaseFee calculates the basefee of the header.
 func CalcBaseFee(config *params.ChainConfig, parent *types.Header) *big.Int {
 	// If the current block is the first EIP-1559 block, return the InitialBaseFee.
-	if !config.IsLondon(parent.Number) {
+	if !config.IsLondon(parent.Number) || parent.BaseFee == nil {
 		return new(big.Int).SetUint64(params.InitialBaseFee)
 	}
 
