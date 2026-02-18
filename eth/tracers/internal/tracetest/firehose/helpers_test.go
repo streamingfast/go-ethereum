@@ -216,5 +216,10 @@ func normalizedJSON(t *testing.T, data []byte) []byte {
 	normalized, err := json.MarshalIndent(obj, "", "  ")
 	require.NoError(t, err)
 
+	require.NoError(t, json.Unmarshal(normalized, &obj))
+
+	normalized, err = json.MarshalIndent(obj, "", "  ")
+	require.NoError(t, err)
+
 	return normalized
 }

@@ -8,13 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	lru "github.com/hashicorp/golang-lru"
-	ttlcache "github.com/jellydator/ttlcache/v3"
+	"github.com/jellydator/ttlcache/v3"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -37,6 +36,8 @@ import (
 	borTypes "github.com/0xPolygon/heimdall-v2/x/bor/types"
 	stakeTypes "github.com/0xPolygon/heimdall-v2/x/stake/types"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	"github.com/ethereum/go-ethereum/tests/bor/mocks"
+	"go.uber.org/mock/gomock"
 )
 
 // fakeSpanner implements Spanner for tests
@@ -943,6 +944,661 @@ func TestVerifySealRejectsOversizedDifficulty(t *testing.T) {
 		t.Fatalf("unexpected Actual in WrongDifficultyError: got %d, want %d",
 			diffErr.Actual, uint64(math.MaxUint64))
 	}
+}
+
+// TestLateBlockTimestampFix verifies that late blocks get sufficient build time
+// by setting header.Time = now + blockPeriod instead of just clamping to now.
+func TestLateBlockTimestampFix(t *testing.T) {
+	t.Parallel()
+
+	addr1 := common.HexToAddress("0x1")
+	borCfg := &params.BorConfig{
+		Sprint: map[string]uint64{"0": 64},
+		Period: map[string]uint64{"0": 2},
+	}
+
+	t.Run("late parent gets future timestamp", func(t *testing.T) {
+		sp := &fakeSpanner{vals: []*valset.Validator{{Address: addr1, VotingPower: 1}}}
+		oldParentTime := time.Now().Add(-4 * time.Second).Unix()
+		chain, b := newChainAndBorForTest(t, sp, borCfg, true, addr1, uint64(oldParentTime))
+
+		header := &types.Header{Number: big.NewInt(1), ParentHash: chain.HeaderChain().GetHeaderByNumber(0).Hash()}
+
+		before := time.Now()
+		require.NoError(t, b.Prepare(chain.HeaderChain(), header))
+
+		// Should give full 2s build time from now, not from parent
+		expectedMin := before.Add(2 * time.Second).Unix()
+		require.GreaterOrEqual(t, int64(header.Time), expectedMin)
+		// Add upper bound check to ensure timestamp is within reasonable range (allow 100ms execution time)
+		expectedMax := before.Add(2*time.Second + 100*time.Millisecond).Unix()
+		require.LessOrEqual(t, int64(header.Time), expectedMax)
+	})
+
+	t.Run("on-time parent uses normal calculation", func(t *testing.T) {
+		sp := &fakeSpanner{vals: []*valset.Validator{{Address: addr1, VotingPower: 1}}}
+		recentParentTime := time.Now().Unix()
+		chain, b := newChainAndBorForTest(t, sp, borCfg, true, addr1, uint64(recentParentTime))
+
+		header := &types.Header{Number: big.NewInt(1), ParentHash: chain.HeaderChain().GetHeaderByNumber(0).Hash()}
+
+		require.NoError(t, b.Prepare(chain.HeaderChain(), header))
+
+		// Should use parent.Time + period
+		genesis := chain.HeaderChain().GetHeaderByNumber(0)
+		require.GreaterOrEqual(t, header.Time, genesis.Time+borCfg.Period["0"])
+	})
+
+	t.Run("custom blockTime with Rio", func(t *testing.T) {
+		sp := &fakeSpanner{vals: []*valset.Validator{{Address: addr1, VotingPower: 1}}}
+		rioCfg := &params.BorConfig{
+			Sprint:   map[string]uint64{"0": 64},
+			Period:   map[string]uint64{"0": 2},
+			RioBlock: big.NewInt(0),
+		}
+
+		oldParentTime := time.Now().Add(-4 * time.Second).Unix()
+		chain, b := newChainAndBorForTest(t, sp, rioCfg, true, addr1, uint64(oldParentTime))
+		b.blockTime = 3 * time.Second
+
+		header := &types.Header{Number: big.NewInt(1), ParentHash: chain.HeaderChain().GetHeaderByNumber(0).Hash()}
+
+		before := time.Now()
+		require.NoError(t, b.Prepare(chain.HeaderChain(), header))
+
+		expectedMin := before.Add(3 * time.Second).Unix()
+		require.GreaterOrEqual(t, int64(header.Time), expectedMin)
+		require.False(t, header.ActualTime.IsZero())
+		require.GreaterOrEqual(t, header.ActualTime.Unix(), expectedMin)
+	})
+}
+
+// setupFinalizeTest creates a test environment for FinalizeAndAssemble tests
+func setupFinalizeTest(t *testing.T, borCfg *params.BorConfig, addr common.Address) (*core.BlockChain, *Bor, *types.Header, *state.StateDB) {
+	sp := &fakeSpanner{vals: []*valset.Validator{{Address: addr, VotingPower: 1}}}
+	chain, b := newChainAndBorForTest(t, sp, borCfg, true, addr, uint64(time.Now().Unix()))
+
+	genesis := chain.HeaderChain().GetHeaderByNumber(0)
+	require.NotNil(t, genesis)
+
+	db := rawdb.NewMemoryDatabase()
+	statedb, err := state.New(genesis.Root, state.NewDatabase(triedb.NewDatabase(db, triedb.HashDefaults), nil))
+	require.NoError(t, err)
+
+	return chain, b, genesis, statedb
+}
+
+// createTestHeader creates a test header with the given parameters
+func createTestHeader(genesis *types.Header, blockNum uint64, period uint64) *types.Header {
+	return &types.Header{
+		Number:     big.NewInt(int64(blockNum)),
+		ParentHash: genesis.Hash(),
+		Time:       genesis.Time + period*blockNum,
+		GasLimit:   genesis.GasLimit,
+	}
+}
+
+func TestFinalizeAndAssembleReturnsCommitTime(t *testing.T) {
+	t.Parallel()
+
+	addr1 := common.HexToAddress("0x1")
+
+	t.Run("commit time increases with state size", func(t *testing.T) {
+		borCfg := &params.BorConfig{
+			Sprint:   map[string]uint64{"0": 64},
+			Period:   map[string]uint64{"0": 2},
+			RioBlock: big.NewInt(1000000),
+		}
+		chain, b, genesis, statedb := setupFinalizeTest(t, borCfg, addr1)
+
+		// Add some state changes to increase commit time
+		testAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		for i := 0; i < 100; i++ {
+			statedb.SetState(testAddr, common.BigToHash(big.NewInt(int64(i))), common.BigToHash(big.NewInt(int64(i*2))))
+		}
+		statedb.AddBalance(testAddr, uint256.NewInt(1000000), 0)
+
+		header := createTestHeader(genesis, 1, borCfg.Period["0"])
+
+		// Call FinalizeAndAssemble and ensure commit time is measured
+		_, _, commitTime, err := b.FinalizeAndAssemble(
+			chain,
+			header,
+			statedb,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.NoError(t, err)
+		require.Greater(t, commitTime, time.Duration(0), "commitTime should be positive with state changes")
+	})
+
+	t.Run("rejects withdrawals", func(t *testing.T) {
+		borCfg := &params.BorConfig{
+			Sprint: map[string]uint64{"0": 64},
+			Period: map[string]uint64{"0": 2},
+		}
+		chain, b, genesis, statedb := setupFinalizeTest(t, borCfg, addr1)
+
+		header := createTestHeader(genesis, 1, borCfg.Period["0"])
+
+		// Try to finalize with withdrawals - should fail
+		_, _, _, err := b.FinalizeAndAssemble(
+			chain,
+			header,
+			statedb,
+			&types.Body{
+				Transactions: nil,
+				Uncles:       nil,
+				Withdrawals:  []*types.Withdrawal{{Validator: 1, Address: addr1, Amount: 100}},
+			},
+			nil,
+		)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, consensus.ErrUnexpectedWithdrawals)
+	})
+
+	t.Run("rejects withdrawals hash in header", func(t *testing.T) {
+		borCfg := &params.BorConfig{
+			Sprint: map[string]uint64{"0": 64},
+			Period: map[string]uint64{"0": 2},
+		}
+		chain, b, genesis, statedb := setupFinalizeTest(t, borCfg, addr1)
+
+		withdrawalsHash := common.Hash{0x01}
+		header := createTestHeader(genesis, 1, borCfg.Period["0"])
+		header.WithdrawalsHash = &withdrawalsHash
+
+		// Try to finalize with withdrawals hash - should fail
+		_, _, _, err := b.FinalizeAndAssemble(
+			chain,
+			header,
+			statedb,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, consensus.ErrUnexpectedWithdrawals)
+	})
+
+	t.Run("rejects requests hash in header", func(t *testing.T) {
+		borCfg := &params.BorConfig{
+			Sprint: map[string]uint64{"0": 64},
+			Period: map[string]uint64{"0": 2},
+		}
+		chain, b, genesis, statedb := setupFinalizeTest(t, borCfg, addr1)
+
+		requestsHash := common.Hash{0x02}
+		header := createTestHeader(genesis, 1, borCfg.Period["0"])
+		header.RequestsHash = &requestsHash
+
+		// Try to finalize with requests hash - should fail
+		_, _, _, err := b.FinalizeAndAssemble(
+			chain,
+			header,
+			statedb,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, consensus.ErrUnexpectedRequests)
+	})
+
+	t.Run("non-sprint block skips span check", func(t *testing.T) {
+		borCfg := &params.BorConfig{
+			Sprint:   map[string]uint64{"0": 16}, // Sprint of 16 blocks
+			Period:   map[string]uint64{"0": 2},
+			RioBlock: big.NewInt(1000000),
+		}
+		chain, b, genesis, statedb := setupFinalizeTest(t, borCfg, addr1)
+
+		// Block 15 is NOT a sprint start (15 % 16 != 0), so span check is skipped
+		header := createTestHeader(genesis, 15, borCfg.Period["0"])
+
+		// Call FinalizeAndAssemble - should skip span check
+		_, _, commitTime, err := b.FinalizeAndAssemble(
+			chain,
+			header,
+			statedb,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, commitTime, time.Duration(0))
+	})
+
+	t.Run("madhugiri fork processes blocks", func(t *testing.T) {
+		borCfg := &params.BorConfig{
+			Sprint:         map[string]uint64{"0": 64},
+			Period:         map[string]uint64{"0": 2},
+			MadhugiriBlock: big.NewInt(0), // Enable Madhugiri from start
+			RioBlock:       big.NewInt(1000000),
+		}
+		chain, b, genesis, statedb := setupFinalizeTest(t, borCfg, addr1)
+
+		header := createTestHeader(genesis, 1, borCfg.Period["0"])
+
+		// Provide empty receipts (non-nil)
+		inputReceipts := []*types.Receipt{}
+
+		// Call FinalizeAndAssemble with Madhugiri enabled
+		block, outputReceipts, commitTime, err := b.FinalizeAndAssemble(
+			chain,
+			header,
+			statedb,
+			&types.Body{Transactions: nil, Uncles: nil},
+			inputReceipts,
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.NotNil(t, outputReceipts)
+		require.GreaterOrEqual(t, commitTime, time.Duration(0))
+	})
+
+	t.Run("span commit failure triggers error path", func(t *testing.T) {
+		// Test line 1219: checkAndCommitSpan error
+		configData := &params.BorConfig{
+			Sprint:   map[string]uint64{"0": 64},
+			Period:   map[string]uint64{"0": 2},
+			RioBlock: big.NewInt(math.MaxInt64), // Rio disabled
+		}
+
+		spannerWithError := &fakeSpanner{
+			vals:             []*valset.Validator{{Address: addr1, VotingPower: 100}},
+			shouldFailCommit: true,
+			spanEndBlock:     127, // EndBlock - 64 + 1 == 64 => EndBlock == 127 to trigger needToCommitSpan
+			spanID:           1,   // Use Id: 1 to avoid the 0th span skip logic
+		}
+		blockchain, borInstance := newChainAndBorForTest(t, spannerWithError, configData, true, addr1, uint64(time.Now().Unix()))
+
+		genesisHdr := blockchain.HeaderChain().GetHeaderByNumber(0)
+		require.NotNil(t, genesisHdr)
+
+		memDB := rawdb.NewMemoryDatabase()
+		stateDatabase, initErr := state.New(genesisHdr.Root, state.NewDatabase(triedb.NewDatabase(memDB, triedb.HashDefaults), nil))
+		require.NoError(t, initErr)
+
+		// Block 64 is sprint start (64 % 64 == 0)
+		testHeader := createTestHeader(genesisHdr, 64, configData.Period["0"])
+
+		// FinalizeAndAssemble should fail due to span commit error
+		_, _, _, finalizeErr := borInstance.FinalizeAndAssemble(
+			blockchain,
+			testHeader,
+			stateDatabase,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.Error(t, finalizeErr)
+		require.Contains(t, finalizeErr.Error(), "span commit failed")
+	})
+
+	t.Run("state sync commit failure returns error", func(t *testing.T) {
+		// Test line 1228: CommitStates error
+		cfg := &params.BorConfig{
+			Sprint:   map[string]uint64{"0": 16},
+			Period:   map[string]uint64{"0": 1},
+			RioBlock: big.NewInt(math.MaxInt64),
+		}
+
+		validatorAddr := common.HexToAddress("0x9")
+		spannerObj := &fakeSpanner{vals: []*valset.Validator{{Address: validatorAddr, VotingPower: 100}}}
+
+		// Create Bor with failing genesis contract
+		ch, borEngine := newChainAndBorForTest(t, spannerObj, cfg, true, validatorAddr, uint64(time.Now().Unix()))
+		borEngine.HeimdallClient = &failingHeimdallClient{}
+		borEngine.GenesisContractsClient = &failingGenesisContract{}
+
+		genesisBlock := ch.HeaderChain().GetHeaderByNumber(0)
+		require.NotNil(t, genesisBlock)
+
+		database := rawdb.NewMemoryDatabase()
+		stateObj, stateErr := state.New(genesisBlock.Root, state.NewDatabase(triedb.NewDatabase(database, triedb.HashDefaults), nil))
+		require.NoError(t, stateErr)
+
+		// Block 16 is sprint start
+		hdr := createTestHeader(genesisBlock, 16, cfg.Period["0"])
+
+		// Should fail during CommitStates when calling LastStateId
+		_, _, _, executionErr := borEngine.FinalizeAndAssemble(
+			ch,
+			hdr,
+			stateObj,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.Error(t, executionErr)
+		require.Contains(t, executionErr.Error(), "last state id failed")
+	})
+
+	t.Run("contract code change failure halts finalization", func(t *testing.T) {
+		// Test line 1235: changeContractCodeIfNeeded error
+		borConfiguration := &params.BorConfig{
+			Sprint: map[string]uint64{"0": 64},
+			Period: map[string]uint64{"0": 2},
+			BlockAlloc: map[string]interface{}{
+				"5": "invalid-json-data", // This will cause decode error
+			},
+			RioBlock: big.NewInt(math.MaxInt64),
+		}
+
+		accountAddr := common.HexToAddress("0xBEEF")
+		sp := &fakeSpanner{vals: []*valset.Validator{{Address: accountAddr, VotingPower: 50}}}
+		blockchainObj, borObj := newChainAndBorForTest(t, sp, borConfiguration, true, accountAddr, uint64(time.Now().Unix()))
+
+		genesisHeader := blockchainObj.HeaderChain().GetHeaderByNumber(0)
+		require.NotNil(t, genesisHeader)
+
+		db := rawdb.NewMemoryDatabase()
+		stateDatabase, dbErr := state.New(genesisHeader.Root, state.NewDatabase(triedb.NewDatabase(db, triedb.HashDefaults), nil))
+		require.NoError(t, dbErr)
+
+		// Block 5 has invalid BlockAlloc which triggers decode error
+		headerObj := createTestHeader(genesisHeader, 5, borConfiguration.Period["0"])
+
+		// FinalizeAndAssemble should fail during changeContractCodeIfNeeded
+		_, _, _, processingErr := borObj.FinalizeAndAssemble(
+			blockchainObj,
+			headerObj,
+			stateDatabase,
+			&types.Body{Transactions: nil, Uncles: nil},
+			nil,
+		)
+
+		require.Error(t, processingErr)
+		require.Contains(t, processingErr.Error(), "failed to decode genesis alloc")
+	})
+}
+
+func TestBor_PurgeCache(t *testing.T) {
+	t.Parallel()
+	borConfig := &params.BorConfig{
+		Period:                map[string]uint64{"0": 2},
+		ProducerDelay:         map[string]uint64{"0": 4},
+		Sprint:                map[string]uint64{"0": 64},
+		BackupMultiplier:      map[string]uint64{"0": 2},
+		ValidatorContract:     "0x0000000000000000000000000000000000001000",
+		StateReceiverContract: "0x0000000000000000000000000000000000001001",
+	}
+	accountAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	sp := &fakeSpanner{vals: []*valset.Validator{{Address: accountAddr, VotingPower: 50}}}
+	_, borObj := newChainAndBorForTest(t, sp, borConfig, true, accountAddr, uint64(time.Now().Unix()))
+
+	// Add some entries to the recents cache (snapshots)
+	hash1 := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	hash2 := common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
+
+	snapshot1 := &Snapshot{Number: 1, Hash: hash1}
+	snapshot2 := &Snapshot{Number: 2, Hash: hash2}
+
+	borObj.recents.Set(hash1, snapshot1, ttlcache.DefaultTTL)
+	borObj.recents.Set(hash2, snapshot2, ttlcache.DefaultTTL)
+
+	// Add some entries to the recentVerifiedHeaders cache
+	header1 := &types.Header{Number: big.NewInt(1)}
+	header2 := &types.Header{Number: big.NewInt(2)}
+
+	borObj.recentVerifiedHeaders.Set(hash1, header1, ttlcache.DefaultTTL)
+	borObj.recentVerifiedHeaders.Set(hash2, header2, ttlcache.DefaultTTL)
+
+	// Verify caches are populated
+	require.Equal(t, 2, borObj.recents.Len(), "recents cache should have 2 entries")
+	require.Equal(t, 2, borObj.recentVerifiedHeaders.Len(), "recentVerifiedHeaders cache should have 2 entries")
+
+	// Purge the cache
+	borObj.PurgeCache()
+
+	// Verify caches are cleared
+	require.Equal(t, 0, borObj.recents.Len(), "recents cache should be empty after purge")
+	require.Equal(t, 0, borObj.recentVerifiedHeaders.Len(), "recentVerifiedHeaders cache should be empty after purge")
+
+	// Verify we can still add entries after purge
+	borObj.recents.Set(hash1, snapshot1, ttlcache.DefaultTTL)
+	require.Equal(t, 1, borObj.recents.Len(), "should be able to add to recents cache after purge")
+}
+
+func newBorForMilestoneFetcherTest(t *testing.T) *Bor {
+	t.Helper()
+	sp := &fakeSpanner{vals: []*valset.Validator{{Address: common.HexToAddress("0x1"), VotingPower: 1}}}
+	borCfg := &params.BorConfig{Sprint: map[string]uint64{"0": 64}, Period: map[string]uint64{"0": 2}}
+	_, b := newChainAndBorForTest(t, sp, borCfg, false, common.Address{}, uint64(time.Now().Unix()))
+	b.quit = make(chan struct{})
+	return b
+}
+
+func TestRunMilestoneFetcher_ContextHasDeadline(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	client := mocks.NewMockIHeimdallClient(ctrl)
+
+	gotDeadline := make(chan bool, 1)
+
+	client.EXPECT().FetchMilestone(gomock.Any()).DoAndReturn(func(ctx context.Context) (*milestone.Milestone, error) {
+		_, ok := ctx.Deadline()
+		gotDeadline <- ok
+		return nil, errors.New("not available")
+	}).AnyTimes()
+
+	b := newBorForMilestoneFetcherTest(t)
+	b.HeimdallClient = client
+
+	go b.runMilestoneFetcher()
+	defer close(b.quit)
+
+	select {
+	case hasDeadline := <-gotDeadline:
+		require.True(t, hasDeadline, "context passed to FetchMilestone must have a deadline")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for FetchMilestone to be called")
+	}
+}
+
+func TestRunMilestoneFetcher_StoresMilestoneBlock(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	client := mocks.NewMockIHeimdallClient(ctrl)
+
+	client.EXPECT().FetchMilestone(gomock.Any()).Return(&milestone.Milestone{EndBlock: 12345}, nil).AnyTimes()
+
+	b := newBorForMilestoneFetcherTest(t)
+	b.HeimdallClient = client
+
+	go b.runMilestoneFetcher()
+	defer close(b.quit)
+
+	require.Eventually(t, func() bool {
+		return b.latestMilestoneBlock.Load() == 12345
+	}, 5*time.Second, 50*time.Millisecond)
+}
+
+func TestRunMilestoneFetcher_ErrorDoesNotUpdateBlock(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	client := mocks.NewMockIHeimdallClient(ctrl)
+
+	called := make(chan struct{}, 1)
+
+	client.EXPECT().FetchMilestone(gomock.Any()).DoAndReturn(func(ctx context.Context) (*milestone.Milestone, error) {
+		select {
+		case called <- struct{}{}:
+		default:
+		}
+		return nil, errors.New("heimdall unreachable")
+	}).AnyTimes()
+
+	b := newBorForMilestoneFetcherTest(t)
+	b.HeimdallClient = client
+
+	go b.runMilestoneFetcher()
+	defer close(b.quit)
+
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for FetchMilestone to be called")
+	}
+
+	// Give an extra tick to ensure no late update
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, uint64(0), b.latestMilestoneBlock.Load())
+}
+
+func TestRunMilestoneFetcher_BlockingCallRespectsTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	client := mocks.NewMockIHeimdallClient(ctrl)
+
+	callReturned := make(chan struct{}, 1)
+
+	client.EXPECT().FetchMilestone(gomock.Any()).DoAndReturn(func(ctx context.Context) (*milestone.Milestone, error) {
+		// Simulate unreachable Heimdall: block until context is cancelled
+		<-ctx.Done()
+		select {
+		case callReturned <- struct{}{}:
+		default:
+		}
+		return nil, ctx.Err()
+	}).AnyTimes()
+
+	b := newBorForMilestoneFetcherTest(t)
+	b.HeimdallClient = client
+
+	go b.runMilestoneFetcher()
+	defer close(b.quit)
+
+	// The context timeout is 30s; the blocked call should eventually return.
+	// We use a generous test timeout but this verifies the call doesn't block forever.
+	select {
+	case <-callReturned:
+		// Success: the blocking FetchMilestone returned because the context timed out
+	case <-time.After(35 * time.Second):
+		t.Fatal("FetchMilestone blocked beyond the context timeout; goroutine would leak without the fix")
+	}
+}
+
+// TestSubSecondLateBlockTriggersTimeAdjustment verifies that when a block's target
+// time has already passed (even by sub-second), the late-block adjustment triggers
+// and pushes header.Time into the future to give the miner real build time.
+//
+// Without the fix, the integer comparison `header.Time < now.Unix()` misses the case
+// where header.Time == now.Unix() but the sub-second target has already passed. This
+// causes the interrupt timer to expire immediately and Pending() to return an empty
+// map, producing a block with 0 transactions.
+func TestSubSecondLateBlockTriggersTimeAdjustment(t *testing.T) {
+	t.Parallel()
+
+	addr1 := common.HexToAddress("0x1")
+
+	// waitForMidSecond spins until we're between 300ms-700ms into the current
+	// second. This ensures the 200ms sub-second offset used by the tests won't
+	// cross a second boundary, which would make the old integer comparison
+	// trigger regardless of the fix.
+	waitForMidSecond := func() {
+		for {
+			ms := time.Now().Nanosecond() / 1_000_000
+			if ms >= 300 && ms <= 700 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	t.Run("default path without custom blockTime", func(t *testing.T) {
+		t.Parallel()
+
+		// Consensus period = 1s, no custom blockTime.
+		// This is the path where ActualTime is never set (stays zero)
+		// and GetActualTime() falls back to time.Unix(header.Time, 0).
+		sp := &fakeSpanner{vals: []*valset.Validator{{Address: addr1, VotingPower: 1}}}
+		borCfg := &params.BorConfig{
+			Sprint: map[string]uint64{"0": 64},
+			Period: map[string]uint64{"0": 1},
+		}
+
+		waitForMidSecond()
+		now := time.Now()
+
+		// Set genesis time so that header.Time = genesis.Time + period = now.Unix()
+		// (the block target is the start of the current second, already in the past).
+		genesisTime := uint64(now.Unix()) - 1
+		chain, b := newChainAndBorForTest(t, sp, borCfg, true, addr1, genesisTime)
+
+		genesis := chain.HeaderChain().GetHeaderByNumber(0)
+		require.NotNil(t, genesis)
+
+		header := &types.Header{
+			Number:     big.NewInt(1),
+			ParentHash: genesis.Hash(),
+		}
+
+		before := time.Now()
+		err := b.Prepare(chain.HeaderChain(), header)
+		require.NoError(t, err)
+
+		expectedMin := uint64(before.Add(1 * time.Second).Unix())
+		require.GreaterOrEqual(t, header.Time, expectedMin,
+			"header.Time should be at least now + period to provide build time")
+	})
+
+	t.Run("custom blockTime with Rio", func(t *testing.T) {
+		t.Parallel()
+
+		blockTimeDuration := 2 * time.Second
+		sp := &fakeSpanner{vals: []*valset.Validator{{Address: addr1, VotingPower: 1}}}
+		borCfg := &params.BorConfig{
+			Sprint:   map[string]uint64{"0": 64},
+			Period:   map[string]uint64{"0": 2},
+			RioBlock: big.NewInt(0),
+		}
+
+		waitForMidSecond()
+		now := time.Now()
+
+		// Set parent's cached ActualTime so that:
+		//   actualNewBlockTime = parentActualTime + blockTime = now - 200ms
+		// This is sub-second in the past, but truncated header.Time equals now.Unix().
+		parentActualTime := now.Add(-blockTimeDuration).Add(-200 * time.Millisecond)
+		genesisTime := uint64(parentActualTime.Unix())
+
+		chain, b := newChainAndBorForTest(t, sp, borCfg, true, addr1, genesisTime)
+		b.blockTime = blockTimeDuration
+
+		genesis := chain.HeaderChain().GetHeaderByNumber(0)
+		require.NotNil(t, genesis)
+
+		// Cache the parent ActualTime with sub-second precision
+		b.parentActualTimeCache.Add(genesis.Hash(), parentActualTime)
+
+		header := &types.Header{
+			Number:     big.NewInt(1),
+			ParentHash: genesis.Hash(),
+		}
+
+		before := time.Now()
+		err := b.Prepare(chain.HeaderChain(), header)
+		require.NoError(t, err)
+
+		require.False(t, header.ActualTime.IsZero(),
+			"ActualTime should be set for Rio with custom blockTime")
+		require.True(t, header.ActualTime.After(before),
+			"ActualTime should be in the future after adjustment, got %v which is before %v",
+			header.ActualTime, before)
+
+		expectedMin := before.Add(blockTimeDuration)
+		require.GreaterOrEqual(t, header.ActualTime.Unix(), expectedMin.Unix(),
+			"ActualTime should be at least now + blockTime to provide build time")
+	})
 }
 
 func TestVerifyHeaderRejectsInvalidBlockNumber(t *testing.T) {

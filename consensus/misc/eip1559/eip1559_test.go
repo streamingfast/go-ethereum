@@ -200,6 +200,41 @@ func TestCalcBaseFeeDelhi(t *testing.T) {
 	}
 }
 
+// TestCalcBaseFeeBhilai assumes all blocks are 1559-blocks and uses
+// parameters post Bhilai Hard Fork
+func TestCalcBaseFeeBhilai(t *testing.T) {
+	t.Parallel()
+
+	// Bhilai HF kicks in at block 8
+	testConfig := copyConfig(config())
+	testConfig.Bor.BhilaiBlock = big.NewInt(8)
+
+	tests := []struct {
+		parentBaseFee   int64
+		parentGasLimit  uint64
+		parentGasUsed   uint64
+		expectedBaseFee int64
+	}{
+		{params.InitialBaseFee, 20000000, 10000000, params.InitialBaseFee}, // usage == target
+		{params.InitialBaseFee, 20000000, 9000000, 998437500},              // usage below target
+		{params.InitialBaseFee, 20000000, 11000000, 1001562500},            // usage above target
+		{params.InitialBaseFee, 20000000, 20000000, 1015625000},            // usage full
+		{params.InitialBaseFee, 20000000, 0, 984375000},                    // usage 0
+
+	}
+	for i, test := range tests {
+		parent := &types.Header{
+			Number:   big.NewInt(8),
+			GasLimit: test.parentGasLimit,
+			GasUsed:  test.parentGasUsed,
+			BaseFee:  big.NewInt(test.parentBaseFee),
+		}
+		if have, want := CalcBaseFee(testConfig, parent), big.NewInt(test.expectedBaseFee); have.Cmp(want) != 0 {
+			t.Errorf("test %d: have %d  want %d, ", i, have, want)
+		}
+	}
+}
+
 // TestCalcBaseFeeNilParent tests that CalcBaseFee doesn't panic when
 // the parent's BaseFee is nil.
 func TestCalcBaseFeeNilParent(t *testing.T) {
@@ -469,9 +504,6 @@ func TestCalcBaseFeeDandeli(t *testing.T) {
 	t.Parallel()
 
 	testConfig := copyConfig(config())
-	// Create a new Bor config to avoid modifying the shared one
-	borCopy := *testConfig.Bor
-	testConfig.Bor = &borCopy
 	testConfig.Bor.BhilaiBlock = big.NewInt(8)
 	testConfig.Bor.LisovoBlock = big.NewInt(20)
 	testConfig.Bor.DandeliBlock = big.NewInt(20)

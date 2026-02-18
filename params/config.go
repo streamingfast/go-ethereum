@@ -429,6 +429,8 @@ var (
 			MadhugiriBlock:    big.NewInt(80084800),
 			MadhugiriProBlock: big.NewInt(80084800),
 			DandeliBlock:      big.NewInt(81424000),
+			LisovoBlock:       big.NewInt(83756500),
+			LisovoProBlock:    big.NewInt(83756500),
 			StateSyncConfirmationDelay: map[string]uint64{
 				"44934656": 128,
 			},
@@ -474,6 +476,7 @@ var (
 			BurntContract: map[string]string{
 				"23850000": "0x70bca57f4579f58670ab2d18ef16e02c17553c38",
 				"50523000": "0x7A8ed27F4C30512326878652d20fC85727401854",
+				"83756500": "0x3ef57def668054dd750bd260526105c4eeef104f",
 			},
 			Coinbase: map[string]string{
 				"0":        "0x0000000000000000000000000000000000000000",
@@ -901,6 +904,11 @@ type BlockRangeOverrideValidatorSet struct {
 	Validators []common.Address `json:"validators"`
 }
 
+// DefaultSpanLength is the number of bor blocks in a span. This must match
+// heimdall-v2's bor module Params.span_duration to ensure reorg protection
+// boundaries stay consistent between the execution and consensus layers.
+const DefaultSpanLength = 6400
+
 // BorConfig is the consensus engine configs for Matic bor based sealing.
 type BorConfig struct {
 	Period                          map[string]uint64                `json:"period"`                          // Number of seconds between blocks to enforce
@@ -1142,7 +1150,7 @@ func (c *ChainConfig) Description() string {
 			banner += fmt.Sprintf(" - Lisovo:                      #%-8v\n", c.Bor.LisovoBlock)
 		}
 		if c.Bor.LisovoProBlock != nil {
-			banner += fmt.Sprintf(" - Lisovo Pro:                      #%-8v\n", c.Bor.LisovoProBlock)
+			banner += fmt.Sprintf(" - Lisovo Pro:                  #%-8v\n", c.Bor.LisovoProBlock)
 		}
 		return banner
 	}
