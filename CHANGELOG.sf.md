@@ -1,3 +1,7 @@
+## v1.6.7-fh3.0
+
+* Bumped BNB to latest [v1.6.7](https://github.com/bnb-chain/bsc/releases/tag/v1.6.7) version.
+
 ## v1.6.3-fh3.0
 
 * Bumped BNB to latest [v1.6.3](https://github.com/bnb-chain/bsc/releases/tag/v1.6.3) version.
