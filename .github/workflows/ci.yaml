@@ -1,0 +1,16 @@
+name: Docker Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [conduit]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    uses: ./.github/workflows/docker-build.yaml
+    with:
+      IMAGE_NAME: conduit-op-geth

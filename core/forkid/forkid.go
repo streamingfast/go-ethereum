@@ -268,6 +268,12 @@ func gatherForks(config *params.ChainConfig, genesis uint64) ([]uint64, []uint64
 			}
 		}
 	}
+	for _, overrides := range config.StateOverrideForks {
+		if overrides.Time != nil {
+			forksByTime = append(forksByTime, *overrides.Time)
+		}
+	}
+
 	slices.Sort(forksByBlock)
 	slices.Sort(forksByTime)
 

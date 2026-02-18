@@ -3,6 +3,7 @@ package params
 import (
 	"fmt"
 	"math/big"
+	"strings"
 )
 
 func (c *ChainConfig) opCheckCompatible(newcfg *ChainConfig, headNumber *big.Int, headTimestamp uint64, genesisTimestamp *uint64) *ConfigCompatError {
@@ -67,6 +68,13 @@ func (c *ChainConfig) opDescription() string {
 	}
 	if c.InteropTime != nil {
 		banner += fmt.Sprintf(" - Interop:                     @%-10v\n", *c.InteropTime)
+	}
+	if len(c.StateOverrideForks) > 0 {
+		var sofTimes []string
+		for _, fork := range c.StateOverrideForks {
+			sofTimes = append(sofTimes, fmt.Sprintf("@%v", *fork.Time))
+		}
+		banner += fmt.Sprintf(" - StateOverrideForks:          %s\n", strings.Join(sofTimes, ", "))
 	}
 	banner += "\nAll op fork specifications can be found at https://specs.optimism.io/\n"
 	return banner

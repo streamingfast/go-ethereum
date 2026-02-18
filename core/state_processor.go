@@ -92,6 +92,8 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	if config.IsPrague(block.Number(), block.Time()) || config.IsVerkle(block.Number(), block.Time()) {
 		ProcessParentBlockHash(block.ParentHash(), evm)
 	}
+	parent := p.chain.GetHeader(block.ParentHash(), block.NumberU64()-1)
+	misc.ApplyStateOverrideForks(statedb, config, parent.Time, block.Time())
 
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {

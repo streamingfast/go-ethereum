@@ -370,6 +370,7 @@ func (miner *Miner) prepareWork(genParams *generateParams, witness bool) (*envir
 	if miner.chainConfig.IsPrague(header.Number, header.Time) {
 		core.ProcessParentBlockHash(header.ParentHash, env.evm)
 	}
+	misc.ApplyStateOverrideForks(env.state, env.evm.ChainConfig(), parent.Time, header.Time)
 	return env, nil
 }
 

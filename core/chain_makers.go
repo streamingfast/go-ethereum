@@ -409,6 +409,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 			evm := vm.NewEVM(blockContext, statedb, cm.config, vm.Config{})
 			ProcessParentBlockHash(b.header.ParentHash, evm)
 		}
+		misc.ApplyStateOverrideForks(statedb, config, parent.Time(), b.header.Time)
 
 		// Execute any user modifications to the block
 		if gen != nil {
@@ -515,6 +516,7 @@ func GenerateVerkleChain(config *params.ChainConfig, parent *types.Block, engine
 		blockContext.Random = &common.Hash{} // enable post-merge instruction set
 		evm := vm.NewEVM(blockContext, statedb, cm.config, vm.Config{})
 		ProcessParentBlockHash(b.header.ParentHash, evm)
+		misc.ApplyStateOverrideForks(statedb, config, parent.Time(), b.header.Time)
 
 		// Execute any user modifications to the block.
 		if gen != nil {
