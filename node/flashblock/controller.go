@@ -389,7 +389,7 @@ func (c *Controller) processMessage(msg *FlashblocksPayloadV1) error {
 				break
 			}
 		}
-		if nextMsg.Static != nil {
+		if nextMsg != nil && nextMsg.Static != nil {
 
 			if uint64(nextMsg.Static.BlockNumber) == c.state.ExecutableData.Number {
 				c.logger.Debug("skipping execution because next message is waiting with same block number", "index", msg.Index, "payload_id", msg.PayloadID.String())
