@@ -58,8 +58,8 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 			FlushToTestBuffer: true,
 		},
 	})
-	hooks := NewTracingHooksFromFirehose(firehoseTracer)
-	firehoseTracer.OnBlockchainInit(api.backend.ChainConfig())
+	hooks := firehoseTracer.TracingHooks()
+	hooks.OnBlockchainInit(api.backend.ChainConfig())
 
 	if block.NumberU64() == 0 {
 		alloc, err := getGenesisState(api.backend.ChainDb(), block.Hash())
@@ -69,7 +69,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		if alloc == nil {
 			return nil, errors.New("genesis allocation not found")
 		}
-		firehoseTracer.OnGenesisBlock(block, alloc)
+		hooks.OnGenesisBlock(block, alloc)
 	} else {
 		// Prepare base state
 		parent, err := api.blockByNumberAndHash(ctx, rpc.BlockNumber(block.NumberU64()-1), block.ParentHash())
@@ -114,11 +114,12 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		hooks.OnBlockEnd(nil)
 	}
 
-	if firehoseTracer.testingBuffer == nil {
+	outputBuffer := firehoseTracer.GetTestingOutputBuffer()
+	if outputBuffer == nil {
 		return nil, errors.New("testing buffer is not available")
 	}
 
-	respStr := firehoseTracer.testingBuffer.String()
+	respStr := outputBuffer.String()
 	lines := strings.Split(respStr, "\n")
 
 	var fireBlockLine string
