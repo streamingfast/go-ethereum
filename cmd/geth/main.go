@@ -67,6 +67,7 @@ var (
 		utils.OverrideBPO1,
 		utils.OverrideBPO2,
 		utils.OverrideVerkle,
+		utils.OverrideGenesisFlag,
 		utils.OverrideOptimismCanyon,
 		utils.OverrideOptimismEcotone,
 		utils.OverrideOptimismFjord,
@@ -74,6 +75,7 @@ var (
 		utils.OverrideOptimismHolocene,
 		utils.OverrideOptimismIsthmus,
 		utils.OverrideOptimismJovian,
+		utils.OverrideOptimismKarst,
 		utils.OverrideOptimismInterop,
 		utils.EnablePersonal, // deprecated
 		utils.TxPoolLocalsFlag,
@@ -215,6 +217,8 @@ var (
 		utils.AllowUnprotectedTxs,
 		utils.BatchRequestLimit,
 		utils.BatchResponseMaxSize,
+		utils.RPCTxSyncDefaultTimeoutFlag,
+		utils.RPCTxSyncMaxTimeoutFlag,
 	}
 
 	metricsFlags = []cli.Flag{

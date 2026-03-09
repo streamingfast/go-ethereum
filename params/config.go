@@ -36,10 +36,10 @@ var (
 )
 
 const (
-	OPMainnetChainID   = 10
-	BaseMainnetChainID = 8453
-	baseSepoliaChainID = 84532
-	UnichainChainId    = 130
+	OPMainnetChainID         = 10
+	OPMainnetGenesisBlockNum = 105235063
+	BaseMainnetChainID       = 8453
+	baseSepoliaChainID       = 84532
 )
 
 func newUint64(val uint64) *uint64 { return &val }
@@ -267,9 +267,11 @@ var (
 		CancunTime:              newUint64(0),
 		TerminalTotalDifficulty: big.NewInt(0),
 		PragueTime:              newUint64(0),
+		OsakaTime:               newUint64(0),
 		BlobScheduleConfig: &BlobScheduleConfig{
 			Cancun: DefaultCancunBlobConfig,
 			Prague: DefaultPragueBlobConfig,
+			Osaka:  DefaultOsakaBlobConfig,
 		},
 	}
 
@@ -423,6 +425,7 @@ var (
 		conf.HoloceneTime = &zero
 		conf.IsthmusTime = &zero
 		conf.JovianTime = &zero
+		conf.KarstTime = nil
 		conf.InteropTime = nil
 		conf.Optimism = &OptimismConfig{EIP1559Elasticity: 6, EIP1559Denominator: 50, EIP1559DenominatorCanyon: uint64ptr(250)}
 		return &conf
@@ -541,6 +544,7 @@ type ChainConfig struct {
 	HoloceneTime *uint64 `json:"holoceneTime,omitempty"` // Holocene switch time (nil = no fork, 0 = already on Optimism Holocene)
 	IsthmusTime  *uint64 `json:"isthmusTime,omitempty"`  // Isthmus switch time (nil = no fork, 0 = already on Optimism Isthmus)
 	JovianTime   *uint64 `json:"jovianTime,omitempty"`   // Jovian switch time (nil = no fork, 0 = already on Optimism Jovian)
+	KarstTime    *uint64 `json:"karstTime,omitempty"`    // Karst switch time (nil = no fork, 0 = already on Optimism Karst)
 
 	InteropTime *uint64 `json:"interopTime,omitempty"` // Interop switch time (nil = no fork, 0 = already on optimism interop)
 
@@ -1045,6 +1049,10 @@ func (c *ChainConfig) IsJovian(time uint64) bool {
 	return isTimestampForked(c.JovianTime, time)
 }
 
+func (c *ChainConfig) IsKarst(time uint64) bool {
+	return isTimestampForked(c.KarstTime, time)
+}
+
 func (c *ChainConfig) IsInterop(time uint64) bool {
 	return isTimestampForked(c.InteropTime, time)
 }
@@ -1052,6 +1060,19 @@ func (c *ChainConfig) IsInterop(time uint64) bool {
 // IsOptimism returns whether the node is an optimism node or not.
 func (c *ChainConfig) IsOptimism() bool {
 	return c.Optimism != nil
+}
+
+// IsOptimismGenesisBlock returns true if the given block number is the genesis block for this
+// Optimism chain. For OP Mainnet (chain ID 10), the genesis block is 105235063. For all other
+// OP chains, the genesis block is 0.
+func (c *ChainConfig) IsOptimismGenesisBlock(num *big.Int) bool {
+	if !c.IsOptimism() || num == nil {
+		return false
+	}
+	if c.ChainID.Cmp(big.NewInt(OPMainnetChainID)) == 0 {
+		return num.Uint64() == OPMainnetGenesisBlockNum
+	}
+	return num.Sign() == 0
 }
 
 // IsOptimismBedrock returns true iff this is an optimism node & bedrock is active
@@ -1089,6 +1110,10 @@ func (c *ChainConfig) IsOptimismIsthmus(time uint64) bool {
 
 func (c *ChainConfig) IsOptimismJovian(time uint64) bool {
 	return c.IsOptimism() && c.IsJovian(time)
+}
+
+func (c *ChainConfig) IsOptimismKarst(time uint64) bool {
+	return c.IsOptimism() && c.IsKarst(time)
 }
 
 // IsOptimismPreBedrock returns true iff this is an optimism node & bedrock is not yet active

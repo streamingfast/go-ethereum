@@ -156,7 +156,10 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-require github.com/andybalholm/brotli v1.0.5
+require (
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20260309015608-bb9dacb41b4e
+	github.com/andybalholm/brotli v1.0.5
+)
 
 tool (
 	github.com/fjl/gencodec
