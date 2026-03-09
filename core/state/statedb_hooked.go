@@ -281,7 +281,9 @@ func (s *hookedStateDB) SelfDestruct6780(address common.Address) (uint256.Int, b
 
 	prev, changed := s.inner.SelfDestruct6780(address)
 
-	if s.hooks.OnBalanceChange != nil && !prev.IsZero() {
+	// Firehose: For geth at release v1.16.4, have submitted a pull request (#32526), where `changed` was removed to
+	// fix a bug where `OnBalanceChange` was called when it shouldn't have.
+	if s.hooks.OnBalanceChange != nil && changed && !prev.IsZero() {
 		s.hooks.OnBalanceChange(address, prev.ToBig(), new(big.Int), tracing.BalanceDecreaseSelfdestruct)
 	}
 
