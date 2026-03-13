@@ -102,7 +102,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		if err != nil {
 			return nil, fmt.Errorf("failed to create header chain: %w", err)
 		}
-		processor := core.NewStateProcessor(api.backend.ChainConfig(), headerChain)
+		processor := core.NewStateProcessor(headerChain)
 		vmConfig := vm.Config{Tracer: hooks}
 		_, err = processor.Process(block, statedb, vmConfig)
 		if err != nil {

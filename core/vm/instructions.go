@@ -239,16 +239,15 @@ func opKeccak256(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 	interpreter.hasher.Write(data)
 	interpreter.hasher.Read(interpreter.hasherBuf[:])
 
-	evm := interpreter.evm
-	if evm.Config.EnablePreimageRecording {
-		evm.StateDB.AddPreimage(interpreter.hasherBuf, data)
+	if interpreter.evm.Config.EnablePreimageRecording {
+		interpreter.evm.StateDB.AddPreimage(interpreter.hasherBuf, data)
 	}
 
 	// Firehose requirements.
 	//
 	// Search 11471b22bb0b within the repository to find all the details
-	if evm.Config.Tracer != nil && evm.Config.Tracer.OnKeccakPreimage != nil {
-		evm.Config.Tracer.OnKeccakPreimage(interpreter.hasherBuf, data)
+	if interpreter.evm.Config.Tracer != nil && interpreter.evm.Config.Tracer.OnKeccakPreimage != nil {
+		interpreter.evm.Config.Tracer.OnKeccakPreimage(interpreter.hasherBuf, data)
 	}
 
 	size.SetBytes(interpreter.hasherBuf[:])
@@ -350,7 +349,7 @@ func opExtCodeSize(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext)
 func opCodeSize(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	code := scope.Contract.Code
 	if scope.Contract.optimized {
-		code = interpreter.evm.resolveCode(scope.Contract.address)
+		code = interpreter.evm.resolveCode(*scope.Contract.CodeAddr)
 	}
 	scope.Stack.push(new(uint256.Int).SetUint64(uint64(len(code))))
 	return nil, nil
@@ -367,7 +366,7 @@ func opCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([
 	}
 	code := scope.Contract.Code
 	if scope.Contract.optimized {
-		code = interpreter.evm.resolveCode(scope.Contract.address)
+		code = interpreter.evm.resolveCode(*scope.Contract.CodeAddr)
 	}
 	codeCopy := getData(code, uint64CodeOffset, length.Uint64())
 	scope.Memory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)
@@ -533,7 +532,7 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 }
 
 func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	if interpreter.readOnly {
+	if interpreter.evm.readOnly {
 		return nil, ErrWriteProtection
 	}
 	loc, val := scope.Stack.pop2()
@@ -667,7 +666,7 @@ func opSwap16(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 }
 
 func opCreate(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	if interpreter.readOnly {
+	if interpreter.evm.readOnly {
 		return nil, ErrWriteProtection
 	}
 	var (
@@ -710,7 +709,7 @@ func opCreate(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 }
 
 func opCreate2(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	if interpreter.readOnly {
+	if interpreter.evm.readOnly {
 		return nil, ErrWriteProtection
 	}
 	var (
@@ -756,7 +755,7 @@ func opCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 	// Get the arguments from the memory.
 	args := scope.Memory.GetPtr(inOffset.Uint64(), inSize.Uint64())
 
-	if interpreter.readOnly && !value.IsZero() {
+	if interpreter.evm.readOnly && !value.IsZero() {
 		return nil, ErrWriteProtection
 	}
 	if !value.IsZero() {
@@ -895,7 +894,7 @@ func opStop(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 }
 
 func opSelfdestruct(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	if interpreter.readOnly {
+	if interpreter.evm.readOnly {
 		return nil, ErrWriteProtection
 	}
 	beneficiary := scope.Stack.pop()
@@ -914,7 +913,7 @@ func opSelfdestruct(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext
 }
 
 func opSelfdestruct6780(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	if interpreter.readOnly {
+	if interpreter.evm.readOnly {
 		return nil, ErrWriteProtection
 	}
 	beneficiary := scope.Stack.pop()
@@ -938,7 +937,7 @@ func opSelfdestruct6780(pc *uint64, interpreter *EVMInterpreter, scope *ScopeCon
 // make log instruction function
 func makeLog(size int) executionFunc {
 	return func(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-		if interpreter.readOnly {
+		if interpreter.evm.readOnly {
 			return nil, ErrWriteProtection
 		}
 		topics := make([]common.Hash, size)
@@ -1016,9 +1015,9 @@ func makePush(size uint64, pushByteSize int) executionFunc {
 }
 
 // make dup instruction function
-func makeDup(size int64) executionFunc {
+func makeDup(size int) executionFunc {
 	return func(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-		scope.Stack.dup(int(size))
+		scope.Stack.dup(size)
 		return nil, nil
 	}
 }
