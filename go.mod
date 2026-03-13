@@ -1,6 +1,6 @@
 module github.com/ethereum/go-ethereum
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.3
@@ -73,7 +73,7 @@ require (
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/bstream v0.0.2-0.20260304190439-4cf7047a590f
 	github.com/streamingfast/dgrpc v0.0.0-20260224192836-e5cd6cffceff
-	github.com/streamingfast/firehose-core v1.12.6-0.20260113210159-a1534944fb1a
+	github.com/streamingfast/firehose-core v1.13.3
 	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260312173539-485ca53fce80
 	github.com/streamingfast/pbgo v0.0.6-0.20260206150405-2b95acf70437
 	github.com/stretchr/testify v1.11.1

@@ -1122,8 +1122,8 @@ github.com/streamingfast/bstream v0.0.2-0.20260304190439-4cf7047a590f h1:0qZUHsK
 github.com/streamingfast/bstream v0.0.2-0.20260304190439-4cf7047a590f/go.mod h1:6IkpMw6g2z+E4gH2DJkm6vsQfZ8Y/WdYdYWjsLJIYr4=
 github.com/streamingfast/dgrpc v0.0.0-20260224192836-e5cd6cffceff h1:wULQSIEfQXK73ZRFopxGcKussMDs5x3rXKo3Gc6SCxg=
 github.com/streamingfast/dgrpc v0.0.0-20260224192836-e5cd6cffceff/go.mod h1:S6lJ9Dd6M3myzWbxspuhGggHtld9uYVN0xQ/7EGXmX8=
-github.com/streamingfast/firehose-core v1.12.6-0.20260113210159-a1534944fb1a h1:aRHBCCH7JcZGJNbgBcRFufHGS2hl/kTWzlTyYuwrBLI=
-github.com/streamingfast/firehose-core v1.12.6-0.20260113210159-a1534944fb1a/go.mod h1:XFAeoENQ9dbBkNP/D5lXCz1FLGi8A+yRl2K2eFMCaT0=
+github.com/streamingfast/firehose-core v1.13.3 h1:HpfGfwIs2Kk1tqXbAu20UDmPzmPqaPDz6Gn2MqSUHb8=
+github.com/streamingfast/firehose-core v1.13.3/go.mod h1:XjqgjAon88WBOLI/73quAeQEtIRH1yxD+JWsaJtI9Eg=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260312173539-485ca53fce80 h1:glVaOz11uTnhUL8GcZ44IXIoEHPMWyiQMwY96d0z5vk=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260312173539-485ca53fce80/go.mod h1:+ala1ZHyPZy6QZwTw3k7V6tHQ2bXFKP8wIldp2SUJ9Y=
 github.com/streamingfast/firehose-networks v0.2.2 h1:araNCSHVa9C8+7hGrxNJYt8TlbK65kNDxQMBJuzBjxA=
