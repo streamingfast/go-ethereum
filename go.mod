@@ -62,7 +62,7 @@ require (
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/bstream v0.0.2-0.20250505155336-473e82240140
 	github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391
-	github.com/streamingfast/evm-firehose-tracer-go/v4 v4.0.0
+	github.com/streamingfast/evm-firehose-tracer-go/v4 v4.0.2
 	github.com/streamingfast/firehose-core v1.9.12
 	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260224133825-8b12d7de947d
 	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000

@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"os"
 	"regexp"
-	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -60,9 +59,8 @@ func NewFirehoseFromRawJSON(cfg json.RawMessage) (*Firehose, error) {
 }
 
 type FirehoseConfig struct {
-	ApplyBackwardCompatibility *bool `json:"applyBackwardCompatibility"`
-	ConcurrentBlockFlushing    int   `json:"concurrentBlockFlushing"`
-	TraceBlockWithdrawals      bool  `json:"traceBlockWithdrawals"`
+	ConcurrentBlockFlushing int  `json:"concurrentBlockFlushing"`
+	TraceBlockWithdrawals   bool `json:"traceBlockWithdrawals"`
 
 	// Only used for testing, only possible through JSON configuration
 	private *privateFirehoseConfig
@@ -75,21 +73,18 @@ type privateFirehoseConfig struct {
 
 // LogKeValues returns a list of key-values to be logged when the config is printed.
 func (c *FirehoseConfig) LogKeyValues() []any {
-	applyBackwardCompatibility := "<unspecified>"
-	if c.ApplyBackwardCompatibility != nil {
-		applyBackwardCompatibility = strconv.FormatBool(*c.ApplyBackwardCompatibility)
-	}
-
 	return []any{
-		"config.applyBackwardCompatibility", applyBackwardCompatibility,
+		"config.applyBackwardCompatibility", "false",
 		"config.concurrentBlockFlushing", c.ConcurrentBlockFlushing,
+		"config.traceBlockWithdrawals", c.TraceBlockWithdrawals,
 	}
 }
 
 type Firehose struct {
 	*firehose.Tracer
 
-	hooks *tracing.Hooks
+	config *FirehoseConfig
+	hooks  *tracing.Hooks
 }
 
 const FirehoseProtocolVersion = "3.0"
@@ -112,22 +107,13 @@ func NewFirehose(config *FirehoseConfig) *Firehose {
 			IgnoreGenesisBlock:       ignoreGenesisBlock,
 			EnableConcurrentFlushing: config.ConcurrentBlockFlushing > 0,
 			ConcurrentBufferSize:     config.ConcurrentBlockFlushing,
+			// SkipWithdrawals is handled in OnBlockchainInit directly since it depends on chain ID
 		}),
+
+		config: config,
+		hooks:  nil,
 	}
 }
-
-//
-
-//
-// func (depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-// 	f.Tracer.OnCallEnter(depth, typ, [20]byte(from), [20]byte(to), input, gas, value)
-// }
-
-//
-
-// func (hash common.Hash, preImage []byte) {
-// 	f.Tracer.OnKeccakPreimage(hash, preImage)
-// }
 
 func (f *Firehose) TracingHooks() *tracing.Hooks {
 	if f.hooks == nil {
@@ -139,7 +125,13 @@ func (f *Firehose) TracingHooks() *tracing.Hooks {
 func newTracingHooksFromFirehose(f *Firehose) *tracing.Hooks {
 	return &tracing.Hooks{
 		OnBlockchainInit: func(chainConfig *params.ChainConfig) {
-			f.Tracer.OnBlockchainInit("geth", version.Semantic, convertChainConfig(chainConfig))
+			f.Tracer.OnBlockchainInit("geth", version.Semantic, convertChainConfig(chainConfig), func(config *firehose.Config) {
+				if f.config.TraceBlockWithdrawals {
+					config.SkipWithdrawals = false
+				} else {
+					config.SkipWithdrawals = !isChainOneOf(chainConfig.ChainID, hoodiChainID)
+				}
+			})
 
 			log.Info("Firehose tracer initialized",
 				"chain_id", chainConfig.ChainID,
@@ -312,4 +304,21 @@ func validateFirehoseKnownTransactionType(txType byte, isKnownFirehoseTxType boo
 	}
 
 	return nil
+}
+
+var (
+	hoodiChainID = params.HoodiChainConfig.ChainID
+)
+
+func isChainOneOf(chainID *big.Int, expectedChainIDs ...*big.Int) bool {
+	if chainID == nil {
+		return false
+	}
+
+	for _, expected := range expectedChainIDs {
+		if chainID.Cmp(expected) == 0 {
+			return true
+		}
+	}
+	return false
 }
