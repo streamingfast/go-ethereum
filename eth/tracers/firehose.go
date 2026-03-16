@@ -18,7 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
-	firehose "github.com/streamingfast/evm-firehose-tracer-go"
+	firehose "github.com/streamingfast/evm-firehose-tracer-go/v4"
 )
 
 func init() {

@@ -379,8 +379,8 @@ github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391 h1:p2GJ3SQpBUS
 github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391/go.mod h1:vwPOUlNHxOVqoPrkyDCpvYvE9FtXnX2bSQe3MvEabT0=
 github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a h1:jHKRM0gM5Gh/vRzJTv5u0myac8zxlGgICZr71+QRPz0=
 github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
-github.com/streamingfast/evm-firehose-tracer-go v0.0.0-20260304212059-7744bb74641d h1:WJCl8JDo8dN1N4c0j9HEPq9/W0vw+QWAwy/AmLvA1Sw=
-github.com/streamingfast/evm-firehose-tracer-go v0.0.0-20260304212059-7744bb74641d/go.mod h1:KZmb4CWLYYiVw/KC1bywozMWMen9m2U0mYV+uKB2dnE=
+github.com/streamingfast/evm-firehose-tracer-go/v4 v4.0.0 h1:zZrGUm6B5FIUVG5Jh2D+SxpDHME9N9/YzkG5h/2bJVw=
+github.com/streamingfast/evm-firehose-tracer-go/v4 v4.0.0/go.mod h1:Imd6AcbIExNVpeRyqw7FTWFWSsrYp6LU0grqWsFyNTo=
 github.com/streamingfast/firehose-core v1.9.12 h1:NXoSITYoOWcfR56ZYrk653YSEBxQ1vscYkEQRVgJk+k=
 github.com/streamingfast/firehose-core v1.9.12/go.mod h1:oDD2iMr5tiSYTRErmAbl3ONlsnypEEvZwJjSrjFkYiM=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260224133825-8b12d7de947d h1:ViNv6x/9Jht7HCueZNSF4wibX/aPApBsGxaQnBT1D/Q=
