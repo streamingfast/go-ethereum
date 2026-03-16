@@ -133,11 +133,11 @@ func newTracingHooksFromFirehose(f *Firehose) *tracing.Hooks {
 				}
 			})
 
-			log.Info("Firehose tracer initialized",
+			log.Info("Firehose tracer initialized", append([]any{
 				"chain_id", chainConfig.ChainID,
 				"apply_backward_compatibility", "false",
 				"protocol_version", FirehoseProtocolVersion,
-			)
+			}, f.Tracer.GetConfig().LogKeyValues()...)...)
 		},
 		OnGenesisBlock: func(b *types.Block, alloc types.GenesisAlloc) {
 			f.Tracer.OnGenesisBlock(firehose.BlockEvent{Block: convertBlockData(b, b.Header())}, convertGenesisAlloc(alloc))
