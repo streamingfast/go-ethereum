@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -19,7 +21,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"strings"
 )
 
 func (api *API) TraceFirehoseBlockByNumber(
@@ -57,8 +58,8 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 			FlushToTestBuffer: true,
 		},
 	})
-	hooks := NewTracingHooksFromFirehose(firehoseTracer)
-	firehoseTracer.OnBlockchainInit(api.backend.ChainConfig())
+	hooks := firehoseTracer.TracingHooks()
+	hooks.OnBlockchainInit(api.backend.ChainConfig())
 
 	if block.NumberU64() == 0 {
 		alloc, err := getGenesisState(api.backend.ChainDb(), block.Hash())
@@ -68,7 +69,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		if alloc == nil {
 			return nil, errors.New("genesis allocation not found")
 		}
-		firehoseTracer.OnGenesisBlock(block, alloc)
+		hooks.OnGenesisBlock(block, alloc)
 	} else {
 		// Prepare base state
 		parent, err := api.blockByNumberAndHash(ctx, rpc.BlockNumber(block.NumberU64()-1), block.ParentHash())
@@ -97,11 +98,14 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 				return false
 			}
 		}
-		headerChain, err := core.NewHeaderChain(api.backend.ChainDb(), api.backend.ChainConfig(), api.backend.Engine(), procInterrupt)
+
+		chainConfig := api.backend.ChainConfig()
+		headerChain, err := core.NewHeaderChain(api.backend.ChainDb(), chainConfig, api.backend.Engine(), procInterrupt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create header chain: %w", err)
 		}
-		processor := core.NewStateProcessor(api.backend.ChainConfig(), headerChain)
+
+		processor := core.NewStateProcessor(chainConfig, headerChain)
 		vmConfig := vm.Config{Tracer: hooks}
 		_, err = processor.Process(block, statedb, vmConfig)
 		if err != nil {
@@ -112,11 +116,12 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		hooks.OnBlockEnd(nil)
 	}
 
-	if firehoseTracer.testingBuffer == nil {
+	outputBuffer := firehoseTracer.GetTestingOutputBuffer()
+	if outputBuffer == nil {
 		return nil, errors.New("testing buffer is not available")
 	}
 
-	respStr := string(firehoseTracer.testingBuffer.Bytes())
+	respStr := outputBuffer.String()
 	lines := strings.Split(respStr, "\n")
 
 	var fireBlockLine string

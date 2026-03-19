@@ -817,6 +817,11 @@ func (api *ConsensusAPI) ExecuteStatelessPayloadV4(params engine.ExecutableData,
 }
 
 func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashes []common.Hash, beaconRoot *common.Hash, requests [][]byte, witness bool) (engine.PayloadStatusV1, error) {
+	// Firehose: for measurements, log the age of the block if it's recent enough (determines when we received it on the node)
+	if age := time.Second * time.Duration(time.Now().Unix()-int64(params.Timestamp)); age < 1*time.Minute {
+		log.Info("Received block from beacon client", "number", params.Number, "age", common.PrettyDuration(age))
+	}
+
 	// The locking here is, strictly, not required. Without these locks, this can happen:
 	//
 	// 1. NewPayload( execdata-N ) is invoked from the CL. It goes all the way down to

@@ -218,11 +218,6 @@ type Hooks struct {
 
 	// Firehose requirements.
 	//
-	// Search a368bc8a3737 within the repository to find all the details
-	OnNewAccount func(address common.Address)
-
-	// Firehose requirements.
-	//
 	// Search 11471b22bb0b within the repository to find all the details
 	OnKeccakPreimage func(hash common.Hash, preimage []byte)
 }

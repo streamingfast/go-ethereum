@@ -39,9 +39,8 @@ func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.Fir
 	require.NoError(t, json.Unmarshal(configJSON, &configGenericMap))
 
 	configGenericMap["_private"] = map[string]any{
-		"flushToTestBuffer":           true,
-		"ignoreGenesisBlock":          true,
-		"forcedBackwardCompatibility": model == tracingModelFirehose2_3,
+		"flushToTestBuffer":  true,
+		"ignoreGenesisBlock": true,
 	}
 
 	configJSON, err = json.Marshal(configGenericMap)
@@ -50,7 +49,7 @@ func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.Fir
 	tracer, err := tracers.NewFirehoseFromRawJSON(configJSON)
 	require.NoError(t, err)
 
-	hooks := tracers.NewTracingHooksFromFirehose(tracer)
+	hooks := tracer.TracingHooks()
 
 	return tracer, hooks, func() {
 		if hooks.OnClose != nil {
@@ -152,7 +151,7 @@ func assertBlockEquals(t *testing.T, tracer *tracers.Firehose, goldenDir string,
 func readTracerFirehoseLines(t *testing.T, tracer *tracers.Firehose) (genesisLine *firehoseInitLine, blockLines firehoseBlockLines, unknownLines []unknownLine) {
 	t.Helper()
 
-	lines := bytes.Split(tracer.InternalTestingBuffer().Bytes(), []byte{'\n'})
+	lines := bytes.Split(tracer.GetTestingOutputBuffer().Bytes(), []byte{'\n'})
 	for _, line := range lines {
 		if len(line) == 0 {
 			continue

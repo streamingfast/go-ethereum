@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"strconv"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -12,9 +16,6 @@ import (
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"golang.org/x/time/rate"
-	"math/big"
-	"strconv"
-	"time"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -344,16 +345,15 @@ func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log, pbTx *pbeth.TransactionT
 			continue
 		}
 		log := &types.Log{
-			Address:        common.BytesToAddress(pbLog.Address),
-			Topics:         convertBytesToHashes(pbLog.Topics),
-			Data:           pbLog.Data,
-			BlockNumber:    uint64(pbLog.BlockIndex),
-			TxHash:         common.BytesToHash(pbTx.Hash),
-			TxIndex:        uint(pbTx.Index),
-			BlockHash:      common.BytesToHash(pbBlock.Header.Hash),
-			// The branch release/geth-1.x-fh3.0 contains  BlockTimestamp
-			Index:          uint(pbLog.Index),
-			Removed:        false,
+			Address:     common.BytesToAddress(pbLog.Address),
+			Topics:      convertBytesToHashes(pbLog.Topics),
+			Data:        pbLog.Data,
+			BlockNumber: uint64(pbLog.BlockIndex),
+			TxHash:      common.BytesToHash(pbTx.Hash),
+			TxIndex:     uint(pbTx.Index),
+			BlockHash:   common.BytesToHash(pbBlock.Header.Hash),
+			Index:       uint(pbLog.Index),
+			Removed:     false,
 		}
 
 		if pbTx.Status == 3 { // Status Reverted

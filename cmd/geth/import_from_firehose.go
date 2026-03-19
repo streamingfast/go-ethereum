@@ -3,6 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"math/big"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -14,11 +20,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding/gzip"
-	"io"
-	"math/big"
-	"os"
-	"sync"
-	"time"
 )
 
 func importFromFirehose(ctx *cli.Context) error {

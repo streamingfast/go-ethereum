@@ -118,6 +118,13 @@ func NewSimulatedBeacon(period uint64, eth *eth.Ethereum) (*SimulatedBeacon, err
 		engineAPI:          engineAPI,
 		lastBlockTime:      block.Time,
 		curForkchoiceState: current,
+		// FIXME (StreamingFast): Commented out because it changes the fee recipient which changes
+		// cold/hot storage access and leads to differences when running Battlefield. Tried setting
+		// `--miner.pending.feeRecipient=0x0000000000000000000000000000000000000000` but it didn't
+		// work. Will need to dig a bit more or just accept the changes for now (which would have
+		// cascading effects on other supported network that haven't updated yet to this).
+		// Commenting it out for now it's the easiest way to get the tests to pass.
+		// feeRecipient:       feeRecipient,
 	}, nil
 }
 

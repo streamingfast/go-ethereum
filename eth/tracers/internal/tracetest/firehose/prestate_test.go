@@ -44,7 +44,7 @@ var _ core.ChainContext = (*prestateData)(nil)
 
 type prestateData struct {
 	Genesis         *core.Genesis   `json:"genesis"`
-	Context         *callContext    `json:"context"`
+	Context         *traceContext   `json:"context"`
 	Input           string          `json:"input"`
 	TotalDifficulty *big.Int        `json:"-"`
 	TracerConfig    json.RawMessage `json:"tracerConfig"`
@@ -61,6 +61,21 @@ func (p *prestateData) Config() *params.ChainConfig {
 // Engine implements core.ChainContext.
 func (p *prestateData) Engine() consensus.Engine {
 	return ethash.NewFullFaker()
+}
+
+// CurrentHeader implements core.ChainContext.
+func (p *prestateData) CurrentHeader() *types.Header {
+	return p.GetHeader(common.Hash{}, p.Genesis.Number)
+}
+
+// GetHeaderByHash implements core.ChainContext.
+func (p *prestateData) GetHeaderByHash(hash common.Hash) *types.Header {
+	return p.GetHeader(hash, 0)
+}
+
+// GetHeaderByNumber implements core.ChainContext.
+func (p *prestateData) GetHeaderByNumber(number uint64) *types.Header {
+	return p.GetHeader(common.Hash{}, number)
 }
 
 // GetHeader implements core.ChainContext.
@@ -84,7 +99,7 @@ func (p *prestateData) GetHeader(hash common.Hash, number uint64) *types.Header 
 	return nil
 }
 
-type callContext struct {
+type traceContext struct {
 	Number     math.HexOrDecimal64   `json:"number"`
 	Difficulty *math.HexOrDecimal256 `json:"difficulty"`
 	Time       math.HexOrDecimal64   `json:"timestamp"`
@@ -93,7 +108,7 @@ type callContext struct {
 	BaseFee    *math.HexOrDecimal256 `json:"baseFeePerGas"`
 }
 
-func (c *callContext) toBlockContext(genesis *core.Genesis) vm.BlockContext {
+func (c *traceContext) toBlockContext(genesis *core.Genesis) vm.BlockContext {
 	context := vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
