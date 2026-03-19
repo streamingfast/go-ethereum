@@ -98,7 +98,9 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 				return false
 			}
 		}
-		headerChain, err := core.NewHeaderChain(api.backend.ChainDb(), api.backend.ChainConfig(), api.backend.Engine(), procInterrupt)
+
+		chainConfig := api.backend.ChainConfig()
+		headerChain, err := core.NewHeaderChain(api.backend.ChainDb(), chainConfig, api.backend.Engine(), procInterrupt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create header chain: %w", err)
 		}

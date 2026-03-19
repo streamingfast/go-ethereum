@@ -641,10 +641,6 @@ func (s *StateDB) getOrNewStateObject(addr common.Address) *stateObject {
 // existing account with the given address, otherwise it will be silently overwritten.
 func (s *StateDB) createObject(addr common.Address) *stateObject {
 	obj := newObject(s, addr, nil)
-	if s.hooks != nil && s.hooks.OnNewAccount != nil {
-		s.hooks.OnNewAccount(addr)
-	}
-
 	s.journal.createObject(addr)
 	s.setStateObject(obj)
 	return obj
