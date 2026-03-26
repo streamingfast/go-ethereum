@@ -167,9 +167,6 @@ type StateDB struct {
 	CodeLoadBytes   int // Total bytes of resolved code
 	CodeUpdated     int // Number of contracts with code changes that persisted
 	CodeUpdateBytes int // Total bytes of persisted code written
-
-	// requires to maintain Firehose 2.3 backward compatibility
-	hooks *tracing.Hooks
 }
 
 // New creates a new state from a given trie.

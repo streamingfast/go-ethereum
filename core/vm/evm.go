@@ -619,11 +619,7 @@ func (evm *EVM) initNewContract(contract *Contract, address common.Address) ([]b
 			return ret, ErrCodeStoreOutOfGas
 		}
 	}
-
-	// Firehose: For geth at release v1.16.7, have submitted a pull request (#32916 ), where `len(ret) > 0` was
-	// added to prevent a no-op call to set the contract's code. We disabled the code below by
-	// forcing the condition to true, maintaining backward compatibility for Firehose users.
-	if true || len(ret) > 0 {
+	if len(ret) > 0 {
 		evm.StateDB.SetCode(address, ret, tracing.CodeChangeContractCreation)
 	}
 	return ret, nil
