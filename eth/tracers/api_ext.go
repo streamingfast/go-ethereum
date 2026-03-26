@@ -107,7 +107,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 
 		processor := core.NewStateProcessor(headerChain)
 		vmConfig := vm.Config{Tracer: hooks}
-		_, err = processor.Process(block, statedb, vmConfig)
+		_, err = processor.Process(ctx, block, statedb, vmConfig)
 		if err != nil {
 			return nil, fmt.Errorf("block processing failed: %w", err)
 		}
