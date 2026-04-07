@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.28.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.47
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.30.2
+	github.com/bits-and-blooms/bitset v1.20.0
 	github.com/bnb-chain/fastssz v0.1.2
 	github.com/bnb-chain/ics23 v0.1.0
 	github.com/cenkalti/backoff/v4 v4.3.0
@@ -18,6 +19,7 @@ require (
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/cometbft/cometbft v0.37.0
 	github.com/consensys/gnark-crypto v0.18.1
+	github.com/cosmos/iavl v0.12.0
 	github.com/crate-crypto/go-eth-kzg v1.4.0
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a
 	github.com/crate-crypto/go-kzg-4844 v1.1.0
@@ -80,12 +82,10 @@ require (
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/tendermint/go-amino v0.14.1
-	github.com/tendermint/iavl v0.12.0
 	github.com/tendermint/tendermint v0.31.15
 	github.com/tidwall/wal v1.1.7
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4 v1.1.3
-	github.com/willf/bitset v1.1.3
 	go.uber.org/automaxprocs v1.5.2
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.47.0
@@ -95,7 +95,7 @@ require (
 	golang.org/x/text v0.33.0
 	golang.org/x/time v0.14.0
 	golang.org/x/tools v0.40.0
-	google.golang.org/grpc v1.78.0
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -104,8 +104,9 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.36.0 // indirect
-	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
+	github.com/envoyproxy/protoc-gen-validate v1.3.0 // indirect
 	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/fjl/gencodec v0.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.64.0 // indirect
@@ -132,14 +133,12 @@ require (
 	github.com/aws/smithy-go v1.22.1 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/blendle/zapdriver v1.3.2-0.20200203083823-9200777f8a3d // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
-	github.com/cncf/xds/go v0.0.0-20251022180443-0feb69152e9f // indirect
+	github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
