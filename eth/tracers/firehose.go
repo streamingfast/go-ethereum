@@ -138,6 +138,7 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 
 type FirehoseConfig struct {
 	ApplyBackwardCompatibility *bool `json:"applyBackwardCompatibility"`
+	ApplyOrdinalsNonceBNB      *bool `json:"applyOrdinalsNonceBNB"`
 	ConcurrentBlockFlushing    int   `json:"concurrentBlockFlushing"`
 	TraceBlockWithdrawals      bool  `json:"traceBlockWithdrawals"`
 
@@ -192,6 +193,7 @@ type Firehose struct {
 	// here. If not set in the config, then we inspect `OnBlockchainInit` the chain config to determine
 	// if it's a network for which we must reproduce the legacy bugs.
 	applyBackwardCompatibility *bool
+	applyOrdinalsNonceBNB      *bool
 	concurrentBlockFlushing    int
 
 	// Block state
@@ -262,6 +264,7 @@ func NewFirehose(config *FirehoseConfig) *Firehose {
 		hasher:                     crypto.NewKeccakState(),
 		tracerID:                   "global",
 		applyBackwardCompatibility: config.ApplyBackwardCompatibility,
+		applyOrdinalsNonceBNB:      config.ApplyOrdinalsNonceBNB,
 		concurrentBlockFlushing:    config.ConcurrentBlockFlushing,
 		concurrentFlushBufferSize:  100,
 
@@ -379,6 +382,21 @@ func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
 		applyBackwardCompatibilityLogSuffix = " (disabled)"
 	}
 
+	applyOrdinalsNonceBNBLogSuffix := ""
+	if f.applyOrdinalsNonceBNB == nil {
+		if isChainIDOneOf(chainConfig.ChainID, bscMainnetChainID, bscTestnetChainID) {
+			f.applyOrdinalsNonceBNB = ptr(true)
+			applyOrdinalsNonceBNBLogSuffix = " (inferred, up to Osaka/Mendel hard-fork)"
+		} else {
+			f.applyOrdinalsNonceBNB = ptr(false)
+			applyOrdinalsNonceBNBLogSuffix = " (inferred, disabled)"
+		}
+	} else if *f.applyOrdinalsNonceBNB {
+		applyOrdinalsNonceBNBLogSuffix = " (forced, up to Osaka/Mendel hard-fork)"
+	} else {
+		applyOrdinalsNonceBNBLogSuffix = " (disabled)"
+	}
+
 	if f.config.ConcurrentBlockFlushing > 0 {
 		log.Info("Firehose concurrent block flushing enabled, starting goroutine")
 		f.concurrentFlushQueue = NewConcurrentFlushQueue(
@@ -392,6 +410,7 @@ func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
 	log.Info("Firehose tracer initialized",
 		"chain_id", chainConfig.ChainID,
 		"apply_backward_compatibility", fmt.Sprintf("%t%s", *f.applyBackwardCompatibility, applyBackwardCompatibilityLogSuffix),
+		"apply_ordinals_nonce_bnb", fmt.Sprintf("%t%s", *f.applyOrdinalsNonceBNB, applyOrdinalsNonceBNBLogSuffix),
 		"protocol_version", FirehoseProtocolVersion,
 	)
 }
@@ -447,6 +466,11 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	// If are applying backward compatibility and the block is now Prague, stop applying backward compatibility
 	if *f.applyBackwardCompatibility && blockRules.IsPrague && !f.config.ForcedBackwardCompatibility() {
 		*f.applyBackwardCompatibility = false
+	}
+
+	// If we are applying ordinals nonce BNB fix and the block is now Osaka/Mendel, stop applying it
+	if *f.applyOrdinalsNonceBNB && (blockRules.IsOsaka || blockRules.IsMendel) && !f.config.ForcedBackwardCompatibility() {
+		*f.applyOrdinalsNonceBNB = false
 	}
 
 	firehoseInfo("block start (number=%d hash=%s, backward_compatibility=%t)", block.NumberU64(), hash, *f.applyBackwardCompatibility)
@@ -534,6 +558,8 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil {
+		f.ensureInBlockAndNotInTrx()
+
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
@@ -545,7 +571,9 @@ func (f *Firehose) OnBlockEnd(err error) {
 			f.fixOrdinalsForEndOfBlockChanges()
 		}
 
-		f.ensureInBlockAndNotInTrx()
+		if *f.applyOrdinalsNonceBNB {
+			f.reorderOrdinalsNonceBNB()
+		}
 
 		// Flush block to firehose and optionally use goroutine
 		if f.concurrentBlockFlushing > 0 {
@@ -668,6 +696,129 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 	call.EndOrdinal += ordinalBase
 
 	return call.EndOrdinal
+}
+
+// systemContractAddr is 0x0000000000000000000000000000000000001000 — the BSC
+// system staking contract whose transactions receive special nonce treatment.
+// In the JSON this appears as the base64 string "AAAAAAAAAAAAAAAAAAAAAAAAEAA=".
+var systemContractAddr = []byte{
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x10, 0x00,
+}
+
+// rootCall returns the first Call with Depth == 0, or nil.
+func rootCall(calls []*pbeth.Call) *pbeth.Call {
+	for _, c := range calls {
+		if c.Depth == 0 {
+			return c
+		}
+	}
+	return nil
+}
+
+// reorderOrdinalsNonceBNB fixes the nonce-change ordinal ordering in-place on a
+// *pbeth.Block that was produced by a testing node.
+//
+// For every transaction addressed to the BSC system staking contract
+// (0x0000000000000000000000000000000000001000), the sender's NonceChange is
+// emitted at rootCall.EndOrdinal+1 in testing nodes (after the root call
+// window closes).  Production nodes emit it at rootCall.BeginOrdinal-1
+// (before the window opens), and shift every ordinal inside the window up by 1
+// to keep the global ordering dense.
+//
+// The transformation applied here:
+//
+//  1. Shift every ordinal field in [Lo, Hi] (= root call's [Begin, End]) by +1.
+//     Because we write directly to struct fields there is no cascading risk —
+//     shiftU64 is a simple range-guard increment and each field is visited once.
+//
+//  2. Set the NonceChange that was at Hi+1 to Lo (= old BeginOrdinal), placing
+//     it just before the now-shifted window [Lo+1, Hi+1].
+//
+// The function is idempotent when the block already carries production ordering
+// (the sentinel nonceChange at Hi+1 will not be found, so nothing is modified).
+func (f *Firehose) reorderOrdinalsNonceBNB() {
+	block := f.block
+	for _, trx := range block.TransactionTraces {
+		if !bytes.Equal(trx.To, systemContractAddr) {
+			continue
+		}
+
+		root := rootCall(trx.Calls)
+		if root == nil {
+			continue
+		}
+
+		lo, hi := root.BeginOrdinal, root.EndOrdinal
+
+		// Find the NonceChange sitting at hi+1 — the testing artefact.
+		targetNC := nonceChangeAt(root.NonceChanges, hi+1)
+		if targetNC == nil {
+			continue // already in production order
+		}
+
+		// Step 1 — shift every ordinal in [lo, hi] upward by 1.
+		// The flat Calls slice holds the root call and all its descendants, so
+		// iterating it covers the entire call tree without recursion.
+		for _, call := range trx.Calls {
+			shiftCallOrdinalsInPlace(call, lo, hi)
+		}
+		if trx.Receipt != nil {
+			for _, l := range trx.Receipt.Logs {
+				shiftU64(&l.Ordinal, lo, hi)
+			}
+		}
+
+		// Step 2 — move the NonceChange to just before the shifted window.
+		targetNC.Ordinal = lo
+	}
+}
+
+// shiftCallOrdinalsInPlace increments by 1 every ordinal field in call that
+// lies within the closed interval [lo, hi].
+func shiftCallOrdinalsInPlace(call *pbeth.Call, lo, hi uint64) {
+	shiftU64(&call.BeginOrdinal, lo, hi)
+	shiftU64(&call.EndOrdinal, lo, hi)
+
+	for _, nc := range call.NonceChanges {
+		shiftU64(&nc.Ordinal, lo, hi)
+	}
+	for _, bc := range call.BalanceChanges {
+		shiftU64(&bc.Ordinal, lo, hi)
+	}
+	for _, sc := range call.StorageChanges {
+		shiftU64(&sc.Ordinal, lo, hi)
+	}
+	for _, gc := range call.GasChanges {
+		shiftU64(&gc.Ordinal, lo, hi)
+	}
+	for _, l := range call.Logs {
+		shiftU64(&l.Ordinal, lo, hi)
+	}
+	for _, cc := range call.CodeChanges {
+		shiftU64(&cc.Ordinal, lo, hi)
+	}
+	for _, ac := range call.AccountCreations {
+		shiftU64(&ac.Ordinal, lo, hi)
+	}
+}
+
+// nonceChangeAt returns the first NonceChange whose Ordinal == target, or nil.
+func nonceChangeAt(ncs []*pbeth.NonceChange, target uint64) *pbeth.NonceChange {
+	for _, nc := range ncs {
+		if nc.Ordinal == target {
+			return nc
+		}
+	}
+	return nil
+}
+
+// shiftU64 increments *v by 1 iff lo ≤ *v ≤ hi.
+func shiftU64(v *uint64, lo, hi uint64) {
+	if *v >= lo && *v <= hi {
+		*v++
+	}
 }
 
 func (f *Firehose) OnSystemTxStart() {
