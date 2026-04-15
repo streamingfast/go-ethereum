@@ -26,10 +26,10 @@
       "calls": [
         {
           "address": "vDOeYo5v4yw56EOS0IdWeydD6jU=",
-          "beginOrdinal": "5",
+          "beginOrdinal": "4",
           "callType": "CALL",
           "caller": "vDOeYo5v4yw56EOS0IdWeydD6jU=",
-          "endOrdinal": "6",
+          "endOrdinal": "5",
           "failureReason": "failed deposit transaction",
           "gasConsumed": "200000",
           "gasLimit": "200000",
@@ -42,7 +42,7 @@
           }
         }
       ],
-      "endOrdinal": "7",
+      "endOrdinal": "6",
       "from": "vDOeYo5v4yw56EOS0IdWeydD6jU=",
       "gasLimit": "200000",
       "gasUsed": "200000",
@@ -60,5 +60,5 @@
       }
     }
   ],
-  "ver": 4
+  "ver": 5
 }

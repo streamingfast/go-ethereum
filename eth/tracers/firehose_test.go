@@ -135,7 +135,7 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 	// When adding support for a new hard-fork that adds new block header fields, it's normal that this value
 	// changes. If you are sure the two struct are the same, then you can update the expected hash below
 	// to the new value.
-	expectedHash := common.HexToHash("4ced4916132bbf6a7819a310bbac4abf354062a00efc980ea4f0bab406546ac5")
+	expectedHash := common.HexToHash("1e995a03fe468e359956abad3de7aec9f4b52acbe417e78f75a109466a473d3c")
 
 	gethHeaderValue := reflect.New(gethHeaderType)
 	fillAllFieldsWithNonEmptyValues(t, gethHeaderValue, reflect.VisibleFields(gethHeaderType))
@@ -213,31 +213,6 @@ func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
 			require.NotPanics(t, func() {
 				balanceChangeReasonFromChain(tracingReason)
 			}, "BalanceChangeReason panicked for value %v", tracingReason)
-		}
-	}
-}
-
-func TestFirehose_GasChangeAllMappedCorrectly(t *testing.T) {
-	for i := 0; i <= math.MaxUint8; i++ {
-		tracingReason := tracing.GasChangeReason(i)
-
-		// Those are ignored and never mapped
-		if tracingReason == tracing.GasChangeUnspecified || tracingReason == tracing.GasChangeCallOpCode || tracingReason == tracing.GasChangeIgnored {
-			continue
-		}
-
-		// Here, we leverage the fact that the `tracing.GasChangeReason` Stringer will render the String
-		// as `<EnumName>(<indexValue>)` if the index is not mapped to a constant in the enum. If this happens,
-		// we know it's not a defined constant in the Geth tracing package.
-		//
-		// Otherwise, it's defined and we should have some mapping for it in the `gasChangeReasonFromChain` function.
-		//
-		// There is a loophole of this technique and it's that if the code generator defining the enum Stringer is
-		// not run, we will think it's an undefined constant and will miss it.
-		if !endsWithUnknownConstant.MatchString(tracingReason.String()) {
-			require.NotPanics(t, func() {
-				gasChangeReasonFromChain(tracingReason)
-			}, "GasChangeReason panicked for value %v", tracingReason)
 		}
 	}
 }
@@ -392,9 +367,7 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewFirehose(&FirehoseConfig{
-				ApplyBackwardCompatibility: ptr(false),
-			})
+			f := NewFirehose(&FirehoseConfig{})
 			f.OnBlockchainInit(params.AllEthashProtocolChanges)
 
 			tt.populate(f)
@@ -547,10 +520,9 @@ func TestMemory_GetPtr(t *testing.T) {
 }
 
 func TestFirehose_FlashBlockHandling(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -675,10 +647,9 @@ func TestFirehose_FlashBlockHandling(t *testing.T) {
 }
 
 func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -780,10 +751,9 @@ func TestFirehose_FlashBlockSequenceValidation(t *testing.T) {
 
 // TestFirehose_FlashBlockPersistsOnRegularBlock tests that processing a normal block does not affect the state of the snapshot and last index.
 func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -858,10 +828,9 @@ func TestFirehose_FlashBlockPersistsOnRegularBlock(t *testing.T) {
 // TestFirehose_FlashBlockSnapshot_BasicUsage tests the basic snapshot functionality
 // where a snapshot is taken after regular transactions and before system calls.
 func TestFirehose_FlashBlockSnapshot_BasicUsage(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -994,10 +963,9 @@ func TestFirehose_FlashBlockSnapshot_BasicUsage(t *testing.T) {
 // TestFirehose_FlashBlockSnapshot_WithoutSnapshot tests that without snapshot,
 // flash blocks start fresh (no data is preserved from previous flash block).
 func TestFirehose_FlashBlockSnapshot_WithoutSnapshot(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -1096,10 +1064,9 @@ func TestFirehose_FlashBlockSnapshot_WithoutSnapshot(t *testing.T) {
 // TestFirehose_FlashBlockSnapshot_SnapshotClearedOnNewBlock tests that
 // the snapshot is cleared when moving to a new block number.
 func TestFirehose_FlashBlockSnapshot_SnapshotClearedOnNewBlock(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -1185,10 +1152,9 @@ func TestFirehose_FlashBlockSnapshot_SnapshotClearedOnNewBlock(t *testing.T) {
 // TestFirehose_FlashBlockSnapshot_MultipleIterations tests the snapshot
 // functionality across multiple flash block iterations.
 func TestFirehose_FlashBlockSnapshot_MultipleIterations(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
@@ -1296,10 +1262,9 @@ func TestFirehose_FlashBlockSnapshot_MultipleIterations(t *testing.T) {
 // TestFirehose_FlashBlockSnapshot_SystemCallsIncluded tests that system calls
 // are properly included in the snapshot.
 func TestFirehose_FlashBlockSnapshot_SystemCallsIncluded(t *testing.T) {
-	config := &FirehoseConfig{}
-	config.ApplyBackwardCompatibility = new(bool)
-	*config.ApplyBackwardCompatibility = false
+	t.Skip("Flashblocks in op-geth and op-geth in general is deprecated, no need to run those tests anymore.")
 
+	config := &FirehoseConfig{}
 	chainConfig := &params.ChainConfig{
 		ChainID: big.NewInt(1),
 	}

@@ -29,63 +29,11 @@
       "calls": [
         {
           "address": "QgAAAAAAAAAAAAAAAAAAAAAAABU=",
-          "beginOrdinal": "4",
+          "beginOrdinal": "3",
           "callType": "CALL",
           "caller": "3q3erd6t3q3erd6t3q3erd6tAAE=",
-          "endOrdinal": "17",
+          "endOrdinal": "7",
           "executedCode": true,
-          "gasChanges": [
-            {
-              "oldValue": "1000000",
-              "ordinal": "2",
-              "reason": "REASON_INTRINSIC_GAS"
-            },
-            {
-              "newValue": "977072",
-              "ordinal": "5",
-              "reason": "REASON_CALL_INITIAL_BALANCE"
-            },
-            {
-              "newValue": "974722",
-              "oldValue": "974770",
-              "ordinal": "6",
-              "reason": "REASON_CALL_DATA_COPY"
-            },
-            {
-              "newValue": "972106",
-              "oldValue": "974606",
-              "ordinal": "7",
-              "reason": "REASON_STATE_COLD_ACCESS"
-            },
-            {
-              "newValue": "15189",
-              "oldValue": "974706",
-              "ordinal": "8",
-              "reason": "REASON_DELEGATE_CALL"
-            },
-            {
-              "newValue": "953122",
-              "oldValue": "15189",
-              "ordinal": "14",
-              "reason": "REASON_REFUND_AFTER_EXECUTION"
-            },
-            {
-              "newValue": "953111",
-              "oldValue": "953114",
-              "ordinal": "15",
-              "reason": "REASON_RETURN_DATA_COPY"
-            },
-            {
-              "oldValue": "953087",
-              "ordinal": "16",
-              "reason": "REASON_CALL_LEFT_OVER_RETURNED"
-            },
-            {
-              "oldValue": "953087",
-              "ordinal": "18",
-              "reason": "REASON_TX_LEFT_OVER_RETURNED"
-            }
-          ],
           "gasConsumed": "23985",
           "gasLimit": "977072",
           "index": 1,
@@ -95,30 +43,18 @@
               "address": "3q3erd6t3q3erd6t3q3erd6tAAE=",
               "newValue": "3515443",
               "oldValue": "3515442",
-              "ordinal": "3"
+              "ordinal": "2"
             }
           ]
         },
         {
           "address": "wNPA08DTwNPA08DTwNPA08DTABU=",
-          "beginOrdinal": "9",
+          "beginOrdinal": "4",
           "callType": "DELEGATE",
           "caller": "QgAAAAAAAAAAAAAAAAAAAAAAABU=",
           "depth": 1,
-          "endOrdinal": "13",
+          "endOrdinal": "6",
           "executedCode": true,
-          "gasChanges": [
-            {
-              "newValue": "956917",
-              "ordinal": "10",
-              "reason": "REASON_CALL_INITIAL_BALANCE"
-            },
-            {
-              "oldValue": "937933",
-              "ordinal": "12",
-              "reason": "REASON_CALL_LEFT_OVER_RETURNED"
-            }
-          ],
           "gasConsumed": "18984",
           "gasLimit": "956917",
           "index": 2,
@@ -130,12 +66,12 @@
               "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM=",
               "newValue": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI=",
               "oldValue": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=",
-              "ordinal": "11"
+              "ordinal": "5"
             }
           ]
         }
       ],
-      "endOrdinal": "19",
+      "endOrdinal": "8",
       "from": "3q3erd6t3q3erd6t3q3erd6tAAE=",
       "gasLimit": "1000000",
       "gasUsed": "46913",
@@ -151,5 +87,5 @@
       "type": "TRX_TYPE_OPTIMISM_DEPOSIT"
     }
   ],
-  "ver": 4
+  "ver": 5
 }
