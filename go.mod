@@ -60,9 +60,9 @@ require (
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/bstream v0.0.2-0.20250505155336-473e82240140
 	github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391
-	github.com/streamingfast/evm-firehose-tracer-go/v4 v4.0.3
+	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260417170642-de0dd7dd9bf5
 	github.com/streamingfast/firehose-core v1.9.12
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260224133825-8b12d7de947d
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260416183402-21195c1bf9b7
 	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000
 	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.16
@@ -94,7 +94,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect
-	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260319183512-c6eb9e21830f // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect

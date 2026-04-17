@@ -15,6 +15,9 @@ We will check to see if we can provide some instructions about a potential deplo
   - Bug fix where some `CodeChange` were emitted without a real code change (e.g. that `CodeChange.prev == CodeChange.new`), those are not emitted in block version 5.
   - Self destructs tracing is now handled drastically differently than in block version 4 fixing some bugs along the way.
     - While in block version 4 all self-destruct related changes (CodeChange, BalanceChange, etc) were all done at time of `SELFDESTRUCT` opcode, this is not true anymore in block version 5 where some changes are now deferred to when the transaction is finalized. This fixes some inconsistencies that could happened.
+  - Block withdrawals are now permanently recorded; `Config.SkipWithdrawals` has been removed.
+  - State change hooks no longer record entries when old and new values are identical (no-op state changes are dropped).
+  - EIP-7843 (Amsterdam): `BlockData.SlotNumber` field and `BlockHeader.SlotNumber` are now populated.
 
   Outside of `GasChanges`, there is no real differences in the actual output more around in which order some of the changes are emitted so everyone should be able to accept version 5 like if this was version 4.
 

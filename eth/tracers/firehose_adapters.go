@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	firehose "github.com/streamingfast/evm-firehose-tracer-go/v4"
+	firehose "github.com/streamingfast/evm-firehose-tracer-go/v5"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 )
 
@@ -89,6 +89,7 @@ func convertBlockData(block *types.Block, header *types.Header) firehose.BlockDa
 		BaseFee:     header.BaseFee,
 		Size:        block.Size(),
 		IsMerge:     block.Difficulty().Sign() == 0,
+		SlotNumber:  header.SlotNumber,
 	}
 
 	if header.WithdrawalsHash != nil {
@@ -317,42 +318,6 @@ func balanceChangeReasonFromChain(reason tracing.BalanceChangeReason) pbeth.Bala
 	}
 
 	panic(fmt.Errorf("unknown tracer balance change reason value '%d', check state.BalanceChangeReason so see to which constant it refers to", reason))
-}
-
-var gasChangeReasonToPb = map[tracing.GasChangeReason]pbeth.GasChange_Reason{
-	tracing.GasChangeTxInitialBalance:              pbeth.GasChange_REASON_TX_INITIAL_BALANCE,
-	tracing.GasChangeTxRefunds:                     pbeth.GasChange_REASON_TX_REFUNDS,
-	tracing.GasChangeTxLeftOverReturned:            pbeth.GasChange_REASON_TX_LEFT_OVER_RETURNED,
-	tracing.GasChangeCallInitialBalance:            pbeth.GasChange_REASON_CALL_INITIAL_BALANCE,
-	tracing.GasChangeCallLeftOverReturned:          pbeth.GasChange_REASON_CALL_LEFT_OVER_RETURNED,
-	tracing.GasChangeTxIntrinsicGas:                pbeth.GasChange_REASON_INTRINSIC_GAS,
-	tracing.GasChangeCallContractCreation:          pbeth.GasChange_REASON_CONTRACT_CREATION,
-	tracing.GasChangeCallContractCreation2:         pbeth.GasChange_REASON_CONTRACT_CREATION2,
-	tracing.GasChangeCallCodeStorage:               pbeth.GasChange_REASON_CODE_STORAGE,
-	tracing.GasChangeCallPrecompiledContract:       pbeth.GasChange_REASON_PRECOMPILED_CONTRACT,
-	tracing.GasChangeCallStorageColdAccess:         pbeth.GasChange_REASON_STATE_COLD_ACCESS,
-	tracing.GasChangeCallLeftOverRefunded:          pbeth.GasChange_REASON_REFUND_AFTER_EXECUTION,
-	tracing.GasChangeCallFailedExecution:           pbeth.GasChange_REASON_FAILED_EXECUTION,
-	tracing.GasChangeWitnessContractInit:           pbeth.GasChange_REASON_WITNESS_CONTRACT_INIT,
-	tracing.GasChangeWitnessContractCreation:       pbeth.GasChange_REASON_WITNESS_CONTRACT_CREATION,
-	tracing.GasChangeWitnessCodeChunk:              pbeth.GasChange_REASON_WITNESS_CODE_CHUNK,
-	tracing.GasChangeWitnessContractCollisionCheck: pbeth.GasChange_REASON_WITNESS_CONTRACT_COLLISION_CHECK,
-	tracing.GasChangeTxDataFloor:                   pbeth.GasChange_REASON_TX_DATA_FLOOR,
-
-	// Ignored, we track them manually, [newGasChange] ensure that we panic if we see Unknown
-	tracing.GasChangeCallOpCode: pbeth.GasChange_REASON_UNKNOWN,
-}
-
-func gasChangeReasonFromChain(reason tracing.GasChangeReason) pbeth.GasChange_Reason {
-	if r, ok := gasChangeReasonToPb[reason]; ok {
-		if r == pbeth.GasChange_REASON_UNKNOWN {
-			panic(fmt.Errorf("tracer gas change reason value '%d' mapped to %s which is not accepted", reason, r))
-		}
-
-		return r
-	}
-
-	panic(fmt.Errorf("unknown tracer gas change reason value '%d', check vm.GasChangeReason so see to which constant it refers to", reason))
 }
 
 // evmStateReader adapts tracing.VMContext.StateDB to firehose.StateReader

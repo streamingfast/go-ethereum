@@ -269,7 +269,5 @@ func TestFirehose_Withdrawals(t *testing.T) {
 		}
 	})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals", func(config *tracers.FirehoseConfig) {
-		config.TraceBlockWithdrawals = true
-	})
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals", nil)
 }

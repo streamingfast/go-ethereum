@@ -17,7 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
-	firehose "github.com/streamingfast/evm-firehose-tracer-go/v4"
+	firehose "github.com/streamingfast/evm-firehose-tracer-go/v5"
 )
 
 func init() {
@@ -59,8 +59,7 @@ func NewFirehoseFromRawJSON(cfg json.RawMessage) (*Firehose, error) {
 }
 
 type FirehoseConfig struct {
-	ConcurrentBlockFlushing int  `json:"concurrentBlockFlushing"`
-	TraceBlockWithdrawals   bool `json:"traceBlockWithdrawals"`
+	ConcurrentBlockFlushing int `json:"concurrentBlockFlushing"`
 
 	// Only used for testing, only possible through JSON configuration
 	private *privateFirehoseConfig
@@ -76,7 +75,6 @@ func (c *FirehoseConfig) LogKeyValues() []any {
 	return []any{
 		"config.applyBackwardCompatibility", "false",
 		"config.concurrentBlockFlushing", c.ConcurrentBlockFlushing,
-		"config.traceBlockWithdrawals", c.TraceBlockWithdrawals,
 	}
 }
 
@@ -125,13 +123,7 @@ func (f *Firehose) TracingHooks() *tracing.Hooks {
 func newTracingHooksFromFirehose(f *Firehose) *tracing.Hooks {
 	return &tracing.Hooks{
 		OnBlockchainInit: func(chainConfig *params.ChainConfig) {
-			f.Tracer.OnBlockchainInit("geth", version.Semantic, convertChainConfig(chainConfig), func(config *firehose.Config) {
-				if f.config.TraceBlockWithdrawals {
-					config.SkipWithdrawals = false
-				} else {
-					config.SkipWithdrawals = !isChainOneOf(chainConfig.ChainID, hoodiChainID)
-				}
-			})
+			f.Tracer.OnBlockchainInit("geth", version.Semantic, convertChainConfig(chainConfig), nil)
 
 			log.Info("Firehose tracer initialized", append([]any{
 				"chain_id", chainConfig.ChainID,
@@ -186,21 +178,14 @@ func newTracingHooksFromFirehose(f *Firehose) *tracing.Hooks {
 			f.Tracer.OnLog([20]byte(l.Address), convertHashSlice(l.Topics), l.Data, uint32(l.Index))
 		},
 
-		OnGasChange: func(old, new uint64, reason tracing.GasChangeReason) {
-			if reason == tracing.GasChangeCallOpCode || reason == tracing.GasChangeIgnored {
-				return
-			}
-
-			f.Tracer.OnGasChange(old, new, gasChangeReasonFromChain(reason))
-		},
-
 		OnSystemCallStart: f.OnSystemCallStart,
 		OnSystemCallEnd:   f.OnSystemCallEnd,
 
-		// For a reason yet to be discovered, some transactions panics when trying to
+		// In Geth it's possible that a memory access is beyond the buffer, the interpreter pads this
+		// part with zero, a mishandling of this behavior led some transactions to panic when trying to
 		// compute the keccak hash from a preimage when it comes the time to retrieve
-		// the memory location by inspecting the opcode's EVM stack arguments. The panic
-		// is an index out of bound error.
+		// the memory location by inspecting the opcode's EVM stack arguments. This was a mistake
+		// in our handling of the memory.
 		//
 		// To avoid the problem altogether, we return to our old Firehose tracer hook directly
 		// when the instructions is called within the EVM. That has the added benefit of
@@ -304,21 +289,4 @@ func validateFirehoseKnownTransactionType(txType byte, isKnownFirehoseTxType boo
 	}
 
 	return nil
-}
-
-var (
-	hoodiChainID = params.HoodiChainConfig.ChainID
-)
-
-func isChainOneOf(chainID *big.Int, expectedChainIDs ...*big.Int) bool {
-	if chainID == nil {
-		return false
-	}
-
-	for _, expected := range expectedChainIDs {
-		if chainID.Cmp(expected) == 0 {
-			return true
-		}
-	}
-	return false
 }

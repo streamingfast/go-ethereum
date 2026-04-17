@@ -129,6 +129,7 @@ type firehoseBlockLine struct {
 
 type firehoseBlockLineParams struct {
 	Number       string
+	PartialIndex string
 	Hash         string
 	PreviousNum  string
 	PreviousHash string
@@ -174,7 +175,7 @@ func readTracerFirehoseLines(t *testing.T, tracer *tracers.Firehose) (genesisLin
 			}
 
 		case "BLOCK":
-			protoBytes, err := base64.StdEncoding.DecodeString(string(fireParts[6]))
+			protoBytes, err := base64.StdEncoding.DecodeString(string(fireParts[7]))
 			require.NoError(t, err)
 
 			block := &pbeth.Block{}
@@ -183,11 +184,12 @@ func readTracerFirehoseLines(t *testing.T, tracer *tracers.Firehose) (genesisLin
 			blockLines = append(blockLines, firehoseBlockLine{
 				Params: firehoseBlockLineParams{
 					Number:       string(fireParts[0]),
-					Hash:         string(fireParts[1]),
-					PreviousNum:  string(fireParts[2]),
-					PreviousHash: string(fireParts[3]),
-					LibNum:       string(fireParts[4]),
-					Time:         string(fireParts[5]),
+					PartialIndex: string(fireParts[1]),
+					Hash:         string(fireParts[2]),
+					PreviousNum:  string(fireParts[3]),
+					PreviousHash: string(fireParts[4]),
+					LibNum:       string(fireParts[5]),
+					Time:         string(fireParts[6]),
 				},
 				Block: block,
 			})

@@ -53,7 +53,7 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 	// When adding support for a new hard-fork that adds new block header fields, it's normal that this value
 	// changes. If you are sure the two struct are the same, then you can update the expected hash below
 	// to the new value.
-	expectedHash := common.HexToHash("4ced4916132bbf6a7819a310bbac4abf354062a00efc980ea4f0bab406546ac5")
+	expectedHash := common.HexToHash("1e995a03fe468e359956abad3de7aec9f4b52acbe417e78f75a109466a473d3c")
 
 	gethHeaderValue := reflect.New(gethHeaderType)
 	fillAllFieldsWithNonEmptyValues(t, gethHeaderValue, reflect.VisibleFields(gethHeaderType))
@@ -130,31 +130,6 @@ func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
 			require.NotPanics(t, func() {
 				balanceChangeReasonFromChain(tracingReason)
 			}, "BalanceChangeReason panicked for value %v", tracingReason)
-		}
-	}
-}
-
-func TestFirehose_GasChangeAllMappedCorrectly(t *testing.T) {
-	for i := 0; i <= math.MaxUint8; i++ {
-		tracingReason := tracing.GasChangeReason(i)
-
-		// Those are ignored and never mapped
-		if tracingReason == tracing.GasChangeUnspecified || tracingReason == tracing.GasChangeCallOpCode || tracingReason == tracing.GasChangeIgnored {
-			continue
-		}
-
-		// Here, we leverage the fact that the `tracing.GasChangeReason` Stringer will render the String
-		// as `<EnumName>(<indexValue>)` if the index is not mapped to a constant in the enum. If this happens,
-		// we know it's not a defined constant in the Geth tracing package.
-		//
-		// Otherwise, it's defined and we should have some mapping for it in the `gasChangeReasonFromChain` function.
-		//
-		// There is a loophole of this technique and it's that if the code generator defining the enum Stringer is
-		// not run, we will think it's an undefined constant and will miss it.
-		if !endsWithUnknownConstant.MatchString(tracingReason.String()) {
-			require.NotPanics(t, func() {
-				gasChangeReasonFromChain(tracingReason)
-			}, "GasChangeReason panicked for value %v", tracingReason)
 		}
 	}
 }
