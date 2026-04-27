@@ -39,6 +39,8 @@ func TestFirehosePrestate(t *testing.T) {
 		"./testdata/TestFirehosePrestate/suicide_double_withdraw",
 		"./testdata/TestFirehosePrestate/extra_account_creations",
 		"./testdata/TestFirehosePrestate/keccak256_memory_out_of_bounds",
+		"./testdata/TestFirehosePrestate/storage_sstore_oog",
+		"./testdata/TestFirehosePrestate/nop_transfer",
 	}
 
 	for _, concurrent := range []int{0, 1} {

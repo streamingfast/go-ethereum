@@ -49,6 +49,8 @@ func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.Fir
 	tracer, err := tracers.NewFirehoseFromRawJSON(configJSON)
 	require.NoError(t, err)
 
+	fmt.Println("[Firehose] Test")
+
 	hooks := tracer.TracingHooks()
 
 	return tracer, hooks, func() {
