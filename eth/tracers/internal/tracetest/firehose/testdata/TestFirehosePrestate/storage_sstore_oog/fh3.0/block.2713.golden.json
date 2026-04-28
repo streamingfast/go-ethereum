@@ -1,15 +1,17 @@
 {
-  "hash": "rNkhJoVzebFExMM7/Dv25DKLOF5al/nGDdi9svl5EKw=",
+  "hash": "tmcnDkO1y6w/HWDBVA+ozTdcJy/5cwBx4w6pQ8wQcLA=",
   "header": {
     "baseFeePerGas": {
       "bytes": "DA=="
     },
+    "blobGasUsed": "0",
     "coinbase": "JZQdx3G7ZFFPyKu86XAwf7nUd+k=",
     "difficulty": {
       "bytes": "AA=="
     },
+    "excessBlobGas": "0",
     "gasLimit": "30000000",
-    "hash": "rNkhJoVzebFExMM7/Dv25DKLOF5al/nGDdi9svl5EKw=",
+    "hash": "tmcnDkO1y6w/HWDBVA+ozTdcJy/5cwBx4w6pQ8wQcLA=",
     "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
     "mixHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "number": "2713",
@@ -19,10 +21,11 @@
     "stateRoot": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "timestamp": "2025-03-17T22:01:36Z",
     "transactionsRoot": "wEswPQGinUa3NPsJlCLYMhnyBIPbMHWsstaNqsfHtHo=",
-    "uncleHash": "HcxN6N7HXXqrhbVntszUGtMSRRuUinQT8KFC/UDUk0c="
+    "uncleHash": "HcxN6N7HXXqrhbVntszUGtMSRRuUinQT8KFC/UDUk0c=",
+    "withdrawalsRoot": "VugfFxvMVab/g0XmksD4bltI4BuZbK3AAWIvteNjtCE="
   },
   "number": "2713",
-  "size": "1093",
+  "size": "1126",
   "systemCalls": [
     {
       "address": "AA899tcygH7xMZ+3uLuFItC+rAI=",

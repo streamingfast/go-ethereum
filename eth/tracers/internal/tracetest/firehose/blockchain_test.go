@@ -28,17 +28,33 @@ func runPrestateBlock(t *testing.T, prestatePath string, hooks *tracing.Hooks) {
 	tx := new(types.Transaction)
 	require.NoError(t, rlp.DecodeBytes(common.FromHex(prestate.Input), tx))
 
-	block := types.NewBlock(&types.Header{
-		ParentHash:       prestate.Genesis.ToBlock().Hash(),
-		Number:           context.BlockNumber,
-		Difficulty:       context.Difficulty,
-		Coinbase:         context.Coinbase,
-		Time:             context.Time,
-		GasLimit:         context.GasLimit,
-		BaseFee:          context.BaseFee,
-		ParentBeaconRoot: ptr(common.Hash{}),
-	}, &types.Body{
+	zero := uint64(0)
+	rules := prestate.Genesis.Config.Rules(context.BlockNumber, context.Difficulty.Sign() == 0, context.Time)
+
+	header := &types.Header{
+		ParentHash: prestate.Genesis.ToBlock().Hash(),
+		Number:     context.BlockNumber,
+		Difficulty: context.Difficulty,
+		Coinbase:   context.Coinbase,
+		Time:       context.Time,
+		GasLimit:   context.GasLimit,
+		BaseFee:    context.BaseFee,
+	}
+	// Reth rejects nil fields that real blocks carry; set them only when the fork is active.
+	if rules.IsCancun {
+		header.ParentBeaconRoot = ptr(common.Hash{})
+		header.BlobGasUsed = &zero
+		header.ExcessBlobGas = &zero
+	}
+
+	var withdrawals []*types.Withdrawal
+	if rules.IsShanghai {
+		withdrawals = []*types.Withdrawal{}
+	}
+
+	block := types.NewBlock(header, &types.Body{
 		Transactions: []*types.Transaction{tx},
+		Withdrawals:  withdrawals,
 	}, nil, trie.NewStackTrie(nil))
 
 	if hooks.OnBlockchainInit != nil {
