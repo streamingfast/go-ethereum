@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/beacon"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
@@ -60,6 +61,10 @@ func (p *prestateData) Config() *params.ChainConfig {
 
 // Engine implements core.ChainContext.
 func (p *prestateData) Engine() consensus.Engine {
+	if p.Genesis.Difficulty.Sign() == 0 {
+		return beacon.New(ethash.NewFullFaker())
+	}
+
 	return ethash.NewFullFaker()
 }
 

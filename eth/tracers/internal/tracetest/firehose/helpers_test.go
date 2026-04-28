@@ -85,6 +85,11 @@ func (lines firehoseBlockLines) assertOnlyBlockEquals(t *testing.T, goldenDir st
 
 			require.NoError(t, os.MkdirAll(filepath.Dir(goldenPath), 0755))
 			require.NoError(t, os.WriteFile(goldenPath, content, 0644))
+
+			binpbPath := strings.TrimSuffix(goldenPath, ".golden.json") + ".binpb"
+			binpbContent, err := proto.Marshal(line.Block)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(binpbPath, binpbContent, 0644))
 		}
 
 		expected, err := os.ReadFile(goldenPath)

@@ -20,19 +20,13 @@ func runPrestateBlock(t *testing.T, prestatePath string, hooks *tracing.Hooks) {
 	t.Helper()
 
 	prestate := readPrestateData(t, prestatePath)
-
-	tx := new(types.Transaction)
-	require.NoError(t, rlp.DecodeBytes(common.FromHex(prestate.Input), tx))
-
 	context := prestate.Context.toBlockContext(prestate.Genesis)
 
 	testState := tests.MakePreState(rawdb.NewMemoryDatabase(), prestate.Genesis.Alloc, false, rawdb.HashScheme)
 	defer testState.Close()
 
-	state.NewHookedState(testState.StateDB, hooks)
-
-	// testState.StateDB.SetLogger(hooks)
-	testState.StateDB.SetTxContext(tx.Hash(), 0)
+	tx := new(types.Transaction)
+	require.NoError(t, rlp.DecodeBytes(common.FromHex(prestate.Input), tx))
 
 	block := types.NewBlock(&types.Header{
 		ParentHash:       prestate.Genesis.ToBlock().Hash(),
@@ -57,25 +51,8 @@ func runPrestateBlock(t *testing.T, prestatePath string, hooks *tracing.Hooks) {
 		})
 	}
 
-	header := block.Header()
-	msg, err := core.TransactionToMessage(tx, types.MakeSigner(prestate.Genesis.Config, header.Number, header.Time), header.BaseFee)
-	require.NoError(t, err)
-
-	blockContext := core.NewEVMBlockContext(block.Header(), prestate, &context.Coinbase)
-	vmenv := vm.NewEVM(blockContext, state.NewHookedState(testState.StateDB, hooks), prestate.Genesis.Config, vm.Config{Tracer: hooks})
-
-	usedGas := uint64(0)
-	_, err = core.ApplyTransactionWithEVM(
-		msg,
-		new(core.GasPool).AddGas(block.GasLimit()),
-		testState.StateDB,
-		header.Number,
-		header.Hash(),
-		blockContext.Time,
-		tx,
-		&usedGas,
-		vmenv,
-	)
+	processor := core.NewStateProcessor(prestate)
+	_, err := processor.Process(t.Context(), block, testState.StateDB, vm.Config{Tracer: hooks})
 	require.NoError(t, err)
 
 	if hooks.OnBlockEnd != nil {
