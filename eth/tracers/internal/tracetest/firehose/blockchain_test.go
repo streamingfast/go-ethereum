@@ -77,7 +77,6 @@ func runPrestateBlock(t *testing.T, prestatePath string, hooks *tracing.Hooks) {
 		tx,
 		&usedGas,
 		vmenv,
-		nil,
 	)
 	require.NoError(t, err)
 

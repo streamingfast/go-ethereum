@@ -45,6 +45,12 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Value:   &c.cliConfig.EnablePreimageRecording,
 		Default: c.cliConfig.EnablePreimageRecording,
 	})
+	f.BoolFlag(&flagset.BoolFlag{
+		Name:    "evm-switch-dispatch",
+		Usage:   "Enable switch-based fast path EVM interpreter",
+		Value:   &c.cliConfig.EnableEVMSwitchDispatch,
+		Default: c.cliConfig.EnableEVMSwitchDispatch,
+	})
 	f.StringFlag(&flagset.StringFlag{
 		Name:    "vmtrace",
 		Usage:   "Name of tracer which should record internal VM operations (costly)",

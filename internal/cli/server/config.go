@@ -66,6 +66,9 @@ type Config struct {
 	// VMTraceJsonConfig is the JSON config for the VM tracer
 	VMTraceJsonConfig string `hcl:"vmtrace.jsonconfig,optional" toml:"vmtrace.jsonconfig,optional"`
 
+	// Use switch-based fast path EVM interpreter
+	EnableEVMSwitchDispatch bool `hcl:"evm-switch-dispatch,optional" toml:"evm-switch-dispatch,optional"`
+
 	// Enable state size tracking
 	StateSizeTracking bool `hcl:"state.size-tracking,optional" toml:"state.size-tracking,optional"`
 
@@ -812,6 +815,7 @@ func DefaultConfig() *Config {
 		RequiredBlocks:              map[string]string{},
 		Verbosity:                   3,
 		EnablePreimageRecording:     false,
+		EnableEVMSwitchDispatch:     false,
 		StateSizeTracking:           ethconfig.Defaults.EnableStateSizeTracking,
 		VMTrace:                     "",
 		VMTraceJsonConfig:           "",
@@ -1229,6 +1233,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 	}
 
 	n.EnablePreimageRecording = c.EnablePreimageRecording
+	n.EnableEVMSwitchDispatch = c.EnableEVMSwitchDispatch
 	n.EnableStateSizeTracking = c.StateSizeTracking
 	n.VMTrace = c.VMTrace
 	n.VMTraceJsonConfig = c.VMTraceJsonConfig

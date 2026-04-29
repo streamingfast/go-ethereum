@@ -84,6 +84,9 @@ const (
 	// so there are no competing miners and no uncle block concept. Any non-canonical block
 	// is immediately stale and can be discarded, hence staleThreshold is set to 0.
 	staleThreshold = 0
+
+	// interruptBuffer is the buffer time to give some buffer for state root computation
+	interruptBuffer = 100 * time.Millisecond
 )
 
 var (
@@ -1195,7 +1198,7 @@ func (w *worker) makeEnv(header *types.Header, coinbase common.Address, witness 
 		coinbase:       coinbase,
 		header:         header,
 		witness:        state.Witness(),
-		evm:            vm.NewEVM(core.NewEVMBlockContext(header, w.chain, &coinbase), state, w.chainConfig, vm.Config{}),
+		evm:            vm.NewEVM(core.NewEVMBlockContext(header, w.chain, &coinbase), state, w.chainConfig, w.vmConfig()),
 		prefetchReader: genParams.prefetchReader,
 		processReader:  genParams.processReader,
 	}
@@ -1754,13 +1757,13 @@ func (w *worker) prepareWork(genParams *generateParams, witness bool) (*environm
 	}
 	if header.ParentBeaconRoot != nil {
 		context := core.NewEVMBlockContext(header, w.chain, nil)
-		vmenv := vm.NewEVM(context, env.state, w.chainConfig, vm.Config{})
+		vmenv := vm.NewEVM(context, env.state, w.chainConfig, w.vmConfig())
 		core.ProcessBeaconBlockRoot(*header.ParentBeaconRoot, vmenv)
 	}
 	if w.chainConfig.IsPrague(header.Number) {
 		// EIP-2935
 		context := core.NewEVMBlockContext(header, w.chain, nil)
-		vmenv := vm.NewEVM(context, env.state, w.chainConfig, vm.Config{})
+		vmenv := vm.NewEVM(context, env.state, w.chainConfig, w.vmConfig())
 		core.ProcessParentBlockHash(header.ParentHash, vmenv)
 	}
 	return env, nil
@@ -1892,7 +1895,7 @@ func (w *worker) generateWork(params *generateParams, witness bool) *newPayloadR
 		}
 		// create EVM for system calls
 		blockContext := core.NewEVMBlockContext(work.header, w.chain, &work.header.Coinbase)
-		vmenv := vm.NewEVM(blockContext, work.state, w.chainConfig, vm.Config{})
+		vmenv := vm.NewEVM(blockContext, work.state, w.chainConfig, w.vmConfig())
 		// EIP-7002 withdrawals
 		core.ProcessWithdrawalQueue(&requests, vmenv)
 		// EIP-7251 consolidations
@@ -2159,7 +2162,7 @@ func (w *worker) prefetchFromPool(parent *types.Header, throwaway *state.StateDB
 		}
 
 		block := types.NewBlock(header, &types.Body{Transactions: transactions}, nil, trie.NewStackTrie(nil))
-		result := prefetcher.Prefetch(block, throwaway, vm.Config{}, true, interruptPrefetch)
+		result := prefetcher.Prefetch(block, throwaway, w.vmConfig(), true, interruptPrefetch)
 
 		// Use the actual gas used from prefetch result and mark successful transactions
 		if result != nil {
@@ -2198,9 +2201,9 @@ func (w *worker) prefetchFromPool(parent *types.Header, throwaway *state.StateDB
 func createInterruptTimer(number uint64, actualTimestamp time.Time, interruptBlockBuilding *atomic.Bool, interruptFlagSetAt *atomic.Int64) func() {
 	delay := time.Until(actualTimestamp)
 
-	// Reduce the timeout by 500ms to give some buffer for state root computation
+	// Reduce the timeout to give some buffer for state root computation
 	if delay > 1*time.Second {
-		delay -= 500 * time.Millisecond
+		delay -= interruptBuffer
 	}
 
 	interruptCtx, cancel := context.WithTimeout(context.Background(), delay)
@@ -2364,6 +2367,12 @@ func (w *worker) clearPending(number uint64) {
 		}
 	}
 	w.pendingMu.Unlock()
+}
+
+// vmConfig returns the VM config.
+func (w *worker) vmConfig() vm.Config {
+	cfg := *w.chain.GetVMConfig()
+	return cfg
 }
 
 // copyReceipts makes a deep copy of the given receipts.

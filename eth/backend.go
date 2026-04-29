@@ -287,8 +287,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			PreloadRateLimit:  config.PreloadRateLimit,
 			VmConfig: vm.Config{
 				EnablePreimageRecording: config.EnablePreimageRecording,
-				EnableWitnessStats:      config.EnableWitnessStats,
 				StatelessSelfValidation: config.StatelessSelfValidation,
+				EnableWitnessStats:      config.EnableWitnessStats,
+				EnableEVMSwitchDispatch: config.EnableEVMSwitchDispatch,
 			},
 			Stateless: config.SyncMode == downloader.StatelessSync,
 			// Enables file journaling for the trie database. The journal files will be stored
