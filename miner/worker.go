@@ -2372,6 +2372,9 @@ func (w *worker) clearPending(number uint64) {
 // vmConfig returns the VM config.
 func (w *worker) vmConfig() vm.Config {
 	cfg := *w.chain.GetVMConfig()
+	// Firehose: Disable miner tracing in hard-coded fashion
+	cfg.Tracer = nil
+
 	return cfg
 }
 
