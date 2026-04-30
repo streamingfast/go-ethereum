@@ -43,6 +43,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/blockstm"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -2966,4 +2967,22 @@ func TestDelayFlagOffByOne(t *testing.T) {
 
 	require.True(t, buggyDelayFlag(), "bug: last tx skipped, DAG hint incorrectly embedded")
 	require.False(t, fixedDelayFlag(), "fix: last tx detected, DAG hint suppressed")
+}
+
+// TestVMConfigTracerStripped verifies that vmConfig() always returns a vm.Config
+// with Tracer == nil, even when the chain's VMConfig has a non-nil tracer set
+// (e.g. during live tracing). The chain's own VMConfig must remain unchanged.
+func TestVMConfigTracerStripped(t *testing.T) {
+	engine := clique.New(cliqueChainConfig.Clique, rawdb.NewMemoryDatabase())
+	defer engine.Close()
+
+	w, b, cleanup := newTestWorker(t, DefaultTestConfig(), cliqueChainConfig, engine, rawdb.NewMemoryDatabase(), false, 0)
+	defer cleanup()
+
+	sentinel := &tracing.Hooks{}
+	b.chain.GetVMConfig().Tracer = sentinel
+
+	got := w.vmConfig()
+	require.Nil(t, got.Tracer, "vmConfig() must strip the tracer so the miner does not conflict with live tracing")
+	require.Same(t, sentinel, b.chain.GetVMConfig().Tracer, "chain VMConfig tracer must remain unchanged after vmConfig() call")
 }
