@@ -17,75 +17,56 @@
 package stateless
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
-var (
-	accountTrieDepthAvg = metrics.NewRegisteredGauge("witness/trie/account/depth/avg", nil)
-	accountTrieDepthMin = metrics.NewRegisteredGauge("witness/trie/account/depth/min", nil)
-	accountTrieDepthMax = metrics.NewRegisteredGauge("witness/trie/account/depth/max", nil)
+var accountTrieLeavesAtDepth [16]*metrics.Counter
+var storageTrieLeavesAtDepth [16]*metrics.Counter
 
-	storageTrieDepthAvg = metrics.NewRegisteredGauge("witness/trie/storage/depth/avg", nil)
-	storageTrieDepthMin = metrics.NewRegisteredGauge("witness/trie/storage/depth/min", nil)
-	storageTrieDepthMax = metrics.NewRegisteredGauge("witness/trie/storage/depth/max", nil)
-)
-
-// depthStats tracks min/avg/max statistics for trie access depths.
-type depthStats struct {
-	totalDepth int64
-	samples    int64
-	minDepth   int64
-	maxDepth   int64
-}
-
-// newDepthStats creates a new depthStats with default values.
-func newDepthStats() *depthStats {
-	return &depthStats{minDepth: -1}
-}
-
-// add records a new depth sample.
-func (d *depthStats) add(n int64) {
-	if n < 0 {
-		return
+func init() {
+	for i := 0; i < 16; i++ {
+		accountTrieLeavesAtDepth[i] = metrics.NewRegisteredCounter("witness/trie/account/leaves/depth_"+strconv.Itoa(i), nil)
+		storageTrieLeavesAtDepth[i] = metrics.NewRegisteredCounter("witness/trie/storage/leaves/depth_"+strconv.Itoa(i), nil)
 	}
-	d.totalDepth += n
-	d.samples++
-
-	if d.minDepth == -1 || n < d.minDepth {
-		d.minDepth = n
-	}
-	if n > d.maxDepth {
-		d.maxDepth = n
-	}
-}
-
-// report uploads the collected statistics into the provided gauges.
-func (d *depthStats) report(maxGauge, minGauge, avgGauge *metrics.Gauge) {
-	if d.samples == 0 {
-		return
-	}
-	maxGauge.Update(d.maxDepth)
-	minGauge.Update(d.minDepth)
-	avgGauge.Update(d.totalDepth / d.samples)
 }
 
 // WitnessStats aggregates statistics for account and storage trie accesses.
 type WitnessStats struct {
-	accountTrie *depthStats
-	storageTrie *depthStats
+	accountTrie *trie.LevelStats
+	storageTrie *trie.LevelStats
 }
 
 // NewWitnessStats creates a new WitnessStats collector.
 func NewWitnessStats() *WitnessStats {
 	return &WitnessStats{
-		accountTrie: newDepthStats(),
-		storageTrie: newDepthStats(),
+		accountTrie: trie.NewLevelStats(),
+		storageTrie: trie.NewLevelStats(),
+	}
+}
+
+func (s *WitnessStats) copy() *WitnessStats {
+	return &WitnessStats{
+		accountTrie: s.accountTrie.Copy(),
+		storageTrie: s.storageTrie.Copy(),
+	}
+}
+
+func (s *WitnessStats) init() {
+	if s.accountTrie == nil {
+		s.accountTrie = trie.NewLevelStats()
+	}
+	if s.storageTrie == nil {
+		s.storageTrie = trie.NewLevelStats()
 	}
 }
 
@@ -93,25 +74,43 @@ func NewWitnessStats() *WitnessStats {
 // If `owner` is the zero hash, accesses are attributed to the account trie;
 // otherwise, they are attributed to the storage trie of that account.
 func (s *WitnessStats) Add(nodes map[string][]byte, owner common.Hash) {
-	// Extract paths from the nodes map
+	s.init()
+
+	// Extract paths from the nodes map.
 	paths := slices.Collect(maps.Keys(nodes))
 	sort.Strings(paths)
+
+	ownerStat := s.accountTrie
+	if owner != (common.Hash{}) {
+		ownerStat = s.storageTrie
+	}
 
 	for i, path := range paths {
 		// If current path is a prefix of the next path, it's not a leaf.
 		// The last path is always a leaf.
 		if i == len(paths)-1 || !strings.HasPrefix(paths[i+1], paths[i]) {
-			if owner == (common.Hash{}) {
-				s.accountTrie.add(int64(len(path)))
-			} else {
-				s.storageTrie.add(int64(len(path)))
-			}
+			ownerStat.AddLeaf(len(path))
 		}
 	}
 }
 
 // ReportMetrics reports the collected statistics to the global metrics registry.
-func (s *WitnessStats) ReportMetrics() {
-	s.accountTrie.report(accountTrieDepthMax, accountTrieDepthMin, accountTrieDepthAvg)
-	s.storageTrie.report(storageTrieDepthMax, storageTrieDepthMin, storageTrieDepthAvg)
+func (s *WitnessStats) ReportMetrics(blockNumber uint64) {
+	s.init()
+
+	accountTrieLeaves := s.accountTrie.LeafDepths()
+	storageTrieLeaves := s.storageTrie.LeafDepths()
+
+	// Encode the metrics as JSON for easier consumption.
+	accountLeavesJSON, _ := json.Marshal(accountTrieLeaves)
+	storageLeavesJSON, _ := json.Marshal(storageTrieLeaves)
+
+	// Log account trie depth statistics.
+	log.Info("Account trie depth stats", "block", blockNumber, "leavesAtDepth", string(accountLeavesJSON))
+	log.Info("Storage trie depth stats", "block", blockNumber, "leavesAtDepth", string(storageLeavesJSON))
+
+	for i := 0; i < len(accountTrieLeavesAtDepth); i++ {
+		accountTrieLeavesAtDepth[i].Inc(accountTrieLeaves[i])
+		storageTrieLeavesAtDepth[i].Inc(storageTrieLeaves[i])
+	}
 }

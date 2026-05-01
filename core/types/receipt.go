@@ -169,10 +169,15 @@ type LegacyOptimismStoredReceiptRLP struct {
 	PostStateOrStatus []byte
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
-	L1GasUsed         *big.Int
-	L1GasPrice        *big.Int
-	L1Fee             *big.Int
-	FeeScalar         string
+
+	// Remaining fields are declared to allow the receipt RLP to be parsed without errors.
+	// However, they must not be used as they may not be populated correctly due to multiple receipt formats
+	// being combined into a single list of optional fields which can be mistaken for each other.
+	// DepositNonce (*uint64) from Regolith deposit tx receipts will be parsed into L1GasUsed
+	L1GasUsed  *big.Int `rlp:"optional"` // OVM Legacy
+	L1GasPrice *big.Int `rlp:"optional"` // OVM Legacy
+	L1Fee      *big.Int `rlp:"optional"` // OVM Legacy
+	FeeScalar  string   `rlp:"optional"` // OVM Legacy
 }
 
 // LogForStorage is a wrapper around a Log that handles
@@ -638,10 +643,32 @@ func EncodeBlockReceiptLists(receipts []Receipts) []rlp.RawValue {
 	return result
 }
 
-func u32ptrTou64ptr(a *uint32) *uint64 {
-	if a == nil {
-		return nil
+// SlimReceipt is a wrapper around a Receipt with RLP serialization that omits
+// the Bloom field and includes the tx type. Used for era files.
+type SlimReceipt Receipt
+
+type slimReceiptRLP struct {
+	Type              uint8
+	StatusEncoding    []byte
+	CumulativeGasUsed uint64
+	Logs              []*Log
+}
+
+// EncodeRLP implements rlp.Encoder, encoding the receipt as
+// [tx-type, post-state-or-status, cumulative-gas, logs].
+func (r *SlimReceipt) EncodeRLP(w io.Writer) error {
+	data := &slimReceiptRLP{r.Type, (*Receipt)(r).statusEncoding(), r.CumulativeGasUsed, r.Logs}
+	return rlp.Encode(w, data)
+}
+
+// DecodeRLP implements rlp.Decoder.
+func (r *SlimReceipt) DecodeRLP(s *rlp.Stream) error {
+	var data slimReceiptRLP
+	if err := s.Decode(&data); err != nil {
+		return err
 	}
-	b := uint64(*a)
-	return &b
+	r.Type = data.Type
+	r.CumulativeGasUsed = data.CumulativeGasUsed
+	r.Logs = data.Logs
+	return (*Receipt)(r).setStatus(data.StatusEncoding)
 }

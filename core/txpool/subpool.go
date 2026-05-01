@@ -80,8 +80,10 @@ type PendingFilter struct {
 	BlobFee     *uint256.Int // Minimum 4844 blobfee needed to include a blob transaction
 	GasLimitCap uint64       // Maximum gas can be used for a single transaction execution (0 means no limit)
 
-	OnlyPlainTxs bool // Return only plain EVM transactions (peer-join announces, block space filling)
-	OnlyBlobTxs  bool // Return only blob transactions (block blob-space filling)
+	// When BlobTxs true, return only blob transactions (block blob-space filling)
+	// when false, return only non-blob txs (peer-join announces, block space filling)
+	BlobTxs     bool
+	BlobVersion byte // Blob tx version to include. 0 means pre-Osaka, 1 means Osaka and later
 
 	// OP Stack additions
 	// Maximum l1 data size allowed for an included transaction (for throttling
@@ -104,6 +106,9 @@ type SubPool interface {
 	// Filter is a selector used to decide whether a transaction would be added
 	// to this particular subpool.
 	Filter(tx *types.Transaction) bool
+
+	// FilterType returns whether the subpool supports the given transaction type.
+	FilterType(kind byte) bool
 
 	// Init sets the base parameters of the subpool, allowing it to load any saved
 	// transactions from disk and also permitting internal maintenance routines to
@@ -158,7 +163,7 @@ type SubPool interface {
 	//
 	// The transactions can also be pre-filtered by the dynamic fee components to
 	// reduce allocations and load on downstream subsystems.
-	Pending(filter PendingFilter) map[common.Address][]*LazyTransaction
+	Pending(filter PendingFilter) (map[common.Address][]*LazyTransaction, int)
 
 	// SubscribeTransactions subscribes to new transaction events. The subscriber
 	// can decide whether to receive notifications only for newly seen transactions

@@ -19,7 +19,9 @@ package catalyst
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
@@ -42,6 +44,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
+	"github.com/ethereum/go-ethereum/internal/testrand"
 	"github.com/ethereum/go-ethereum/internal/version"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
@@ -49,6 +52,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
+	"github.com/holiman/uint256"
 )
 
 var (
@@ -114,7 +118,7 @@ func TestEth2AssembleBlock(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks)
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 	signer := types.NewEIP155Signer(ethservice.BlockChain().Config().ChainID)
 	tx, err := types.SignTx(types.NewTransaction(uint64(10), blocks[9].Coinbase(), big.NewInt(1000), params.TxGas, big.NewInt(params.InitialBaseFee), nil), signer, testKey)
 	if err != nil {
@@ -153,7 +157,7 @@ func TestEth2AssembleBlockWithAnotherBlocksTxs(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks[:9])
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// Put the 10th block's tx in the pool and produce a new block
 	txs := blocks[9].Transactions()
@@ -175,7 +179,7 @@ func TestEth2PrepareAndGetPayload(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks[:9])
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// Put the 10th block's tx in the pool and produce a new block
 	txs := blocks[9].Transactions()
@@ -188,7 +192,7 @@ func TestEth2PrepareAndGetPayload(t *testing.T) {
 		SafeBlockHash:      common.Hash{},
 		FinalizedBlockHash: common.Hash{},
 	}
-	_, err := api.ForkchoiceUpdatedV1(fcState, &blockParams)
+	_, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, &blockParams)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err)
 	}
@@ -202,7 +206,7 @@ func TestEth2PrepareAndGetPayload(t *testing.T) {
 		Version:      engine.PayloadV1,
 	}).Id()
 	require.NoError(t, waitForApiPayloadToBuild(api, payloadID))
-	execData, err := api.getPayload(payloadID, true)
+	execData, err := api.getPayload(payloadID, true, nil, nil)
 	if err != nil {
 		t.Fatalf("error getting payload, err=%v", err)
 	}
@@ -241,8 +245,9 @@ func TestInvalidPayloadTimestamp(t *testing.T) {
 	genesis, preMergeBlocks := generateMergeChain(10, false)
 	n, ethservice := startEthService(t, genesis, preMergeBlocks)
 	defer n.Close()
+
 	var (
-		api    = NewConsensusAPI(ethservice)
+		api    = newConsensusAPIWithoutHeartbeat(ethservice)
 		parent = ethservice.BlockChain().CurrentBlock()
 	)
 	tests := []struct {
@@ -268,7 +273,7 @@ func TestInvalidPayloadTimestamp(t *testing.T) {
 				SafeBlockHash:      common.Hash{},
 				FinalizedBlockHash: common.Hash{},
 			}
-			_, err := api.ForkchoiceUpdatedV1(fcState, &params)
+			_, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, &params)
 			if test.shouldErr && err == nil {
 				t.Fatalf("expected error preparing payload with invalid timestamp, err=%v", err)
 			} else if !test.shouldErr && err != nil {
@@ -284,7 +289,7 @@ func TestEth2NewBlock(t *testing.T) {
 	defer n.Close()
 
 	var (
-		api    = NewConsensusAPI(ethservice)
+		api    = newConsensusAPIWithoutHeartbeat(ethservice)
 		parent = preMergeBlocks[len(preMergeBlocks)-1]
 
 		// This EVM code generates a log when the contract is created.
@@ -312,7 +317,7 @@ func TestEth2NewBlock(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to convert executable data to block %v", err)
 		}
-		newResp, err := api.NewPayloadV1(*execData)
+		newResp, err := api.NewPayloadV1(context.Background(), *execData)
 		switch {
 		case err != nil:
 			t.Fatalf("Failed to insert block: %v", err)
@@ -327,7 +332,7 @@ func TestEth2NewBlock(t *testing.T) {
 			SafeBlockHash:      block.Hash(),
 			FinalizedBlockHash: block.Hash(),
 		}
-		if _, err := api.ForkchoiceUpdatedV1(fcState, nil); err != nil {
+		if _, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, nil); err != nil {
 			t.Fatalf("Failed to insert block: %v", err)
 		}
 		if have, want := ethservice.BlockChain().CurrentBlock().Number.Uint64(), block.NumberU64(); have != want {
@@ -354,7 +359,7 @@ func TestEth2NewBlock(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to convert executable data to block %v", err)
 		}
-		newResp, err := api.NewPayloadV1(*execData)
+		newResp, err := api.NewPayloadV1(context.Background(), *execData)
 		if err != nil || newResp.Status != "VALID" {
 			t.Fatalf("Failed to insert block: %v", err)
 		}
@@ -367,7 +372,7 @@ func TestEth2NewBlock(t *testing.T) {
 			SafeBlockHash:      block.Hash(),
 			FinalizedBlockHash: block.Hash(),
 		}
-		if _, err := api.ForkchoiceUpdatedV1(fcState, nil); err != nil {
+		if _, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, nil); err != nil {
 			t.Fatalf("Failed to insert block: %v", err)
 		}
 		if ethservice.BlockChain().CurrentBlock().Number.Uint64() != block.NumberU64() {
@@ -424,13 +429,13 @@ func TestEth2DeepReorg(t *testing.T) {
 }
 
 // startEthService creates a full node instance for testing.
-func startEthService(t *testing.T, genesis *core.Genesis, blocks []*types.Block) (*node.Node, *eth.Ethereum) {
+func startEthService(t testing.TB, genesis *core.Genesis, blocks []*types.Block) (*node.Node, *eth.Ethereum) {
 	mcfg := miner.DefaultConfig
 	ethcfg := &ethconfig.Config{Genesis: genesis, SyncMode: ethconfig.FullSync, TrieTimeout: time.Minute, TrieDirtyCache: 256, TrieCleanCache: 256, Miner: mcfg}
 	return startEthServiceWithConfigFn(t, blocks, ethcfg)
 }
 
-func startEthServiceWithConfigFn(t *testing.T, blocks []*types.Block, ethcfg *ethconfig.Config) (*node.Node, *eth.Ethereum) {
+func startEthServiceWithConfigFn(t testing.TB, blocks []*types.Block, ethcfg *ethconfig.Config) (*node.Node, *eth.Ethereum) {
 	t.Helper()
 
 	n, err := node.New(&node.Config{
@@ -467,6 +472,7 @@ func TestFullAPI(t *testing.T) {
 	genesis, preMergeBlocks := generateMergeChain(10, false)
 	n, ethservice := startEthService(t, genesis, preMergeBlocks)
 	defer n.Close()
+
 	var (
 		parent = ethservice.BlockChain().CurrentBlock()
 		// This EVM code generates a log when the contract is created.
@@ -484,7 +490,7 @@ func TestFullAPI(t *testing.T) {
 }
 
 func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.Header, callback func(parent *types.Header), withdrawals [][]*types.Withdrawal, beaconRoots []common.Hash) []*types.Header {
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 	var blocks []*types.Header
 	for i := 0; i < n; i++ {
 		callback(parent)
@@ -498,7 +504,7 @@ func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.He
 		}
 
 		envelope := getNewEnvelope(t, api, parent, w, h)
-		execResp, err := api.newPayload(*envelope.ExecutionPayload, []common.Hash{}, h, envelope.Requests, false)
+		execResp, err := api.newPayload(context.Background(), *envelope.ExecutionPayload, []common.Hash{}, h, envelope.Requests, false)
 		if err != nil {
 			t.Fatalf("can't execute payload: %v", err)
 		}
@@ -511,7 +517,7 @@ func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.He
 			SafeBlockHash:      payload.ParentHash,
 			FinalizedBlockHash: payload.ParentHash,
 		}
-		if _, err := api.ForkchoiceUpdatedV1(fcState, nil); err != nil {
+		if _, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, nil); err != nil {
 			t.Fatalf("Failed to insert block: %v", err)
 		}
 		if ethservice.BlockChain().CurrentBlock().Number.Uint64() != payload.Number {
@@ -532,7 +538,7 @@ func TestExchangeTransitionConfig(t *testing.T) {
 	defer n.Close()
 
 	// invalid ttd
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 	config := engine.TransitionConfigurationV1{
 		TerminalTotalDifficulty: (*hexutil.Big)(big.NewInt(0)),
 		TerminalBlockHash:       common.Hash{},
@@ -593,7 +599,7 @@ func TestNewPayloadOnInvalidChain(t *testing.T) {
 	defer n.Close()
 
 	var (
-		api    = NewConsensusAPI(ethservice)
+		api    = newConsensusAPIWithoutHeartbeat(ethservice)
 		parent = ethservice.BlockChain().CurrentBlock()
 		signer = types.LatestSigner(ethservice.BlockChain().Config())
 		// This EVM code generates a log when the contract is created.
@@ -625,7 +631,7 @@ func TestNewPayloadOnInvalidChain(t *testing.T) {
 			err     error
 		)
 		for i := 0; ; i++ {
-			if resp, err = api.ForkchoiceUpdatedV1(fcState, &params); err != nil {
+			if resp, err = api.ForkchoiceUpdatedV1(context.Background(), fcState, &params); err != nil {
 				t.Fatalf("error preparing payload, err=%v", err)
 			}
 			if resp.PayloadStatus.Status != engine.VALID {
@@ -633,7 +639,7 @@ func TestNewPayloadOnInvalidChain(t *testing.T) {
 			}
 			require.NoError(t, waitForApiPayloadToBuild(api, *resp.PayloadID))
 			// give the payload some time to be built
-			if payload, err = api.getPayload(*resp.PayloadID, true); err != nil {
+			if payload, err = api.getPayload(*resp.PayloadID, true, nil, nil); err != nil {
 				t.Fatalf("can't get payload: %v", err)
 			}
 			if len(payload.ExecutionPayload.Transactions) > 0 {
@@ -645,7 +651,7 @@ func TestNewPayloadOnInvalidChain(t *testing.T) {
 				t.Fatalf("payload should not be empty")
 			}
 		}
-		execResp, err := api.NewPayloadV1(*payload.ExecutionPayload)
+		execResp, err := api.NewPayloadV1(context.Background(), *payload.ExecutionPayload)
 		if err != nil {
 			t.Fatalf("can't execute payload: %v", err)
 		}
@@ -657,7 +663,7 @@ func TestNewPayloadOnInvalidChain(t *testing.T) {
 			SafeBlockHash:      payload.ExecutionPayload.ParentHash,
 			FinalizedBlockHash: payload.ExecutionPayload.ParentHash,
 		}
-		if _, err := api.ForkchoiceUpdatedV1(fcState, nil); err != nil {
+		if _, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, nil); err != nil {
 			t.Fatalf("Failed to insert block: %v", err)
 		}
 		if ethservice.BlockChain().CurrentBlock().Number.Uint64() != payload.ExecutionPayload.Number {
@@ -676,7 +682,7 @@ func assembleEnvelope(api *ConsensusAPI, parentHash common.Hash, params *engine.
 		Withdrawals:  params.Withdrawals,
 		BeaconRoot:   params.BeaconRoot,
 	}
-	payload, err := api.eth.Miner().BuildPayload(args, false)
+	payload, err := api.eth.Miner().BuildPayload(context.Background(), args, false)
 	if err != nil {
 		return nil, err
 	}
@@ -698,7 +704,7 @@ func TestEmptyBlocks(t *testing.T) {
 	defer n.Close()
 
 	commonAncestor := ethservice.BlockChain().CurrentBlock()
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// Setup 10 blocks on the canonical chain
 	setupBlocks(t, ethservice, 10, commonAncestor, func(parent *types.Header) {}, nil, nil)
@@ -706,7 +712,7 @@ func TestEmptyBlocks(t *testing.T) {
 	// (1) check LatestValidHash by sending a normal payload (P1'')
 	payload := getNewPayload(t, api, commonAncestor, nil, nil)
 
-	status, err := api.NewPayloadV1(*payload)
+	status, err := api.NewPayloadV1(context.Background(), *payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +728,7 @@ func TestEmptyBlocks(t *testing.T) {
 	payload.GasUsed += 1
 	payload = setBlockhash(payload)
 	// Now latestValidHash should be the common ancestor
-	status, err = api.NewPayloadV1(*payload)
+	status, err = api.NewPayloadV1(context.Background(), *payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,7 +746,7 @@ func TestEmptyBlocks(t *testing.T) {
 	payload.ParentHash = common.Hash{1}
 	payload = setBlockhash(payload)
 	// Now latestValidHash should be the common ancestor
-	status, err = api.NewPayloadV1(*payload)
+	status, err = api.NewPayloadV1(context.Background(), *payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,8 +830,8 @@ func TestTrickRemoteBlockCache(t *testing.T) {
 	}
 	nodeA.Server().AddPeer(nodeB.Server().Self())
 	nodeB.Server().AddPeer(nodeA.Server().Self())
-	apiA := NewConsensusAPI(ethserviceA)
-	apiB := NewConsensusAPI(ethserviceB)
+	apiA := newConsensusAPIWithoutHeartbeat(ethserviceA)
+	apiB := newConsensusAPIWithoutHeartbeat(ethserviceB)
 
 	commonAncestor := ethserviceA.BlockChain().CurrentBlock()
 
@@ -857,7 +863,7 @@ func TestTrickRemoteBlockCache(t *testing.T) {
 
 	// feed the payloads to node B
 	for _, payload := range invalidChain {
-		status, err := apiB.NewPayloadV1(*payload)
+		status, err := apiB.NewPayloadV1(context.Background(), *payload)
 		if err != nil {
 			panic(err)
 		}
@@ -865,7 +871,7 @@ func TestTrickRemoteBlockCache(t *testing.T) {
 			t.Error("invalid status: VALID on an invalid chain")
 		}
 		// Now reorg to the head of the invalid chain
-		resp, err := apiB.ForkchoiceUpdatedV1(engine.ForkchoiceStateV1{HeadBlockHash: payload.BlockHash, SafeBlockHash: payload.BlockHash, FinalizedBlockHash: payload.ParentHash}, nil)
+		resp, err := apiB.ForkchoiceUpdatedV1(context.Background(), engine.ForkchoiceStateV1{HeadBlockHash: payload.BlockHash, SafeBlockHash: payload.BlockHash, FinalizedBlockHash: payload.ParentHash}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -882,7 +888,7 @@ func TestInvalidBloom(t *testing.T) {
 	defer n.Close()
 
 	commonAncestor := ethservice.BlockChain().CurrentBlock()
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// Setup 10 blocks on the canonical chain
 	setupBlocks(t, ethservice, 10, commonAncestor, func(parent *types.Header) {}, nil, nil)
@@ -890,7 +896,7 @@ func TestInvalidBloom(t *testing.T) {
 	// (1) check LatestValidHash by sending a normal payload (P1'')
 	payload := getNewPayload(t, api, commonAncestor, nil, nil)
 	payload.LogsBloom = append(payload.LogsBloom, byte(1))
-	status, err := api.NewPayloadV1(*payload)
+	status, err := api.NewPayloadV1(context.Background(), *payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,7 +914,7 @@ func TestSimultaneousNewBlock(t *testing.T) {
 	defer n.Close()
 
 	var (
-		api    = NewConsensusAPI(ethservice)
+		api    = newConsensusAPIWithoutHeartbeat(ethservice)
 		parent = preMergeBlocks[len(preMergeBlocks)-1]
 	)
 	for i := 0; i < 10; i++ {
@@ -929,7 +935,7 @@ func TestSimultaneousNewBlock(t *testing.T) {
 			for ii := 0; ii < 10; ii++ {
 				go func() {
 					defer wg.Done()
-					if newResp, err := api.NewPayloadV1(*execData); err != nil {
+					if newResp, err := api.NewPayloadV1(context.Background(), *execData); err != nil {
 						errMu.Lock()
 						testErr = fmt.Errorf("failed to insert block: %w", err)
 						errMu.Unlock()
@@ -968,7 +974,7 @@ func TestSimultaneousNewBlock(t *testing.T) {
 			for ii := 0; ii < 10; ii++ {
 				go func() {
 					defer wg.Done()
-					if _, err := api.ForkchoiceUpdatedV1(fcState, nil); err != nil {
+					if _, err := api.ForkchoiceUpdatedV1(context.Background(), fcState, nil); err != nil {
 						errMu.Lock()
 						testErr = fmt.Errorf("failed to insert block: %w", err)
 						errMu.Unlock()
@@ -998,7 +1004,7 @@ func TestWithdrawals(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks)
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// 10: Build Shanghai block with no withdrawals.
 	parent := ethservice.BlockChain().CurrentHeader()
@@ -1009,7 +1015,7 @@ func TestWithdrawals(t *testing.T) {
 	fcState := engine.ForkchoiceStateV1{
 		HeadBlockHash: parent.Hash(),
 	}
-	resp, err := api.ForkchoiceUpdatedV2(fcState, &blockParams)
+	resp, err := api.ForkchoiceUpdatedV2(context.Background(), fcState, &blockParams)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err)
 	}
@@ -1038,7 +1044,7 @@ func TestWithdrawals(t *testing.T) {
 	}
 
 	// 10: verify locally built block
-	if status, err := api.NewPayloadV2(*execData.ExecutionPayload); err != nil {
+	if status, err := api.NewPayloadV2(context.Background(), *execData.ExecutionPayload); err != nil {
 		t.Fatalf("error validating payload: %v", err)
 	} else if status.Status != engine.VALID {
 		t.Fatalf("invalid payload")
@@ -1064,7 +1070,7 @@ func TestWithdrawals(t *testing.T) {
 	}
 	fcState.HeadBlockHash = execData.ExecutionPayload.BlockHash
 	// note: diff, need latest response to get payload ID comparison right.
-	resp, err = api.ForkchoiceUpdatedV2(fcState, &blockParams)
+	resp, err = api.ForkchoiceUpdatedV2(context.Background(), fcState, &blockParams)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err)
 	}
@@ -1085,7 +1091,7 @@ func TestWithdrawals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting payload, err=%v", err)
 	}
-	if status, err := api.NewPayloadV2(*execData.ExecutionPayload); err != nil {
+	if status, err := api.NewPayloadV2(context.Background(), *execData.ExecutionPayload); err != nil {
 		t.Fatalf("error validating payload: %v", err)
 	} else if status.Status != engine.VALID {
 		t.Fatalf("invalid payload")
@@ -1093,7 +1099,7 @@ func TestWithdrawals(t *testing.T) {
 
 	// 11: set block as head.
 	fcState.HeadBlockHash = execData.ExecutionPayload.BlockHash
-	_, err = api.ForkchoiceUpdatedV2(fcState, nil)
+	_, err = api.ForkchoiceUpdatedV2(context.Background(), fcState, nil)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err)
 	}
@@ -1120,7 +1126,7 @@ func TestNilWithdrawals(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks)
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 	parent := ethservice.BlockChain().CurrentHeader()
 	aa := common.Address{0xaa}
 
@@ -1199,10 +1205,10 @@ func TestNilWithdrawals(t *testing.T) {
 		)
 		if !shanghai {
 			payloadVersion = engine.PayloadV1
-			_, err = api.ForkchoiceUpdatedV1(fcState, &test.blockParams)
+			_, err = api.ForkchoiceUpdatedV1(context.Background(), fcState, &test.blockParams)
 		} else {
 			payloadVersion = engine.PayloadV2
-			_, err = api.ForkchoiceUpdatedV2(fcState, &test.blockParams)
+			_, err = api.ForkchoiceUpdatedV2(context.Background(), fcState, &test.blockParams)
 		}
 		if test.wantErr {
 			if err == nil {
@@ -1224,15 +1230,20 @@ func TestNilWithdrawals(t *testing.T) {
 			Withdrawals:  test.blockParams.Withdrawals,
 			Version:      payloadVersion,
 		}).Id()
-		execData, err := api.GetPayloadV2(payloadID)
+		if !shanghai {
+			if _, err := api.GetPayloadV2(payloadID); err != nil {
+				t.Fatalf("GetPayloadV2 rejected pre-shanghai payload: %v", err)
+			}
+		}
+		execData, err := api.getPayload(payloadID, false, nil, nil)
 		if err != nil {
 			t.Fatalf("error getting payload, err=%v", err)
 		}
 		var status engine.PayloadStatusV1
 		if !shanghai {
-			status, err = api.NewPayloadV1(*execData.ExecutionPayload)
+			status, err = api.NewPayloadV1(context.Background(), *execData.ExecutionPayload)
 		} else {
-			status, err = api.NewPayloadV2(*execData.ExecutionPayload)
+			status, err = api.NewPayloadV2(context.Background(), *execData.ExecutionPayload)
 		}
 		if err != nil {
 			t.Fatalf("error validating payload: %v", err.(*engine.EngineAPIError).ErrorData())
@@ -1318,7 +1329,7 @@ func allBodies(blocks []*types.Block) []*types.Body {
 
 func TestGetBlockBodiesByHash(t *testing.T) {
 	node, eth, blocks := setupBodies(t)
-	api := NewConsensusAPI(eth)
+	api := newConsensusAPIWithoutHeartbeat(eth)
 	defer node.Close()
 
 	tests := []struct {
@@ -1374,7 +1385,7 @@ func TestGetBlockBodiesByHash(t *testing.T) {
 
 func TestGetBlockBodiesByRange(t *testing.T) {
 	node, eth, blocks := setupBodies(t)
-	api := NewConsensusAPI(eth)
+	api := newConsensusAPIWithoutHeartbeat(eth)
 	defer node.Close()
 
 	tests := []struct {
@@ -1455,7 +1466,7 @@ func TestGetBlockBodiesByRange(t *testing.T) {
 
 func TestGetBlockBodiesByRangeInvalidParams(t *testing.T) {
 	node, eth, _ := setupBodies(t)
-	api := NewConsensusAPI(eth)
+	api := newConsensusAPIWithoutHeartbeat(eth)
 	defer node.Close()
 	tests := []struct {
 		start hexutil.Uint64
@@ -1567,7 +1578,7 @@ func TestParentBeaconBlockRoot(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks)
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// 11: Build Shanghai block with no withdrawals.
 	parent := ethservice.BlockChain().CurrentHeader()
@@ -1579,7 +1590,7 @@ func TestParentBeaconBlockRoot(t *testing.T) {
 	fcState := engine.ForkchoiceStateV1{
 		HeadBlockHash: parent.Hash(),
 	}
-	resp, err := api.ForkchoiceUpdatedV3(fcState, &blockParams)
+	resp, err := api.ForkchoiceUpdatedV3(context.Background(), fcState, &blockParams)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err.(*engine.EngineAPIError).ErrorData())
 	}
@@ -1605,14 +1616,14 @@ func TestParentBeaconBlockRoot(t *testing.T) {
 	}
 
 	// 11: verify locally built block
-	if status, err := api.NewPayloadV3(*execData.ExecutionPayload, []common.Hash{}, &common.Hash{42}); err != nil {
+	if status, err := api.NewPayloadV3(context.Background(), *execData.ExecutionPayload, []common.Hash{}, &common.Hash{42}); err != nil {
 		t.Fatalf("error validating payload: %v", err)
 	} else if status.Status != engine.VALID {
 		t.Fatalf("invalid payload")
 	}
 
 	fcState.HeadBlockHash = execData.ExecutionPayload.BlockHash
-	resp, err = api.ForkchoiceUpdatedV3(fcState, nil)
+	resp, err = api.ForkchoiceUpdatedV3(context.Background(), fcState, nil)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err.(*engine.EngineAPIError).ErrorData())
 	}
@@ -1662,7 +1673,7 @@ func TestWitnessCreationAndConsumption(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, blocks[:9])
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 
 	// Put the 10th block's tx in the pool and produce a new block
 	txs := blocks[9].Transactions()
@@ -1678,7 +1689,7 @@ func TestWitnessCreationAndConsumption(t *testing.T) {
 		SafeBlockHash:      common.Hash{},
 		FinalizedBlockHash: common.Hash{},
 	}
-	_, err := api.ForkchoiceUpdatedWithWitnessV3(fcState, &blockParams)
+	_, err := api.ForkchoiceUpdatedWithWitnessV3(context.Background(), fcState, &blockParams)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err)
 	}
@@ -1692,7 +1703,7 @@ func TestWitnessCreationAndConsumption(t *testing.T) {
 		Version:      engine.PayloadV3,
 	}).Id()
 	require.NoError(t, waitForApiPayloadToBuild(api, payloadID))
-	envelope, err := api.getPayload(payloadID, true)
+	envelope, err := api.getPayload(payloadID, true, nil, nil)
 	if err != nil {
 		t.Fatalf("error getting payload, err=%v", err)
 	}
@@ -1723,7 +1734,7 @@ func TestWitnessCreationAndConsumption(t *testing.T) {
 	envelope.ExecutionPayload.StateRoot = wantStateRoot
 	envelope.ExecutionPayload.ReceiptsRoot = wantReceiptRoot
 
-	res2, err := api.NewPayloadWithWitnessV3(*envelope.ExecutionPayload, []common.Hash{}, &common.Hash{42})
+	res2, err := api.NewPayloadWithWitnessV3(context.Background(), *envelope.ExecutionPayload, []common.Hash{}, &common.Hash{42})
 	if err != nil {
 		t.Fatalf("error executing stateless payload witness: %v", err)
 	}
@@ -1755,7 +1766,7 @@ func TestGetClientVersion(t *testing.T) {
 	n, ethservice := startEthService(t, genesis, preMergeBlocks)
 	defer n.Close()
 
-	api := NewConsensusAPI(ethservice)
+	api := newConsensusAPIWithoutHeartbeat(ethservice)
 	info := engine.ClientVersionV1{
 		Code:    "TT",
 		Name:    "test",
@@ -1827,5 +1838,300 @@ func TestValidateRequests(t *testing.T) {
 					tt.requests, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+var (
+	testBlobs          []*kzg4844.Blob
+	testBlobCommits    []kzg4844.Commitment
+	testBlobProofs     []kzg4844.Proof
+	testBlobCellProofs [][]kzg4844.Proof
+	testBlobVHashes    [][32]byte
+)
+
+func init() {
+	for i := 0; i < 6; i++ {
+		testBlob := &kzg4844.Blob{byte(i)}
+		testBlobs = append(testBlobs, testBlob)
+
+		testBlobCommit, _ := kzg4844.BlobToCommitment(testBlob)
+		testBlobCommits = append(testBlobCommits, testBlobCommit)
+
+		testBlobProof, _ := kzg4844.ComputeBlobProof(testBlob, testBlobCommit)
+		testBlobProofs = append(testBlobProofs, testBlobProof)
+
+		testBlobCellProof, _ := kzg4844.ComputeCellProofs(testBlob)
+		testBlobCellProofs = append(testBlobCellProofs, testBlobCellProof)
+
+		testBlobVHash := kzg4844.CalcBlobHashV1(sha256.New(), &testBlobCommit)
+		testBlobVHashes = append(testBlobVHashes, testBlobVHash)
+	}
+}
+
+// makeMultiBlobTx is a utility method to construct a random blob tx with
+// certain number of blobs in its sidecar.
+func makeMultiBlobTx(chainConfig *params.ChainConfig, nonce uint64, blobCount int, blobOffset int, key *ecdsa.PrivateKey, version byte) *types.Transaction {
+	var (
+		blobs       []kzg4844.Blob
+		blobHashes  []common.Hash
+		commitments []kzg4844.Commitment
+		proofs      []kzg4844.Proof
+	)
+	for i := 0; i < blobCount; i++ {
+		blobs = append(blobs, *testBlobs[blobOffset+i])
+		commitments = append(commitments, testBlobCommits[blobOffset+i])
+		if version == types.BlobSidecarVersion0 {
+			proofs = append(proofs, testBlobProofs[blobOffset+i])
+		} else {
+			cellProofs, _ := kzg4844.ComputeCellProofs(testBlobs[blobOffset+i])
+			proofs = append(proofs, cellProofs...)
+		}
+		blobHashes = append(blobHashes, testBlobVHashes[blobOffset+i])
+	}
+	blobtx := &types.BlobTx{
+		ChainID:    uint256.MustFromBig(chainConfig.ChainID),
+		Nonce:      nonce,
+		GasTipCap:  uint256.NewInt(1),
+		GasFeeCap:  uint256.NewInt(1000),
+		Gas:        21000,
+		BlobFeeCap: uint256.NewInt(1000),
+		BlobHashes: blobHashes,
+		Value:      uint256.NewInt(100),
+		Sidecar:    types.NewBlobTxSidecar(version, blobs, commitments, proofs),
+	}
+	return types.MustSignNewTx(key, types.LatestSigner(chainConfig), blobtx)
+}
+
+func newGetBlobEnv(t testing.TB, version byte) (*node.Node, *ConsensusAPI) {
+	var (
+		// Create a database pre-initialize with a genesis block
+		config = *params.MergedTestChainConfig
+
+		key1, _ = crypto.GenerateKey()
+		key2, _ = crypto.GenerateKey()
+		key3, _ = crypto.GenerateKey()
+
+		addr1 = crypto.PubkeyToAddress(key1.PublicKey)
+		addr2 = crypto.PubkeyToAddress(key2.PublicKey)
+		addr3 = crypto.PubkeyToAddress(key3.PublicKey)
+	)
+	// Disable Osaka fork for GetBlobsV1
+	if version == 0 {
+		config.OsakaTime = nil
+	}
+	gspec := &core.Genesis{
+		Config: &config,
+		Alloc: types.GenesisAlloc{
+			testAddr: {Balance: testBalance},
+			addr1:    {Balance: testBalance},
+			addr2:    {Balance: testBalance},
+			addr3:    {Balance: testBalance},
+		},
+		Difficulty: common.Big0,
+	}
+	n, ethServ := startEthService(t, gspec, nil)
+
+	// fill blob txs into the pool
+	tx1 := makeMultiBlobTx(&config, 0, 2, 0, key1, version) // blob[0, 2)
+	tx2 := makeMultiBlobTx(&config, 0, 2, 2, key2, version) // blob[2, 4)
+	tx3 := makeMultiBlobTx(&config, 0, 2, 4, key3, version) // blob[4, 6)
+	ethServ.TxPool().Add([]*types.Transaction{tx1, tx2, tx3}, true)
+
+	api := newConsensusAPIWithoutHeartbeat(ethServ)
+	return n, api
+}
+
+func TestGetBlobsV1(t *testing.T) {
+	n, api := newGetBlobEnv(t, 0)
+	defer n.Close()
+
+	suites := []struct {
+		start      int
+		limit      int
+		fillRandom bool
+	}{
+		{
+			start: 0, limit: 1,
+		},
+		{
+			start: 0, limit: 1, fillRandom: true,
+		},
+		{
+			start: 0, limit: 2,
+		},
+		{
+			start: 0, limit: 2, fillRandom: true,
+		},
+		{
+			start: 1, limit: 3,
+		},
+		{
+			start: 1, limit: 3, fillRandom: true,
+		},
+		{
+			start: 0, limit: 6,
+		},
+		{
+			start: 0, limit: 6, fillRandom: true,
+		},
+		{
+			start: 1, limit: 5,
+		},
+		{
+			start: 1, limit: 5, fillRandom: true,
+		},
+	}
+	for i, suite := range suites {
+		// Fill the request for retrieving blobs
+		var (
+			vhashes []common.Hash
+			expect  []*engine.BlobAndProofV1
+		)
+		// fill missing blob at the beginning
+		if suite.fillRandom {
+			vhashes = append(vhashes, testrand.Hash())
+			expect = append(expect, nil)
+		}
+		for j := suite.start; j < suite.limit; j++ {
+			vhashes = append(vhashes, testBlobVHashes[j])
+			expect = append(expect, &engine.BlobAndProofV1{
+				Blob:  testBlobs[j][:],
+				Proof: testBlobProofs[j][:],
+			})
+
+			// fill missing blobs in the middle
+			if suite.fillRandom && rand.Intn(2) == 0 {
+				vhashes = append(vhashes, testrand.Hash())
+				expect = append(expect, nil)
+			}
+		}
+		// fill missing blobs at the end
+		if suite.fillRandom {
+			vhashes = append(vhashes, testrand.Hash())
+			expect = append(expect, nil)
+		}
+		result, err := api.GetBlobsV1(vhashes)
+		if err != nil {
+			t.Errorf("Unexpected error for case %d, %v", i, err)
+		}
+		if !reflect.DeepEqual(result, expect) {
+			t.Fatalf("Unexpected result for case %d", i)
+		}
+	}
+}
+
+func TestGetBlobsV1AfterOsakaFork(t *testing.T) {
+	genesis := &core.Genesis{
+		Config:     params.MergedTestChainConfig,
+		Alloc:      types.GenesisAlloc{testAddr: {Balance: testBalance}},
+		Difficulty: common.Big0,
+		Timestamp:  1, // Timestamp > 0 to ensure Osaka fork is active
+	}
+	n, ethServ := startEthService(t, genesis, nil)
+	defer n.Close()
+
+	var engineErr *engine.EngineAPIError
+	api := newConsensusAPIWithoutHeartbeat(ethServ)
+	_, err := api.GetBlobsV1([]common.Hash{testrand.Hash()})
+	if !errors.As(err, &engineErr) {
+		t.Fatalf("Unexpected error: %T", err)
+	} else {
+		if engineErr.ErrorCode() != -38005 {
+			t.Fatalf("Expected error code -38005, got %d", engineErr.ErrorCode())
+		}
+		if engineErr.Error() != "Unsupported fork" {
+			t.Fatalf("Expected error message 'Unsupported fork', got '%s'", engineErr.Error())
+		}
+	}
+}
+
+func TestGetBlobsV2And3(t *testing.T) {
+	n, api := newGetBlobEnv(t, 1)
+	defer n.Close()
+
+	suites := []struct {
+		start      int
+		limit      int
+		fillRandom bool
+	}{
+		{
+			start: 0, limit: 1,
+		},
+		{
+			start: 0, limit: 2,
+		},
+		{
+			start: 1, limit: 3,
+		},
+		{
+			start: 0, limit: 6,
+		},
+		{
+			start: 1, limit: 5,
+		},
+		{
+			start: 0, limit: 6, fillRandom: true,
+		},
+	}
+	for i, suite := range suites {
+		runGetBlobs(t, api.GetBlobsV2, suite.start, suite.limit, suite.fillRandom, false, fmt.Sprintf("GetBlobsV2 suite=%d", i))
+		runGetBlobs(t, api.GetBlobsV3, suite.start, suite.limit, suite.fillRandom, true, fmt.Sprintf("GetBlobsV3 suite=%d %v", i, suite))
+	}
+}
+
+// Benchmark GetBlobsV2 internals
+// Note that this is not an RPC-level benchmark, so JSON-RPC overhead is not included.
+func BenchmarkGetBlobsV2(b *testing.B) {
+	n, api := newGetBlobEnv(b, 1)
+	defer n.Close()
+
+	// for blobs in [1, 2, 4, 6], print string and run benchmark
+	for _, blobs := range []int{1, 2, 4, 6} {
+		name := fmt.Sprintf("blobs=%d", blobs)
+		b.Run(name, func(b *testing.B) {
+			for b.Loop() {
+				runGetBlobs(b, api.GetBlobsV2, 0, blobs, false, false, name)
+			}
+		})
+	}
+}
+
+type getBlobsFn func(hashes []common.Hash) ([]*engine.BlobAndProofV2, error)
+
+func runGetBlobs(t testing.TB, getBlobs getBlobsFn, start, limit int, fillRandom bool, expectPartialResponse bool, name string) {
+	// Fill the request for retrieving blobs
+	var (
+		vhashes []common.Hash
+		expect  []*engine.BlobAndProofV2
+	)
+	for j := start; j < limit; j++ {
+		vhashes = append(vhashes, testBlobVHashes[j])
+		var cellProofs []hexutil.Bytes
+		for _, proof := range testBlobCellProofs[j] {
+			cellProofs = append(cellProofs, proof[:])
+		}
+		expect = append(expect, &engine.BlobAndProofV2{
+			Blob:       testBlobs[j][:],
+			CellProofs: cellProofs,
+		})
+	}
+	// fill missing blob
+	if fillRandom {
+		vhashes = append(vhashes, testrand.Hash())
+	}
+	result, err := getBlobs(vhashes)
+	if err != nil {
+		t.Errorf("Unexpected error for case %s, %v", name, err)
+	}
+	if fillRandom {
+		if expectPartialResponse {
+			expect = append(expect, nil)
+		} else {
+			// Nil is expected if getBlobs can not return a partial response
+			expect = nil
+		}
+	}
+	if !reflect.DeepEqual(result, expect) {
+		t.Fatalf("Unexpected result for case %s", name)
 	}
 }

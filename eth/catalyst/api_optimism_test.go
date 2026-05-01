@@ -162,7 +162,7 @@ func TestCheckOptimismPayload(t *testing.T) {
 				ExtraData: validExtraData,
 			},
 			cfg:      postJovian(),
-			expected: errors.New("MinBaseFee extraData should be 17 bytes, got 9"),
+			expected: errors.New("Jovian extraData should be 17 bytes, got 9"),
 		},
 	}
 
@@ -279,5 +279,5 @@ func TestForkChoiceUpdatedNilPayloadAttributes(t *testing.T) {
 	fcState := engine.ForkchoiceStateV1{
 		HeadBlockHash: common.Hash{42},
 	}
-	_, _ = api.forkchoiceUpdated(fcState, nil, engine.PayloadV3, false)
+	_, _ = api.forkchoiceUpdated(t.Context(), fcState, nil, engine.PayloadV3, false)
 }

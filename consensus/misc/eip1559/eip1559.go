@@ -45,6 +45,10 @@ func VerifyEIP1559Header(config *params.ChainConfig, parent, header *types.Heade
 	if header.BaseFee == nil {
 		return errors.New("header is missing baseFee")
 	}
+	// Verify the parent header is not malformed
+	if config.IsLondon(parent.Number) && parent.BaseFee == nil {
+		return errors.New("parent header is missing baseFee")
+	}
 	// Verify the baseFee is correct based on the parent header.
 	expectedBaseFee := CalcBaseFee(config, parent, header.Time)
 	if header.BaseFee.Cmp(expectedBaseFee) != 0 {
@@ -92,7 +96,7 @@ func CalcBaseFee(config *params.ChainConfig, parent *types.Header, time uint64) 
 func calcBaseFeeInner(config *params.ChainConfig, parent *types.Header, elasticity uint64, denominator uint64) *big.Int {
 	parentGasTarget := parent.GasLimit / elasticity
 	parentGasMetered := parent.GasUsed
-	if config.IsDAFootprintBlockLimit(parent.Time) {
+	if config.IsJovian(parent.Time) {
 		if parent.BlobGasUsed == nil {
 			panic("Jovian parent block has nil BlobGasUsed")
 		} else if *parent.BlobGasUsed > parent.GasUsed {

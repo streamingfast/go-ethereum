@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -41,6 +42,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
+	"github.com/ethereum/go-ethereum/internal/testrand"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/billy"
@@ -86,6 +88,8 @@ type testBlockChain struct {
 	statedb *state.StateDB
 
 	blocks map[uint64]*types.Block
+
+	blockTime *uint64
 }
 
 func (bc *testBlockChain) Config() *params.ChainConfig {
@@ -103,6 +107,10 @@ func (bc *testBlockChain) CurrentBlock() *types.Header {
 		blockTime   = *bc.config.CancunTime + 1
 		gasLimit    = uint64(30_000_000)
 	)
+	if bc.blockTime != nil {
+		blockTime = *bc.blockTime
+	}
+
 	lo := new(big.Int)
 	hi := new(big.Int).Mul(big.NewInt(5714), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 
@@ -262,8 +270,8 @@ func makeUnsignedTx(nonce uint64, gasTipCap uint64, gasFeeCap uint64, blobFeeCap
 	return makeUnsignedTxWithTestBlob(nonce, gasTipCap, gasFeeCap, blobFeeCap, rnd.Intn(len(testBlobs)))
 }
 
-// makeUnsignedTx is a utility method to construct a random blob transaction
-// without signing it.
+// makeUnsignedTxWithTestBlob is a utility method to construct a random blob transaction
+// with a specific test blob without signing it.
 func makeUnsignedTxWithTestBlob(nonce uint64, gasTipCap uint64, gasFeeCap uint64, blobFeeCap uint64, blobIdx int) *types.BlobTx {
 	return &types.BlobTx{
 		ChainID:    uint256.MustFromBig(params.MainnetChainConfig.ChainID),
@@ -439,22 +447,18 @@ func verifyBlobRetrievals(t *testing.T, pool *BlobPool) {
 		return
 	}
 	for i, hash := range hashes {
-		// If an item is missing, but shouldn't, error
-		if blobs1[i] == nil || proofs1[i] == nil {
-			t.Errorf("tracked blob retrieval failed: item %d, hash %x", i, hash)
-			continue
-		}
-		if blobs2[i] == nil || proofs2[i] == nil {
+		// If an item is missing from both, but shouldn't, error
+		if (blobs1[i] == nil || proofs1[i] == nil) && (blobs2[i] == nil || proofs2[i] == nil) {
 			t.Errorf("tracked blob retrieval failed: item %d, hash %x", i, hash)
 			continue
 		}
 		// Item retrieved, make sure it matches the expectation
 		index := testBlobIndices[hash]
-		if *blobs1[i] != *testBlobs[index] || proofs1[i][0] != testBlobProofs[index] {
+		if blobs1[i] != nil && (*blobs1[i] != *testBlobs[index] || proofs1[i][0] != testBlobProofs[index]) {
 			t.Errorf("retrieved blob or proof mismatch: item %d, hash %x", i, hash)
 			continue
 		}
-		if *blobs2[i] != *testBlobs[index] || !slices.Equal(proofs2[i], testBlobCellProofs[index]) {
+		if blobs2[i] != nil && (*blobs2[i] != *testBlobs[index] || !slices.Equal(proofs2[i], testBlobCellProofs[index])) {
 			t.Errorf("retrieved blob or proof mismatch: item %d, hash %x", i, hash)
 			continue
 		}
@@ -826,8 +830,8 @@ func TestOpenIndex(t *testing.T) {
 		//blobfeeJumps = []float64{34.023, 35.570, 36.879, 29.686, 26.243, 20.358} // log 1.125 (blob fee cap)
 
 		evictExecTipCaps  = []uint64{10, 10, 5, 5, 1, 1}
-		evictExecFeeJumps = []float64{39.098, 38.204, 38.204, 19.549, 19.549, 19.549} //  min(log 1.125 (exec fee cap))
-		evictBlobFeeJumps = []float64{34.023, 34.023, 34.023, 29.686, 26.243, 20.358} // min(log 1.125 (blob fee cap))
+		evictExecFeeJumps = []float64{39.098, 38.204, 38.204, 19.549, 19.549, 19.549}                   //  min(log 1.125 (exec fee cap))
+		evictBlobFeeJumps = []float64{25.517256, 25.517256, 25.517256, 22.264502, 19.682646, 15.268934} // min(log 1.17 (blob fee cap))
 
 		totalSpent = uint256.NewInt(21000*(100+90+200+10+80+300) + blobSize*(55+66+77+33+22+11) + 100*6) // 21000 gas x price + 128KB x blobprice + value
 	)
@@ -1321,7 +1325,7 @@ func TestBlobCountLimit(t *testing.T) {
 
 	// Check that first succeeds second fails.
 	if errs[0] != nil {
-		t.Fatalf("expected tx with 7 blobs to succeed")
+		t.Fatalf("expected tx with 7 blobs to succeed, got %v", errs[0])
 	}
 	if !errors.Is(errs[1], txpool.ErrTxBlobLimitExceeded) {
 		t.Fatalf("expected tx with 8 blobs to fail, got: %v", errs[1])
@@ -1348,9 +1352,10 @@ func TestAdd(t *testing.T) {
 	}
 	// addtx is a helper sender/tx tuple to represent a new tx addition
 	type addtx struct {
-		from string
-		tx   *types.BlobTx
-		err  error
+		from  string
+		tx    *types.BlobTx
+		err   error
+		check func(*BlobPool, *types.Transaction) bool
 	}
 
 	tests := []struct {
@@ -1367,6 +1372,7 @@ func TestAdd(t *testing.T) {
 				"bob":    {balance: 21100 + blobSize, nonce: 1},
 				"claire": {balance: 21100 + blobSize},
 				"dave":   {balance: 21100 + blobSize, nonce: 1},
+				"eve":    {balance: 21100 + blobSize, nonce: 10}, // High nonce to test gapped acceptance
 			},
 			adds: []addtx{
 				{ // New account, no previous txs: accept nonce 0
@@ -1393,6 +1399,14 @@ func TestAdd(t *testing.T) {
 					from: "dave",
 					tx:   makeUnsignedTx(2, 1, 1, 1),
 					err:  core.ErrNonceTooHigh,
+				},
+				{ // Old account, 10 txs in chain: 0 pending: accept nonce 11 as gapped
+					from: "eve",
+					tx:   makeUnsignedTx(11, 1, 1, 1),
+					err:  nil,
+					check: func(pool *BlobPool, tx *types.Transaction) bool {
+						return pool.Status(tx.Hash()) == txpool.TxStatusQueued
+					},
 				},
 			},
 		},
@@ -1737,8 +1751,8 @@ func TestAdd(t *testing.T) {
 		// Create a blob pool out of the pre-seeded dats
 		chain := &testBlockChain{
 			config:  params.MainnetChainConfig,
-			basefee: uint256.NewInt(1050),
-			blobfee: uint256.NewInt(105),
+			basefee: uint256.NewInt(1),
+			blobfee: uint256.NewInt(1),
 			statedb: statedb,
 		}
 		pool := New(Config{Datadir: storage}, chain, nil)
@@ -1750,19 +1764,32 @@ func TestAdd(t *testing.T) {
 		// Add each transaction one by one, verifying the pool internals in between
 		for j, add := range tt.adds {
 			signed, _ := types.SignNewTx(keys[add.from], types.LatestSigner(params.MainnetChainConfig), add.tx)
-			if err := pool.add(signed); !errors.Is(err, add.err) {
-				t.Errorf("test %d, tx %d: adding transaction error mismatch: have %v, want %v", i, j, err, add.err)
+			if errs := pool.Add([]*types.Transaction{signed}, true); !errors.Is(errs[0], add.err) {
+				t.Errorf("test %d, tx %d: adding transaction error mismatch: have %v, want %v", i, j, errs[0], add.err)
 			}
 			if add.err == nil {
-				size, exist := pool.lookup.sizeOfTx(signed.Hash())
-				if !exist {
-					t.Errorf("test %d, tx %d: failed to lookup transaction's size", i, j)
+				// first check if tx is in the pool (reorder queue or pending)
+				if !pool.Has(signed.Hash()) {
+					t.Errorf("test %d, tx %d: added transaction not found in pool", i, j)
 				}
-				if size != signed.Size() {
-					t.Errorf("test %d, tx %d: transaction's size mismatches: have %v, want %v",
-						i, j, size, signed.Size())
+				// if it is pending, check if size matches
+				if pool.Status(signed.Hash()) == txpool.TxStatusPending {
+					size, exist := pool.lookup.sizeOfTx(signed.Hash())
+					if !exist {
+						t.Errorf("test %d, tx %d: failed to lookup transaction's size", i, j)
+					}
+					if size != signed.Size() {
+						t.Errorf("test %d, tx %d: transaction's size mismatches: have %v, want %v",
+							i, j, size, signed.Size())
+					}
 				}
 			}
+			if add.check != nil {
+				if !add.check(pool, signed) {
+					t.Errorf("test %d, tx %d: custom check failed", i, j)
+				}
+			}
+			// Verify the pool internals after each addition
 			verifyPoolInternals(t, pool)
 		}
 		verifyPoolInternals(t, pool)
@@ -1796,49 +1823,6 @@ func TestAdd(t *testing.T) {
 		// Close down the test
 		pool.Close()
 	}
-}
-
-// Tests that adding the transactions with legacy sidecar and expect them to
-// be converted to new format correctly.
-func TestAddLegacyBlobTx(t *testing.T) {
-	var (
-		key1, _ = crypto.GenerateKey()
-		key2, _ = crypto.GenerateKey()
-
-		addr1 = crypto.PubkeyToAddress(key1.PublicKey)
-		addr2 = crypto.PubkeyToAddress(key2.PublicKey)
-	)
-
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
-	statedb.AddBalance(addr1, uint256.NewInt(1_000_000_000), tracing.BalanceChangeUnspecified)
-	statedb.AddBalance(addr2, uint256.NewInt(1_000_000_000), tracing.BalanceChangeUnspecified)
-	statedb.Commit(0, true, false)
-
-	chain := &testBlockChain{
-		config:  params.MergedTestChainConfig,
-		basefee: uint256.NewInt(1050),
-		blobfee: uint256.NewInt(105),
-		statedb: statedb,
-	}
-	pool := New(Config{Datadir: t.TempDir()}, chain, nil)
-	if err := pool.Init(1, chain.CurrentBlock(), newReserver()); err != nil {
-		t.Fatalf("failed to create blob pool: %v", err)
-	}
-
-	// Attempt to add legacy blob transactions.
-	var (
-		tx1 = makeMultiBlobTx(0, 1, 1000, 100, 6, 0, key1, types.BlobSidecarVersion0)
-		tx2 = makeMultiBlobTx(0, 1, 800, 70, 6, 6, key2, types.BlobSidecarVersion0)
-		tx3 = makeMultiBlobTx(1, 1, 800, 70, 6, 12, key2, types.BlobSidecarVersion1)
-	)
-	errs := pool.Add([]*types.Transaction{tx1, tx2, tx3}, true)
-	for _, err := range errs {
-		if err != nil {
-			t.Fatalf("failed to add tx: %v", err)
-		}
-	}
-	verifyPoolInternals(t, pool)
-	pool.Close()
 }
 
 func TestGetBlobs(t *testing.T) {
@@ -1923,10 +1907,10 @@ func TestGetBlobs(t *testing.T) {
 	}
 
 	cases := []struct {
-		start   int
-		limit   int
-		version byte
-		expErr  bool
+		start      int
+		limit      int
+		fillRandom bool // Whether to randomly fill some of the requested blobs with unknowns
+		version    byte // Blob sidecar version to request
 	}{
 		{
 			start: 0, limit: 6,
@@ -1937,11 +1921,27 @@ func TestGetBlobs(t *testing.T) {
 			version: types.BlobSidecarVersion1,
 		},
 		{
+			start: 0, limit: 6, fillRandom: true,
+			version: types.BlobSidecarVersion0,
+		},
+		{
+			start: 0, limit: 6, fillRandom: true,
+			version: types.BlobSidecarVersion1,
+		},
+		{
 			start: 3, limit: 9,
 			version: types.BlobSidecarVersion0,
 		},
 		{
 			start: 3, limit: 9,
+			version: types.BlobSidecarVersion1,
+		},
+		{
+			start: 3, limit: 9, fillRandom: true,
+			version: types.BlobSidecarVersion0,
+		},
+		{
+			start: 3, limit: 9, fillRandom: true,
 			version: types.BlobSidecarVersion1,
 		},
 		{
@@ -1953,6 +1953,14 @@ func TestGetBlobs(t *testing.T) {
 			version: types.BlobSidecarVersion1,
 		},
 		{
+			start: 3, limit: 15, fillRandom: true,
+			version: types.BlobSidecarVersion0,
+		},
+		{
+			start: 3, limit: 15, fillRandom: true,
+			version: types.BlobSidecarVersion1,
+		},
+		{
 			start: 0, limit: 18,
 			version: types.BlobSidecarVersion0,
 		},
@@ -1961,58 +1969,84 @@ func TestGetBlobs(t *testing.T) {
 			version: types.BlobSidecarVersion1,
 		},
 		{
-			start: 18, limit: 20,
+			start: 0, limit: 18, fillRandom: true,
 			version: types.BlobSidecarVersion0,
-			expErr:  true,
+		},
+		{
+			start: 0, limit: 18, fillRandom: true,
+			version: types.BlobSidecarVersion1,
 		},
 	}
 	for i, c := range cases {
-		var vhashes []common.Hash
+		var (
+			vhashes []common.Hash
+			filled  = make(map[int]struct{})
+		)
+		if c.fillRandom {
+			filled[len(vhashes)] = struct{}{}
+			vhashes = append(vhashes, testrand.Hash())
+		}
 		for j := c.start; j < c.limit; j++ {
 			vhashes = append(vhashes, testBlobVHashes[j])
+			if c.fillRandom && rand.Intn(2) == 0 {
+				filled[len(vhashes)] = struct{}{}
+				vhashes = append(vhashes, testrand.Hash())
+			}
+		}
+		if c.fillRandom {
+			filled[len(vhashes)] = struct{}{}
+			vhashes = append(vhashes, testrand.Hash())
 		}
 		blobs, _, proofs, err := pool.GetBlobs(vhashes, c.version)
+		if err != nil {
+			t.Errorf("Unexpected error for case %d, %v", i, err)
+		}
 
-		if c.expErr {
-			if err == nil {
-				t.Errorf("Unexpected return, want error for case %d", i)
-			}
-		} else {
-			if err != nil {
-				t.Errorf("Unexpected error for case %d, %v", i, err)
-			}
-			// Cross validate what we received vs what we wanted
-			length := c.limit - c.start
-			if len(blobs) != length || len(proofs) != length {
-				t.Errorf("retrieved blobs/proofs size mismatch: have %d/%d, want %d", len(blobs), len(proofs), length)
+		// Cross validate what we received vs what we wanted
+		length := c.limit - c.start
+		wantLen := length + len(filled)
+		if len(blobs) != wantLen || len(proofs) != wantLen {
+			t.Errorf("retrieved blobs/proofs size mismatch: have %d/%d, want %d", len(blobs), len(proofs), wantLen)
+			continue
+		}
+
+		var unknown int
+		for j := 0; j < len(blobs); j++ {
+			testBlobIndex := c.start + j - unknown
+			if _, exist := filled[j]; exist {
+				if blobs[j] != nil || proofs[j] != nil {
+					t.Errorf("Unexpected blob and proof, item %d", j)
+				}
+				unknown++
 				continue
 			}
-			for j := 0; j < len(blobs); j++ {
-				// If an item is missing, but shouldn't, error
-				if blobs[j] == nil || proofs[j] == nil {
+			// If an item is missing, but shouldn't, error
+			if blobs[j] == nil || proofs[j] == nil {
+				// This is only an error if there was no version mismatch
+				if (c.version == types.BlobSidecarVersion1 && 6 <= testBlobIndex && testBlobIndex < 12) ||
+					(c.version == types.BlobSidecarVersion0 && (testBlobIndex < 6 || 12 <= testBlobIndex)) {
 					t.Errorf("tracked blob retrieval failed: item %d, hash %x", j, vhashes[j])
-					continue
 				}
-				// Item retrieved, make sure the blob matches the expectation
-				if *blobs[j] != *testBlobs[c.start+j] {
-					t.Errorf("retrieved blob mismatch: item %d, hash %x", j, vhashes[j])
-					continue
+				continue
+			}
+			// Item retrieved, make sure the blob matches the expectation
+			if *blobs[j] != *testBlobs[testBlobIndex] {
+				t.Errorf("retrieved blob mismatch: item %d, hash %x", j, vhashes[j])
+				continue
+			}
+			// Item retrieved, make sure the proof matches the expectation
+			if c.version == types.BlobSidecarVersion0 {
+				if proofs[j][0] != testBlobProofs[testBlobIndex] {
+					t.Errorf("retrieved proof mismatch: item %d, hash %x", j, vhashes[j])
 				}
-				// Item retrieved, make sure the proof matches the expectation
-				if c.version == types.BlobSidecarVersion0 {
-					if proofs[j][0] != testBlobProofs[c.start+j] {
-						t.Errorf("retrieved proof mismatch: item %d, hash %x", j, vhashes[j])
-					}
-				} else {
-					want, _ := kzg4844.ComputeCellProofs(blobs[j])
-					if !reflect.DeepEqual(want, proofs[j]) {
-						t.Errorf("retrieved proof mismatch: item %d, hash %x", j, vhashes[j])
-					}
+			} else {
+				want, _ := kzg4844.ComputeCellProofs(blobs[j])
+				if !reflect.DeepEqual(want, proofs[j]) {
+					t.Errorf("retrieved proof mismatch: item %d, hash %x", j, vhashes[j])
 				}
 			}
 		}
 	}
-
 	pool.Close()
 }
 
@@ -2088,10 +2122,11 @@ func benchmarkPoolPending(b *testing.B, datacap uint64) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		p := pool.Pending(txpool.PendingFilter{
+		p, _ := pool.Pending(txpool.PendingFilter{
 			MinTip:  uint256.NewInt(1),
 			BaseFee: chain.basefee,
 			BlobFee: chain.blobfee,
+			BlobTxs: true,
 		})
 		if len(p) != int(capacity) {
 			b.Fatalf("have %d want %d", len(p), capacity)

@@ -31,8 +31,11 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		LogNoHistory                              bool   `toml:",omitempty"`
 		LogExportCheckpoints                      string
 		StateHistory                              uint64                 `toml:",omitempty"`
+		TrienodeHistory                           int64                  `toml:",omitempty"`
+		NodeFullValueCheckpoint                   uint32                 `toml:",omitempty"`
 		StateScheme                               string                 `toml:",omitempty"`
 		RequiredBlocks                            map[uint64]common.Hash `toml:"-"`
+		SlowBlockThreshold                        time.Duration          `toml:",omitempty"`
 		SkipBcVersionCheck                        bool                   `toml:"-"`
 		DatabaseHandles                           int                    `toml:"-"`
 		DatabaseCache                             int
@@ -44,34 +47,44 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		SnapshotCache                             int
 		Preimages                                 bool
 		FilterLogCacheSize                        int
+		LogQueryLimit                             int
 		Miner                                     miner.Config
 		TxPool                                    legacypool.Config
 		BlobPool                                  blobpool.Config
 		GPO                                       gasprice.Config
 		EnablePreimageRecording                   bool
+		EnableWitnessStats                        bool
+		StatelessSelfValidation                   bool
+		EnableStateSizeTracking                   bool
 		VMTrace                                   string
 		VMTraceJsonConfig                         string
 		RPCGasCap                                 uint64
 		RPCEVMTimeout                             time.Duration
 		RPCTxFeeCap                               float64
-		OverrideOsaka                             *uint64 `toml:",omitempty"`
-		OverrideVerkle                            *uint64 `toml:",omitempty"`
-		OverrideOptimismCanyon                    *uint64 `toml:",omitempty"`
-		OverrideOptimismEcotone                   *uint64 `toml:",omitempty"`
-		OverrideOptimismFjord                     *uint64 `toml:",omitempty"`
-		OverrideOptimismGranite                   *uint64 `toml:",omitempty"`
-		OverrideOptimismHolocene                  *uint64 `toml:",omitempty"`
-		OverrideOptimismIsthmus                   *uint64 `toml:",omitempty"`
-		OverrideOptimismJovian                    *uint64 `toml:",omitempty"`
-		OverrideOptimismInterop                   *uint64 `toml:",omitempty"`
-		ApplySuperchainUpgrades                   bool    `toml:",omitempty"`
+		OverrideOsaka                             *uint64       `toml:",omitempty"`
+		OverrideBPO1                              *uint64       `toml:",omitempty"`
+		OverrideBPO2                              *uint64       `toml:",omitempty"`
+		OverrideVerkle                            *uint64       `toml:",omitempty"`
+		TxSyncDefaultTimeout                      time.Duration `toml:",omitempty"`
+		TxSyncMaxTimeout                          time.Duration `toml:",omitempty"`
+		RangeLimit                                uint64        `toml:",omitempty"`
+		OverrideOptimismCanyon                    *uint64       `toml:",omitempty"`
+		OverrideOptimismEcotone                   *uint64       `toml:",omitempty"`
+		OverrideOptimismFjord                     *uint64       `toml:",omitempty"`
+		OverrideOptimismGranite                   *uint64       `toml:",omitempty"`
+		OverrideOptimismHolocene                  *uint64       `toml:",omitempty"`
+		OverrideOptimismIsthmus                   *uint64       `toml:",omitempty"`
+		OverrideOptimismJovian                    *uint64       `toml:",omitempty"`
+		OverrideOptimismKarst                     *uint64       `toml:",omitempty"`
+		OverrideOptimismInterop                   *uint64       `toml:",omitempty"`
+		ApplySuperchainUpgrades                   bool          `toml:",omitempty"`
 		RollupSequencerHTTP                       string
 		RollupSequencerTxConditionalEnabled       bool
 		RollupSequencerTxConditionalCostRateLimit int
 		RollupHistoricalRPC                       string
 		RollupHistoricalRPCTimeout                time.Duration
 		RollupDisableTxPoolGossip                 bool
-		RollupNetrestrictTxPoolGossip             string
+		RollupTxPoolNetrestrict                   string `toml:",omitempty"`
 		RollupTxPoolTrustedPeersOnly              bool
 		RollupDisableTxPoolAdmission              bool
 		RollupHaltOnIncompatibleProtocolVersion   string
@@ -93,8 +106,11 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.LogNoHistory = c.LogNoHistory
 	enc.LogExportCheckpoints = c.LogExportCheckpoints
 	enc.StateHistory = c.StateHistory
+	enc.TrienodeHistory = c.TrienodeHistory
+	enc.NodeFullValueCheckpoint = c.NodeFullValueCheckpoint
 	enc.StateScheme = c.StateScheme
 	enc.RequiredBlocks = c.RequiredBlocks
+	enc.SlowBlockThreshold = c.SlowBlockThreshold
 	enc.SkipBcVersionCheck = c.SkipBcVersionCheck
 	enc.DatabaseHandles = c.DatabaseHandles
 	enc.DatabaseCache = c.DatabaseCache
@@ -106,18 +122,27 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.SnapshotCache = c.SnapshotCache
 	enc.Preimages = c.Preimages
 	enc.FilterLogCacheSize = c.FilterLogCacheSize
+	enc.LogQueryLimit = c.LogQueryLimit
 	enc.Miner = c.Miner
 	enc.TxPool = c.TxPool
 	enc.BlobPool = c.BlobPool
 	enc.GPO = c.GPO
 	enc.EnablePreimageRecording = c.EnablePreimageRecording
+	enc.EnableWitnessStats = c.EnableWitnessStats
+	enc.StatelessSelfValidation = c.StatelessSelfValidation
+	enc.EnableStateSizeTracking = c.EnableStateSizeTracking
 	enc.VMTrace = c.VMTrace
 	enc.VMTraceJsonConfig = c.VMTraceJsonConfig
 	enc.RPCGasCap = c.RPCGasCap
 	enc.RPCEVMTimeout = c.RPCEVMTimeout
 	enc.RPCTxFeeCap = c.RPCTxFeeCap
 	enc.OverrideOsaka = c.OverrideOsaka
+	enc.OverrideBPO1 = c.OverrideBPO1
+	enc.OverrideBPO2 = c.OverrideBPO2
 	enc.OverrideVerkle = c.OverrideVerkle
+	enc.TxSyncDefaultTimeout = c.TxSyncDefaultTimeout
+	enc.TxSyncMaxTimeout = c.TxSyncMaxTimeout
+	enc.RangeLimit = c.RangeLimit
 	enc.OverrideOptimismCanyon = c.OverrideOptimismCanyon
 	enc.OverrideOptimismEcotone = c.OverrideOptimismEcotone
 	enc.OverrideOptimismFjord = c.OverrideOptimismFjord
@@ -125,6 +150,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.OverrideOptimismHolocene = c.OverrideOptimismHolocene
 	enc.OverrideOptimismIsthmus = c.OverrideOptimismIsthmus
 	enc.OverrideOptimismJovian = c.OverrideOptimismJovian
+	enc.OverrideOptimismKarst = c.OverrideOptimismKarst
 	enc.OverrideOptimismInterop = c.OverrideOptimismInterop
 	enc.ApplySuperchainUpgrades = c.ApplySuperchainUpgrades
 	enc.RollupSequencerHTTP = c.RollupSequencerHTTP
@@ -133,7 +159,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.RollupHistoricalRPC = c.RollupHistoricalRPC
 	enc.RollupHistoricalRPCTimeout = c.RollupHistoricalRPCTimeout
 	enc.RollupDisableTxPoolGossip = c.RollupDisableTxPoolGossip
-	enc.RollupNetrestrictTxPoolGossip = c.RollupTxPoolNetrestrict
+	enc.RollupTxPoolNetrestrict = c.RollupTxPoolNetrestrict
 	enc.RollupTxPoolTrustedPeersOnly = c.RollupTxPoolTrustedPeersOnly
 	enc.RollupDisableTxPoolAdmission = c.RollupDisableTxPoolAdmission
 	enc.RollupHaltOnIncompatibleProtocolVersion = c.RollupHaltOnIncompatibleProtocolVersion
@@ -159,8 +185,11 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		LogNoHistory                              *bool   `toml:",omitempty"`
 		LogExportCheckpoints                      *string
 		StateHistory                              *uint64                `toml:",omitempty"`
+		TrienodeHistory                           *int64                 `toml:",omitempty"`
+		NodeFullValueCheckpoint                   *uint32                `toml:",omitempty"`
 		StateScheme                               *string                `toml:",omitempty"`
 		RequiredBlocks                            map[uint64]common.Hash `toml:"-"`
+		SlowBlockThreshold                        *time.Duration         `toml:",omitempty"`
 		SkipBcVersionCheck                        *bool                  `toml:"-"`
 		DatabaseHandles                           *int                   `toml:"-"`
 		DatabaseCache                             *int
@@ -172,34 +201,44 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		SnapshotCache                             *int
 		Preimages                                 *bool
 		FilterLogCacheSize                        *int
+		LogQueryLimit                             *int
 		Miner                                     *miner.Config
 		TxPool                                    *legacypool.Config
 		BlobPool                                  *blobpool.Config
 		GPO                                       *gasprice.Config
 		EnablePreimageRecording                   *bool
+		EnableWitnessStats                        *bool
+		StatelessSelfValidation                   *bool
+		EnableStateSizeTracking                   *bool
 		VMTrace                                   *string
 		VMTraceJsonConfig                         *string
 		RPCGasCap                                 *uint64
 		RPCEVMTimeout                             *time.Duration
 		RPCTxFeeCap                               *float64
-		OverrideOsaka                             *uint64 `toml:",omitempty"`
-		OverrideVerkle                            *uint64 `toml:",omitempty"`
-		OverrideOptimismCanyon                    *uint64 `toml:",omitempty"`
-		OverrideOptimismEcotone                   *uint64 `toml:",omitempty"`
-		OverrideOptimismFjord                     *uint64 `toml:",omitempty"`
-		OverrideOptimismGranite                   *uint64 `toml:",omitempty"`
-		OverrideOptimismHolocene                  *uint64 `toml:",omitempty"`
-		OverrideOptimismIsthmus                   *uint64 `toml:",omitempty"`
-		OverrideOptimismJovian                    *uint64 `toml:",omitempty"`
-		OverrideOptimismInterop                   *uint64 `toml:",omitempty"`
-		ApplySuperchainUpgrades                   *bool   `toml:",omitempty"`
+		OverrideOsaka                             *uint64        `toml:",omitempty"`
+		OverrideBPO1                              *uint64        `toml:",omitempty"`
+		OverrideBPO2                              *uint64        `toml:",omitempty"`
+		OverrideVerkle                            *uint64        `toml:",omitempty"`
+		TxSyncDefaultTimeout                      *time.Duration `toml:",omitempty"`
+		TxSyncMaxTimeout                          *time.Duration `toml:",omitempty"`
+		RangeLimit                                *uint64        `toml:",omitempty"`
+		OverrideOptimismCanyon                    *uint64        `toml:",omitempty"`
+		OverrideOptimismEcotone                   *uint64        `toml:",omitempty"`
+		OverrideOptimismFjord                     *uint64        `toml:",omitempty"`
+		OverrideOptimismGranite                   *uint64        `toml:",omitempty"`
+		OverrideOptimismHolocene                  *uint64        `toml:",omitempty"`
+		OverrideOptimismIsthmus                   *uint64        `toml:",omitempty"`
+		OverrideOptimismJovian                    *uint64        `toml:",omitempty"`
+		OverrideOptimismKarst                     *uint64        `toml:",omitempty"`
+		OverrideOptimismInterop                   *uint64        `toml:",omitempty"`
+		ApplySuperchainUpgrades                   *bool          `toml:",omitempty"`
 		RollupSequencerHTTP                       *string
 		RollupSequencerTxConditionalEnabled       *bool
 		RollupSequencerTxConditionalCostRateLimit *int
 		RollupHistoricalRPC                       *string
 		RollupHistoricalRPCTimeout                *time.Duration
 		RollupDisableTxPoolGossip                 *bool
-		RollupNetrestrictTxPoolGossip             *string
+		RollupTxPoolNetrestrict                   *string `toml:",omitempty"`
 		RollupTxPoolTrustedPeersOnly              *bool
 		RollupDisableTxPoolAdmission              *bool
 		RollupHaltOnIncompatibleProtocolVersion   *string
@@ -252,11 +291,20 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	if dec.StateHistory != nil {
 		c.StateHistory = *dec.StateHistory
 	}
+	if dec.TrienodeHistory != nil {
+		c.TrienodeHistory = *dec.TrienodeHistory
+	}
+	if dec.NodeFullValueCheckpoint != nil {
+		c.NodeFullValueCheckpoint = *dec.NodeFullValueCheckpoint
+	}
 	if dec.StateScheme != nil {
 		c.StateScheme = *dec.StateScheme
 	}
 	if dec.RequiredBlocks != nil {
 		c.RequiredBlocks = dec.RequiredBlocks
+	}
+	if dec.SlowBlockThreshold != nil {
+		c.SlowBlockThreshold = *dec.SlowBlockThreshold
 	}
 	if dec.SkipBcVersionCheck != nil {
 		c.SkipBcVersionCheck = *dec.SkipBcVersionCheck
@@ -291,6 +339,9 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	if dec.FilterLogCacheSize != nil {
 		c.FilterLogCacheSize = *dec.FilterLogCacheSize
 	}
+	if dec.LogQueryLimit != nil {
+		c.LogQueryLimit = *dec.LogQueryLimit
+	}
 	if dec.Miner != nil {
 		c.Miner = *dec.Miner
 	}
@@ -305,6 +356,15 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.EnablePreimageRecording != nil {
 		c.EnablePreimageRecording = *dec.EnablePreimageRecording
+	}
+	if dec.EnableWitnessStats != nil {
+		c.EnableWitnessStats = *dec.EnableWitnessStats
+	}
+	if dec.StatelessSelfValidation != nil {
+		c.StatelessSelfValidation = *dec.StatelessSelfValidation
+	}
+	if dec.EnableStateSizeTracking != nil {
+		c.EnableStateSizeTracking = *dec.EnableStateSizeTracking
 	}
 	if dec.VMTrace != nil {
 		c.VMTrace = *dec.VMTrace
@@ -324,8 +384,23 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	if dec.OverrideOsaka != nil {
 		c.OverrideOsaka = dec.OverrideOsaka
 	}
+	if dec.OverrideBPO1 != nil {
+		c.OverrideBPO1 = dec.OverrideBPO1
+	}
+	if dec.OverrideBPO2 != nil {
+		c.OverrideBPO2 = dec.OverrideBPO2
+	}
 	if dec.OverrideVerkle != nil {
 		c.OverrideVerkle = dec.OverrideVerkle
+	}
+	if dec.TxSyncDefaultTimeout != nil {
+		c.TxSyncDefaultTimeout = *dec.TxSyncDefaultTimeout
+	}
+	if dec.TxSyncMaxTimeout != nil {
+		c.TxSyncMaxTimeout = *dec.TxSyncMaxTimeout
+	}
+	if dec.RangeLimit != nil {
+		c.RangeLimit = *dec.RangeLimit
 	}
 	if dec.OverrideOptimismCanyon != nil {
 		c.OverrideOptimismCanyon = dec.OverrideOptimismCanyon
@@ -347,6 +422,9 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.OverrideOptimismJovian != nil {
 		c.OverrideOptimismJovian = dec.OverrideOptimismJovian
+	}
+	if dec.OverrideOptimismKarst != nil {
+		c.OverrideOptimismKarst = dec.OverrideOptimismKarst
 	}
 	if dec.OverrideOptimismInterop != nil {
 		c.OverrideOptimismInterop = dec.OverrideOptimismInterop
@@ -372,8 +450,8 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	if dec.RollupDisableTxPoolGossip != nil {
 		c.RollupDisableTxPoolGossip = *dec.RollupDisableTxPoolGossip
 	}
-	if dec.RollupNetrestrictTxPoolGossip != nil {
-		c.RollupTxPoolNetrestrict = *dec.RollupNetrestrictTxPoolGossip
+	if dec.RollupTxPoolNetrestrict != nil {
+		c.RollupTxPoolNetrestrict = *dec.RollupTxPoolNetrestrict
 	}
 	if dec.RollupTxPoolTrustedPeersOnly != nil {
 		c.RollupTxPoolTrustedPeersOnly = *dec.RollupTxPoolTrustedPeersOnly

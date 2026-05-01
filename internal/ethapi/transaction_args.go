@@ -155,6 +155,7 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, config 
 			AccessList:           args.AccessList,
 			BlobFeeCap:           args.BlobFeeCap,
 			BlobHashes:           args.BlobHashes,
+			AuthorizationList:    args.AuthorizationList,
 		}
 		latestBlockNr := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		estimated, err := DoEstimateGas(ctx, b, callArgs, latestBlockNr, nil, nil, b.RPCGasCap())
@@ -329,8 +330,8 @@ func (args *TransactionArgs) setBlobTxSidecar(ctx context.Context, config sideca
 			commitments = make([]kzg4844.Commitment, n)
 			proofs      = make([]kzg4844.Proof, 0, proofLen)
 		)
-		for i, b := range args.Blobs {
-			c, err := kzg4844.BlobToCommitment(&b)
+		for i := range args.Blobs {
+			c, err := kzg4844.BlobToCommitment(&args.Blobs[i])
 			if err != nil {
 				return fmt.Errorf("blobs[%d]: error computing commitment: %v", i, err)
 			}
@@ -338,13 +339,13 @@ func (args *TransactionArgs) setBlobTxSidecar(ctx context.Context, config sideca
 
 			switch config.blobSidecarVersion {
 			case types.BlobSidecarVersion0:
-				p, err := kzg4844.ComputeBlobProof(&b, c)
+				p, err := kzg4844.ComputeBlobProof(&args.Blobs[i], c)
 				if err != nil {
 					return fmt.Errorf("blobs[%d]: error computing proof: %v", i, err)
 				}
 				proofs = append(proofs, p)
 			case types.BlobSidecarVersion1:
-				ps, err := kzg4844.ComputeCellProofs(&b)
+				ps, err := kzg4844.ComputeCellProofs(&args.Blobs[i])
 				if err != nil {
 					return fmt.Errorf("blobs[%d]: error computing proof: %v", i, err)
 				}
@@ -356,8 +357,8 @@ func (args *TransactionArgs) setBlobTxSidecar(ctx context.Context, config sideca
 	} else {
 		switch config.blobSidecarVersion {
 		case types.BlobSidecarVersion0:
-			for i, b := range args.Blobs {
-				if err := kzg4844.VerifyBlobProof(&b, args.Commitments[i], args.Proofs[i]); err != nil {
+			for i := range args.Blobs {
+				if err := kzg4844.VerifyBlobProof(&args.Blobs[i], args.Commitments[i], args.Proofs[i]); err != nil {
 					return fmt.Errorf("failed to verify blob proof: %v", err)
 				}
 			}
@@ -443,7 +444,7 @@ func (args *TransactionArgs) CallDefaults(globalGasCap uint64, baseFee *big.Int,
 // core evm. This method is used in calls and traces that do not require a real
 // live transaction.
 // Assumes that fields are not nil, i.e. setDefaults or CallDefaults has been called.
-func (args *TransactionArgs) ToMessage(baseFee *big.Int, skipNonceCheck, skipEoACheck bool) *core.Message {
+func (args *TransactionArgs) ToMessage(baseFee *big.Int, skipNonceCheck bool) *core.Message {
 	var (
 		gasPrice  *big.Int
 		gasFeeCap *big.Int
@@ -491,7 +492,7 @@ func (args *TransactionArgs) ToMessage(baseFee *big.Int, skipNonceCheck, skipEoA
 		BlobHashes:            args.BlobHashes,
 		SetCodeAuthorizations: args.AuthorizationList,
 		SkipNonceChecks:       skipNonceCheck,
-		SkipFromEOACheck:      skipEoACheck,
+		SkipTransactionChecks: true,
 	}
 }
 

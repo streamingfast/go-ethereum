@@ -65,7 +65,6 @@ type BlockChain interface {
 type TxPool struct {
 	subpools []SubPool // List of subpools for specialized transaction handling
 	chain    BlockChain
-	signer   types.Signer
 
 	stateLock sync.RWMutex   // The lock for protecting state instance
 	state     *state.StateDB // Current state at the blockchain head
@@ -98,7 +97,6 @@ func New(gasTip uint64, chain BlockChain, subpools []SubPool, ingressFilters []I
 	pool := &TxPool{
 		subpools: subpools,
 		chain:    chain,
-		signer:   types.LatestSigner(chain.Config()),
 		state:    statedb,
 		quit:     make(chan chan error),
 		term:     make(chan struct{}),
@@ -364,14 +362,17 @@ func (p *TxPool) Add(txs []*types.Transaction, sync bool) []error {
 //
 // The transactions can also be pre-filtered by the dynamic fee components to
 // reduce allocations and load on downstream subsystems.
-func (p *TxPool) Pending(filter PendingFilter) map[common.Address][]*LazyTransaction {
+func (p *TxPool) Pending(filter PendingFilter) (map[common.Address][]*LazyTransaction, int) {
+	var count int
 	txs := make(map[common.Address][]*LazyTransaction)
 	for _, subpool := range p.subpools {
-		for addr, set := range subpool.Pending(filter) {
-			txs[addr] = set
+		set, n := subpool.Pending(filter)
+		for addr, list := range set {
+			txs[addr] = list
 		}
+		count += n
 	}
-	return txs
+	return txs, count
 }
 
 // SubscribeTransactions registers a subscription for new transaction events,
@@ -509,4 +510,15 @@ func (p *TxPool) Clear() {
 	for _, subpool := range p.subpools {
 		subpool.Clear()
 	}
+}
+
+// FilterType returns whether a transaction with the given type is supported
+// (can be added) by the pool.
+func (p *TxPool) FilterType(kind byte) bool {
+	for _, subpool := range p.subpools {
+		if subpool.FilterType(kind) {
+			return true
+		}
+	}
+	return false
 }

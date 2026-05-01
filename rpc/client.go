@@ -32,7 +32,6 @@ import (
 )
 
 var (
-	ErrBadResult                 = errors.New("bad result in JSON-RPC response")
 	ErrClientQuit                = errors.New("client is closed")
 	ErrNoResult                  = errors.New("JSON-RPC response has no result")
 	ErrMissingBatchResponse      = errors.New("response batch did not contain a response to this call")
@@ -122,7 +121,7 @@ func (c *Client) newClientConn(conn ServerCodec) *clientConn {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, clientContextKey{}, c)
 	ctx = context.WithValue(ctx, peerInfoContextKey{}, conn.peerInfo())
-	handler := newHandler(ctx, conn, c.idgen, c.services, c.batchItemLimit, c.batchResponseMaxSize)
+	handler := newHandler(ctx, conn, c.idgen, c.services, c.batchItemLimit, c.batchResponseMaxSize, nil)
 	handler.recorder = c.recorder
 	return &clientConn{conn, handler}
 }

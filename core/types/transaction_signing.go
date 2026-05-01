@@ -20,7 +20,6 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
-	"maps"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -187,9 +186,27 @@ type Signer interface {
 // modernSigner is the signer implementation that handles non-legacy transaction types.
 // For legacy transactions, it defers to one of the legacy signers (frontier, homestead, eip155).
 type modernSigner struct {
-	txtypes map[byte]struct{}
+	txtypes txtypeSet
 	chainID *big.Int
 	legacy  Signer
+}
+
+// txtypeSet is a bitmap for transaction types.
+type txtypeSet [2]uint64
+
+func (v *txtypeSet) set(txType byte) {
+	v[txType/64] |= 1 << (txType % 64)
+}
+
+func (v *txtypeSet) unset(txType byte) {
+	v[txType/64] &^= 1 << (txType % 64)
+}
+
+func (v *txtypeSet) has(txType byte) bool {
+	if txType >= byte(len(v)*64) {
+		return false
+	}
+	return v[txType/64]&(1<<(txType%64)) != 0
 }
 
 func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
@@ -198,7 +215,6 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 	}
 	s := &modernSigner{
 		chainID: chainID,
-		txtypes: make(map[byte]struct{}, 4),
 	}
 	// configure legacy signer
 	switch {
@@ -209,19 +225,19 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 	default:
 		s.legacy = FrontierSigner{}
 	}
-	s.txtypes[LegacyTxType] = struct{}{}
+	s.txtypes.set(LegacyTxType)
 	// configure tx types
 	if fork >= forks.Berlin {
-		s.txtypes[AccessListTxType] = struct{}{}
+		s.txtypes.set(AccessListTxType)
 	}
 	if fork >= forks.London {
-		s.txtypes[DynamicFeeTxType] = struct{}{}
+		s.txtypes.set(DynamicFeeTxType)
 	}
 	if fork >= forks.Cancun {
-		s.txtypes[BlobTxType] = struct{}{}
+		s.txtypes.set(BlobTxType)
 	}
 	if fork >= forks.Prague {
-		s.txtypes[SetCodeTxType] = struct{}{}
+		s.txtypes.set(SetCodeTxType)
 	}
 	return s
 }
@@ -232,7 +248,7 @@ func (s *modernSigner) ChainID() *big.Int {
 
 func (s *modernSigner) Equal(s2 Signer) bool {
 	other, ok := s2.(*modernSigner)
-	return ok && s.chainID.Cmp(other.chainID) == 0 && maps.Equal(s.txtypes, other.txtypes) && s.legacy.Equal(other.legacy)
+	return ok && s.chainID.Cmp(other.chainID) == 0 && s.txtypes == other.txtypes && s.legacy.Equal(other.legacy)
 }
 
 func (s *modernSigner) Hash(tx *Transaction) common.Hash {
@@ -240,8 +256,7 @@ func (s *modernSigner) Hash(tx *Transaction) common.Hash {
 }
 
 func (s *modernSigner) supportsType(txtype byte) bool {
-	_, ok := s.txtypes[txtype]
-	return ok
+	return s.txtypes.has(txtype)
 }
 
 func (s *modernSigner) Sender(tx *Transaction) (common.Address, error) {
@@ -286,7 +301,10 @@ func (s *modernSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *bi
 	if tx.inner.chainID().Sign() != 0 && tx.inner.chainID().Cmp(s.chainID) != 0 {
 		return nil, nil, nil, fmt.Errorf("%w: have %d want %d", ErrInvalidChainId, tx.inner.chainID(), s.chainID)
 	}
-	R, S, _ = decodeSignature(sig)
+	R, S, _, err = decodeSignature(sig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	V = big.NewInt(int64(sig[64]))
 	return R, S, V, nil
 }
@@ -301,8 +319,7 @@ func (s *modernSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *bi
 // OP-Stack addition
 func NewIsthmusSigner(chainId *big.Int) Signer {
 	s := newModernSigner(chainId, forks.Prague).(*modernSigner)
-	// OP-Stack: remove blob tx support
-	delete(s.txtypes, BlobTxType)
+	s.txtypes.unset(BlobTxType)
 	return s
 }
 
@@ -346,7 +363,7 @@ func NewEIP2930Signer(chainId *big.Int) Signer {
 // are replay-protected as well as unprotected homestead transactions.
 // Deprecated: always use the Signer interface type
 type EIP155Signer struct {
-	chainId, chainIdMul *big.Int
+	chainId *big.Int
 }
 
 func NewEIP155Signer(chainId *big.Int) EIP155Signer {
@@ -354,8 +371,7 @@ func NewEIP155Signer(chainId *big.Int) EIP155Signer {
 		chainId = new(big.Int)
 	}
 	return EIP155Signer{
-		chainId:    chainId,
-		chainIdMul: new(big.Int).Mul(chainId, big.NewInt(2)),
+		chainId: chainId,
 	}
 }
 
@@ -381,7 +397,8 @@ func (s EIP155Signer) Sender(tx *Transaction) (common.Address, error) {
 		return common.Address{}, fmt.Errorf("%w: have %d want %d", ErrInvalidChainId, tx.ChainId(), s.chainId)
 	}
 	V, R, S := tx.RawSignatureValues()
-	V = new(big.Int).Sub(V, s.chainIdMul)
+	V = new(big.Int).Sub(V, s.chainId)
+	V = new(big.Int).Sub(V, s.chainId)
 	V.Sub(V, big8)
 	return recoverPlain(s.Hash(tx), R, S, V, true)
 }
@@ -392,10 +409,14 @@ func (s EIP155Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big
 	if tx.Type() != LegacyTxType {
 		return nil, nil, nil, ErrTxTypeNotSupported
 	}
-	R, S, V = decodeSignature(sig)
+	R, S, V, err = decodeSignature(sig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	if s.chainId.Sign() != 0 {
 		V = big.NewInt(int64(sig[64] + 35))
-		V.Add(V, s.chainIdMul)
+		V.Add(V, s.chainId)
+		V.Add(V, s.chainId)
 	}
 	return R, S, V, nil
 }
@@ -461,8 +482,8 @@ func (fs FrontierSigner) SignatureValues(tx *Transaction, sig []byte) (r, s, v *
 	if tx.Type() != LegacyTxType {
 		return nil, nil, nil, ErrTxTypeNotSupported
 	}
-	r, s, v = decodeSignature(sig)
-	return r, s, v, nil
+	r, s, v, err = decodeSignature(sig)
+	return r, s, v, err
 }
 
 // Hash returns the hash to be signed by the sender.
@@ -478,14 +499,14 @@ func (fs FrontierSigner) Hash(tx *Transaction) common.Hash {
 	})
 }
 
-func decodeSignature(sig []byte) (r, s, v *big.Int) {
+func decodeSignature(sig []byte) (r, s, v *big.Int, err error) {
 	if len(sig) != crypto.SignatureLength {
-		panic(fmt.Sprintf("wrong size for signature: got %d, want %d", len(sig), crypto.SignatureLength))
+		return nil, nil, nil, fmt.Errorf("wrong size for signature: got %d, want %d", len(sig), crypto.SignatureLength)
 	}
 	r = new(big.Int).SetBytes(sig[:32])
 	s = new(big.Int).SetBytes(sig[32:64])
 	v = new(big.Int).SetBytes([]byte{sig[64] + 27})
-	return r, s, v
+	return r, s, v, nil
 }
 
 func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (common.Address, error) {

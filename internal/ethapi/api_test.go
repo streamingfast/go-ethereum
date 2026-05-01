@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -298,6 +297,7 @@ func allTransactionTypes(addr common.Address, config *params.ChainConfig) []txDa
 			Want: `{
 				"blockHash": null,
 				"blockNumber": null,
+				"blockTimestamp": null,
 				"from": "0x71562b71999873db5b286df957af199ec94617f7",
 				"gas": "0x7",
 				"gasPrice": "0x6",
@@ -328,6 +328,7 @@ func allTransactionTypes(addr common.Address, config *params.ChainConfig) []txDa
 			Want: `{
 				"blockHash": null,
 				"blockNumber": null,
+				"blockTimestamp": null,
 				"from": "0x71562b71999873db5b286df957af199ec94617f7",
 				"gas": "0x7",
 				"gasPrice": "0x6",
@@ -366,6 +367,7 @@ func allTransactionTypes(addr common.Address, config *params.ChainConfig) []txDa
 			Want: `{
 				"blockHash": null,
 				"blockNumber": null,
+				"blockTimestamp": null,
 				"from": "0x71562b71999873db5b286df957af199ec94617f7",
 				"gas": "0x7",
 				"gasPrice": "0x6",
@@ -412,6 +414,7 @@ func allTransactionTypes(addr common.Address, config *params.ChainConfig) []txDa
 			Want: `{
 				"blockHash": null,
 				"blockNumber": null,
+				"blockTimestamp": null,
 				"from": "0x71562b71999873db5b286df957af199ec94617f7",
 				"gas": "0x7",
 				"gasPrice": "0x6",
@@ -459,6 +462,7 @@ func allTransactionTypes(addr common.Address, config *params.ChainConfig) []txDa
 			Want: `{
 				"blockHash": null,
 				"blockNumber": null,
+				"blockTimestamp": null,
 				"from": "0x71562b71999873db5b286df957af199ec94617f7",
 				"gas": "0x7",
 				"gasPrice": "0x9",
@@ -503,6 +507,7 @@ func allTransactionTypes(addr common.Address, config *params.ChainConfig) []txDa
 			Want: `{
 				"blockHash": null,
 				"blockNumber": null,
+				"blockTimestamp": null,
 				"from": "0x71562b71999873db5b286df957af199ec94617f7",
 				"gas": "0x7",
 				"gasPrice": "0x9",
@@ -545,6 +550,7 @@ func allBlobTxs(addr common.Address, config *params.ChainConfig) []txData {
 			Want: `{
                 "blockHash": null,
                 "blockNumber": null,
+				"blockTimestamp": null,
                 "from": "0x71562b71999873db5b286df957af199ec94617f7",
                 "gas": "0x6",
                 "gasPrice": "0x5",
@@ -598,6 +604,19 @@ type testBackend struct {
 
 	pending         *types.Block
 	pendingReceipts types.Receipts
+
+	chainFeed *event.Feed
+	autoMine  bool
+
+	sentTx     *types.Transaction
+	sentTxHash common.Hash
+
+	syncDefaultTimeout time.Duration
+	syncMaxTimeout     time.Duration
+}
+
+func fakeBlockHash(txh common.Hash) common.Hash {
+	return crypto.Keccak256Hash([]byte("testblock"), txh.Bytes())
 }
 
 func newTestBackend(t *testing.T, n int, gspec *core.Genesis, engine consensus.Engine, generator func(i int, b *core.BlockGen)) *testBackend {
@@ -624,6 +643,7 @@ func newTestBackend(t *testing.T, n int, gspec *core.Genesis, engine consensus.E
 		acc:             acc,
 		pending:         blocks[n],
 		pendingReceipts: receipts[n],
+		chainFeed:       new(event.Feed),
 	}
 	return backend
 }
@@ -745,19 +765,64 @@ func (b testBackend) GetEVM(ctx context.Context, state *state.StateDB, header *t
 	return vm.NewEVM(context, state, b.chain.Config(), *vmConfig)
 }
 func (b testBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
-	panic("implement me")
+	return b.chainFeed.Subscribe(ch)
 }
 func (b testBackend) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription {
 	panic("implement me")
 }
-func (b testBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
-	panic("implement me")
+func (b *testBackend) SendTx(ctx context.Context, tx *types.Transaction) error {
+	b.sentTx = tx
+	b.sentTxHash = tx.Hash()
+
+	if b.autoMine {
+		// Synthesize a "mined" receipt at head+1
+		num := b.chain.CurrentHeader().Number.Uint64() + 1
+		receipt := &types.Receipt{
+			TxHash:            tx.Hash(),
+			Status:            types.ReceiptStatusSuccessful,
+			BlockHash:         fakeBlockHash(tx.Hash()),
+			BlockNumber:       new(big.Int).SetUint64(num),
+			TransactionIndex:  0,
+			CumulativeGasUsed: 21000,
+			GasUsed:           21000,
+		}
+		// Broadcast a ChainEvent that includes the receipts and txs
+		b.chainFeed.Send(core.ChainEvent{
+			Header: &types.Header{
+				Number: new(big.Int).SetUint64(num),
+			},
+			Receipts:     types.Receipts{receipt},
+			Transactions: types.Transactions{tx},
+		})
+	}
+	return nil
 }
-func (b testBackend) GetCanonicalTransaction(txHash common.Hash) (bool, *types.Transaction, common.Hash, uint64, uint64) {
+func (b *testBackend) GetCanonicalTransaction(txHash common.Hash) (bool, *types.Transaction, common.Hash, uint64, uint64) {
+	// Treat the auto-mined tx as canonically placed at head+1.
+	if b.autoMine && txHash == b.sentTxHash {
+		num := b.chain.CurrentHeader().Number.Uint64() + 1
+		return true, b.sentTx, fakeBlockHash(txHash), num, 0
+	}
 	tx, blockHash, blockNumber, index := rawdb.ReadCanonicalTransaction(b.db, txHash)
 	return tx != nil, tx, blockHash, blockNumber, index
 }
-func (b testBackend) GetCanonicalReceipt(tx *types.Transaction, blockHash common.Hash, blockNumber, blockIndex uint64) (*types.Receipt, error) {
+func (b *testBackend) GetCanonicalReceipt(tx *types.Transaction, blockHash common.Hash, blockNumber, blockIndex uint64) (*types.Receipt, error) {
+	if b.autoMine && tx != nil && tx.Hash() == b.sentTxHash &&
+		blockHash == fakeBlockHash(tx.Hash()) &&
+		blockIndex == 0 &&
+		blockNumber == b.chain.CurrentHeader().Number.Uint64()+1 {
+		return &types.Receipt{
+			Type:              tx.Type(),
+			Status:            types.ReceiptStatusSuccessful,
+			CumulativeGasUsed: 21000,
+			GasUsed:           21000,
+			EffectiveGasPrice: big.NewInt(1),
+			BlockHash:         blockHash,
+			BlockNumber:       new(big.Int).SetUint64(blockNumber),
+			TransactionIndex:  0,
+			TxHash:            tx.Hash(),
+		}, nil
+	}
 	return b.chain.GetCanonicalReceipt(tx, blockHash, blockNumber, blockIndex)
 }
 func (b testBackend) TxIndexDone() bool {
@@ -1493,10 +1558,11 @@ func TestSimulateV1(t *testing.T) {
 		validation       = true
 	)
 	type log struct {
-		Address     common.Address `json:"address"`
-		Topics      []common.Hash  `json:"topics"`
-		Data        hexutil.Bytes  `json:"data"`
-		BlockNumber hexutil.Uint64 `json:"blockNumber"`
+		Address        common.Address `json:"address"`
+		Topics         []common.Hash  `json:"topics"`
+		Data           hexutil.Bytes  `json:"data"`
+		BlockNumber    hexutil.Uint64 `json:"blockNumber"`
+		BlockTimestamp hexutil.Uint64 `json:"blockTimestamp"`
 		// Skip txHash
 		//TxHash common.Hash `json:"transactionHash" gencodec:"required"`
 		TxIndex hexutil.Uint `json:"transactionIndex"`
@@ -1843,10 +1909,11 @@ func TestSimulateV1(t *testing.T) {
 				Calls: []callRes{{
 					ReturnValue: "0x",
 					Logs: []log{{
-						Address:     randomAccounts[2].addr,
-						Topics:      []common.Hash{common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")},
-						BlockNumber: hexutil.Uint64(11),
-						Data:        hexutil.Bytes{},
+						Address:        randomAccounts[2].addr,
+						Topics:         []common.Hash{common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")},
+						BlockNumber:    hexutil.Uint64(11),
+						BlockTimestamp: hexutil.Uint64(0x70),
+						Data:           hexutil.Bytes{},
 					}},
 					GasUsed: "0x5508",
 					Status:  "0x1",
@@ -2019,8 +2086,9 @@ func TestSimulateV1(t *testing.T) {
 							addressToHash(accounts[0].addr),
 							addressToHash(randomAccounts[0].addr),
 						},
-						Data:        hexutil.Bytes(common.BigToHash(big.NewInt(50)).Bytes()),
-						BlockNumber: hexutil.Uint64(11),
+						Data:           hexutil.Bytes(common.BigToHash(big.NewInt(50)).Bytes()),
+						BlockNumber:    hexutil.Uint64(11),
+						BlockTimestamp: hexutil.Uint64(0x70),
 					}, {
 						Address: transferAddress,
 						Topics: []common.Hash{
@@ -2028,9 +2096,10 @@ func TestSimulateV1(t *testing.T) {
 							addressToHash(randomAccounts[0].addr),
 							addressToHash(fixedAccount.addr),
 						},
-						Data:        hexutil.Bytes(common.BigToHash(big.NewInt(100)).Bytes()),
-						BlockNumber: hexutil.Uint64(11),
-						Index:       hexutil.Uint(1),
+						Data:           hexutil.Bytes(common.BigToHash(big.NewInt(100)).Bytes()),
+						BlockNumber:    hexutil.Uint64(11),
+						BlockTimestamp: hexutil.Uint64(0x70),
+						Index:          hexutil.Uint(1),
 					}},
 					Status: "0x1",
 				}},
@@ -2603,7 +2672,7 @@ func TestSimulateV1ChainLinkage(t *testing.T) {
 		state:          stateDB,
 		base:           baseHeader,
 		chainConfig:    backend.ChainConfig(),
-		gp:             new(core.GasPool).AddGas(math.MaxUint64),
+		budget:         newGasBudget(0),
 		traceTransfers: false,
 		validate:       false,
 		fullTx:         false,
@@ -2688,7 +2757,7 @@ func TestSimulateV1TxSender(t *testing.T) {
 		state:          stateDB,
 		base:           baseHeader,
 		chainConfig:    backend.ChainConfig(),
-		gp:             new(core.GasPool).AddGas(math.MaxUint64),
+		budget:         newGasBudget(0),
 		traceTransfers: false,
 		validate:       false,
 		fullTx:         true,
@@ -3244,6 +3313,7 @@ func TestRPCMarshalBlock(t *testing.T) {
 					{
 						"blockHash": "0x9b73c83b25d0faf7eab854e3684c7e394336d6e135625aafa5c183f27baa8fee",
 						"blockNumber": "0x64",
+						"blockTimestamp": "0x0",
 						"from": "0x0000000000000000000000000000000000000000",
 						"gas": "0x457",
 						"gasPrice": "0x2b67",
@@ -3264,6 +3334,7 @@ func TestRPCMarshalBlock(t *testing.T) {
 					{
 						"blockHash": "0x9b73c83b25d0faf7eab854e3684c7e394336d6e135625aafa5c183f27baa8fee",
 						"blockNumber": "0x64",
+						"blockTimestamp": "0x0",
 						"from": "0x0000000000000000000000000000000000000000",
 						"gas": "0x457",
 						"gasPrice": "0x2b67",
@@ -3282,6 +3353,7 @@ func TestRPCMarshalBlock(t *testing.T) {
 					{
 						"blockHash": "0x9b73c83b25d0faf7eab854e3684c7e394336d6e135625aafa5c183f27baa8fee",
 						"blockNumber": "0x64",
+						"blockTimestamp": "0x0",
 						"from": "0x0000000000000000000000000000000000000000",
 						"gas": "0x457",
 						"gasPrice": "0x2b67",
@@ -3302,6 +3374,7 @@ func TestRPCMarshalBlock(t *testing.T) {
 					{
 						"blockHash": "0x9b73c83b25d0faf7eab854e3684c7e394336d6e135625aafa5c183f27baa8fee",
 						"blockNumber": "0x64",
+						"blockTimestamp": "0x0",
 						"from": "0x0000000000000000000000000000000000000000",
 						"gas": "0x457",
 						"gasPrice": "0x2b67",
@@ -3919,8 +3992,8 @@ func TestCreateAccessListWithStateOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create access list: %v", err)
 	}
-	if err != nil || result == nil {
-		t.Fatalf("Failed to create access list: %v", err)
+	if result == nil {
+		t.Fatalf("Failed to create access list: result is nil")
 	}
 	require.NotNil(t, result.Accesslist)
 
@@ -4057,4 +4130,198 @@ func (b configTimeBackend) HeaderByNumber(_ context.Context, n rpc.BlockNumber) 
 
 func (b configTimeBackend) CurrentHeader() *types.Header {
 	return &types.Header{Time: b.time}
+}
+
+func (b *testBackend) RPCTxSyncDefaultTimeout() time.Duration {
+	if b.syncDefaultTimeout != 0 {
+		return b.syncDefaultTimeout
+	}
+	return 2 * time.Second
+}
+func (b *testBackend) RPCTxSyncMaxTimeout() time.Duration {
+	if b.syncMaxTimeout != 0 {
+		return b.syncMaxTimeout
+	}
+	return 5 * time.Minute
+}
+func (b *backendMock) RPCTxSyncDefaultTimeout() time.Duration { return 2 * time.Second }
+func (b *backendMock) RPCTxSyncMaxTimeout() time.Duration     { return 5 * time.Minute }
+
+func makeSignedRaw(t *testing.T, api *TransactionAPI, from, to common.Address, value *big.Int) (hexutil.Bytes, *types.Transaction) {
+	t.Helper()
+
+	fillRes, err := api.FillTransaction(context.Background(), TransactionArgs{
+		From:  &from,
+		To:    &to,
+		Value: (*hexutil.Big)(value),
+	})
+	if err != nil {
+		t.Fatalf("FillTransaction failed: %v", err)
+	}
+	signRes, err := api.SignTransaction(context.Background(), argsFromTransaction(fillRes.Tx, from))
+	if err != nil {
+		t.Fatalf("SignTransaction failed: %v", err)
+	}
+	return signRes.Raw, signRes.Tx
+}
+
+// makeSelfSignedRaw is a convenience for a 0-ETH self-transfer.
+func makeSelfSignedRaw(t *testing.T, api *TransactionAPI, addr common.Address) (hexutil.Bytes, *types.Transaction) {
+	return makeSignedRaw(t, api, addr, addr, big.NewInt(0))
+}
+
+func TestSendRawTransactionSync_Success(t *testing.T) {
+	t.Parallel()
+	genesis := &core.Genesis{
+		Config: params.TestChainConfig,
+		Alloc:  types.GenesisAlloc{},
+	}
+	b := newTestBackend(t, 0, genesis, ethash.NewFaker(), nil)
+	b.autoMine = true // immediately “mines” the tx in-memory
+
+	api := NewTransactionAPI(b, new(AddrLocker))
+
+	raw, _ := makeSelfSignedRaw(t, api, b.acc.Address)
+
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receipt == nil {
+		t.Fatalf("expected non-nil receipt")
+	}
+	if _, ok := receipt["blockNumber"]; !ok {
+		t.Fatalf("expected blockNumber in receipt, got %#v", receipt)
+	}
+}
+
+func TestSendRawTransactionSync_Timeout(t *testing.T) {
+	t.Parallel()
+
+	genesis := &core.Genesis{
+		Config: params.TestChainConfig,
+		Alloc:  types.GenesisAlloc{},
+	}
+	b := newTestBackend(t, 0, genesis, ethash.NewFaker(), nil)
+	b.autoMine = false // don't mine, should time out
+
+	api := NewTransactionAPI(b, new(AddrLocker))
+
+	raw, _ := makeSelfSignedRaw(t, api, b.acc.Address)
+
+	timeout := uint64(200) // 200ms
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, &timeout)
+
+	if receipt != nil {
+		t.Fatalf("expected nil receipt, got %#v", receipt)
+	}
+	if err == nil {
+		t.Fatalf("expected timeout error, got nil")
+	}
+	// assert error shape & data (hash)
+	var de interface {
+		ErrorCode() int
+		ErrorData() interface{}
+	}
+	if !errors.As(err, &de) {
+		t.Fatalf("expected data error with code/data, got %T %v", err, err)
+	}
+	if de.ErrorCode() != errCodeTxSyncTimeout {
+		t.Fatalf("expected code %d, got %d", errCodeTxSyncTimeout, de.ErrorCode())
+	}
+	tx := new(types.Transaction)
+	if e := tx.UnmarshalBinary(raw); e != nil {
+		t.Fatal(e)
+	}
+	if got, want := de.ErrorData(), tx.Hash().Hex(); got != want {
+		t.Fatalf("expected ErrorData=%s, got %v", want, got)
+	}
+}
+
+func TestGetStorageValues(t *testing.T) {
+	t.Parallel()
+
+	var (
+		addr1 = common.HexToAddress("0x1111")
+		addr2 = common.HexToAddress("0x2222")
+		slot0 = common.Hash{}
+		slot1 = common.BigToHash(big.NewInt(1))
+		slot2 = common.BigToHash(big.NewInt(2))
+		val0  = common.BigToHash(big.NewInt(42))
+		val1  = common.BigToHash(big.NewInt(100))
+		val2  = common.BigToHash(big.NewInt(200))
+
+		genesis = &core.Genesis{
+			Config: params.MergedTestChainConfig,
+			Alloc: types.GenesisAlloc{
+				addr1: {
+					Balance: big.NewInt(params.Ether),
+					Storage: map[common.Hash]common.Hash{
+						slot0: val0,
+						slot1: val1,
+					},
+				},
+				addr2: {
+					Balance: big.NewInt(params.Ether),
+					Storage: map[common.Hash]common.Hash{
+						slot2: val2,
+					},
+				},
+			},
+		}
+	)
+	api := NewBlockChainAPI(newTestBackend(t, 1, genesis, beacon.New(ethash.NewFaker()), func(i int, b *core.BlockGen) {
+		b.SetPoS()
+	}))
+	latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	// Happy path: multiple addresses, multiple slots.
+	result, err := api.GetStorageValues(context.Background(), map[common.Address][]common.Hash{
+		addr1: {slot0, slot1},
+		addr2: {slot2},
+	}, latest)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 addresses in result, got %d", len(result))
+	}
+	if got := common.BytesToHash(result[addr1][0]); got != val0 {
+		t.Errorf("addr1 slot0: want %x, got %x", val0, got)
+	}
+	if got := common.BytesToHash(result[addr1][1]); got != val1 {
+		t.Errorf("addr1 slot1: want %x, got %x", val1, got)
+	}
+	if got := common.BytesToHash(result[addr2][0]); got != val2 {
+		t.Errorf("addr2 slot2: want %x, got %x", val2, got)
+	}
+
+	// Missing slot returns zero.
+	result, err = api.GetStorageValues(context.Background(), map[common.Address][]common.Hash{
+		addr1: {common.HexToHash("0xff")},
+	}, latest)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := common.BytesToHash(result[addr1][0]); got != (common.Hash{}) {
+		t.Errorf("missing slot: want zero, got %x", got)
+	}
+
+	// Empty request returns error.
+	_, err = api.GetStorageValues(context.Background(), map[common.Address][]common.Hash{}, latest)
+	if err == nil {
+		t.Fatal("expected error for empty request")
+	}
+
+	// Exceeding slot limit returns error.
+	tooMany := make([]common.Hash, maxGetStorageSlots+1)
+	for i := range tooMany {
+		tooMany[i] = common.BigToHash(big.NewInt(int64(i)))
+	}
+	_, err = api.GetStorageValues(context.Background(), map[common.Address][]common.Hash{
+		addr1: tooMany,
+	}, latest)
+	if err == nil {
+		t.Fatal("expected error for exceeding slot limit")
+	}
 }

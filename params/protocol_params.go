@@ -43,7 +43,7 @@ const (
 
 	MaximumExtraDataSize  uint64 = 32    // Maximum size extra data may be after Genesis.
 	ExpByteGas            uint64 = 10    // Times ceil(log256(exponent)) for the EXP instruction.
-	SloadGas              uint64 = 50    // Multiplied by the number of 32-byte words that are copied (round up) for any *COPY operation and added.
+	SloadGas              uint64 = 50    //
 	CallValueTransferGas  uint64 = 9000  // Paid for CALL when the value transfer is non-zero.
 	CallNewAccountGas     uint64 = 25000 // Paid for CALL when the destination address didn't exist prior.
 	TxGas                 uint64 = 21000 // Per transaction not creating a contract. NOTE: Not payable on data of calls between transactions.
@@ -93,7 +93,7 @@ const (
 	CallCreateDepth       uint64 = 1024  // Maximum depth of call/create stack.
 	ExpGas                uint64 = 10    // Once per EXP instruction
 	LogGas                uint64 = 375   // Per LOG* operation.
-	CopyGas               uint64 = 3     //
+	CopyGas               uint64 = 3     //	Multiplied by the number of 32-byte words that are copied (round up) for any *COPY operation and added.
 	StackLimit            uint64 = 1024  // Maximum size of VM stack allowed.
 	TierStepGas           uint64 = 0     // Once per operation, for a selection of them.
 	LogTopicGas           uint64 = 375   // Multiplied by the * of the LOG*, per LOG transaction. e.g. LOG0 incurs 0 * c_txLogTopicGas, LOG4 incurs 4 * c_txLogTopicGas.
@@ -145,8 +145,10 @@ const (
 	DefaultElasticityMultiplier     = 2          // Bounds the maximum gas limit an EIP-1559 block may have.
 	InitialBaseFee                  = 1000000000 // Initial base fee for EIP-1559 blocks.
 
-	MaxCodeSize     = 24576           // Maximum bytecode to permit for a contract
-	MaxInitCodeSize = 2 * MaxCodeSize // Maximum initcode to permit in a creation transaction and create instructions
+	MaxCodeSize              = 24576                    // Maximum bytecode to permit for a contract
+	MaxInitCodeSize          = 2 * MaxCodeSize          // Maximum initcode to permit in a creation transaction and create instructions
+	MaxCodeSizeAmsterdam     = 32768                    // Maximum bytecode to permit for a contract post Amsterdam
+	MaxInitCodeSizeAmsterdam = 2 * MaxCodeSizeAmsterdam // Maximum initcode to permit in a creation transaction and create instructions post Amsterdam
 
 	// Precompiled contract gas prices
 
@@ -185,6 +187,10 @@ const (
 	Bls12381G2MulMaxInputSizeIsthmus   uint64 = 488448 // Maximum input size for BLS12-381 G2 multiple-scalar-multiply operation
 	Bls12381PairingMaxInputSizeIsthmus uint64 = 235008 // Maximum input size for BLS12-381 pairing check
 
+	// Jovian precompile limits ensure accelerated precompiles for fault proofs stay under the 16M gas
+	// transaction limit introduced in Fusaka (EIP-7825). Since accelerated precompiles execute on L1
+	// via PreimageOracle.loadPrecompilePreimagePart, the entire L1 transaction must stay under 16M gas:
+	//   Total Gas = TxBaseGas (21K) + PreimageOracleGas (100K) + CalldataGas + PrecompileGas < 16M
 	Bn256PairingMaxInputSizeJovian    uint64 = 81984  // bn256Pairing limit (427 pairs)
 	Bls12381G1MulMaxInputSizeJovian   uint64 = 288960 // BLS12-381 G1 MSM limit (1,806 pairs)
 	Bls12381G2MulMaxInputSizeJovian   uint64 = 278784 // BLS12-381 G2 MSM limit (968 pairs)
@@ -242,4 +248,12 @@ var (
 	// EIP-7251 - Increase the MAX_EFFECTIVE_BALANCE
 	ConsolidationQueueAddress = common.HexToAddress("0x0000BBdDc7CE488642fb579F8B00f3a590007251")
 	ConsolidationQueueCode    = common.FromHex("3373fffffffffffffffffffffffffffffffffffffffe1460d35760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461019a57600182026001905f5b5f82111560685781019083028483029004916001019190604d565b9093900492505050366060146088573661019a573461019a575f5260205ff35b341061019a57600154600101600155600354806004026004013381556001015f358155600101602035815560010160403590553360601b5f5260605f60143760745fa0600101600355005b6003546002548082038060021160e7575060025b5f5b8181146101295782810160040260040181607402815460601b815260140181600101548152602001816002015481526020019060030154905260010160e9565b910180921461013b5790600255610146565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561017357505f5b6001546001828201116101885750505f61018e565b01600190035b5f555f6001556074025ff35b5f5ffd")
+)
+
+// System log events.
+var (
+	// EIP-7708 - System logs emitted for ETH transfer and burn
+	EthTransferLogEvent = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") // keccak256('Transfer(address,address,uint256)')
+	EthBurnLogEvent     = common.HexToHash("0xcc16f5dbb4873280815c1ee09dbd06736cffcc184412cf7a71a0fdb75d397ca5") // keccak256('Burn(address,uint256)')
+
 )

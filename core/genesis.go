@@ -74,6 +74,7 @@ type Genesis struct {
 	BaseFee       *big.Int    `json:"baseFeePerGas"` // EIP-1559
 	ExcessBlobGas *uint64     `json:"excessBlobGas"` // EIP-4844
 	BlobGasUsed   *uint64     `json:"blobGasUsed"`   // EIP-4844
+	SlotNumber    *uint64     `json:"slotNumber"`    // EIP-7843
 
 	// StateHash represents the genesis state, to allow instantiation of a chain with missing initial state.
 	// Chains with history pruning, or extraordinarily large genesis allocation (e.g. after a regenesis event)
@@ -128,7 +129,8 @@ func ReadGenesis(db ethdb.Database) (*Genesis, error) {
 	genesis.BaseFee = genesisHeader.BaseFee
 	genesis.ExcessBlobGas = genesisHeader.ExcessBlobGas
 	genesis.BlobGasUsed = genesisHeader.BlobGasUsed
-	// A nil or empty alloc, with a non-matching state-root in the block header, intents to override the state-root.
+	genesis.SlotNumber = genesisHeader.SlotNumber
+	// OP Stack: A nil or empty alloc, with a non-matching state-root in the block header, intents to override the state-root.
 	if genesis.Alloc == nil || (len(genesis.Alloc) == 0 && genesisHeader.Root != types.EmptyRootHash) {
 		h := genesisHeader.Root // the genesis block is encoded as RLP in the DB and will contain the state-root
 		genesis.StateHash = &h
@@ -168,7 +170,7 @@ func hashAlloc(ga *types.GenesisAlloc, isVerkle, isIsthmus bool) (common.Hash, c
 		if account.Balance != nil {
 			statedb.AddBalance(addr, uint256.MustFromBig(account.Balance), tracing.BalanceIncreaseGenesisBalance)
 		}
-		statedb.SetCode(addr, account.Code)
+		statedb.SetCode(addr, account.Code, tracing.CodeChangeGenesis)
 		statedb.SetNonce(addr, account.Nonce, tracing.NonceChangeGenesis)
 		for key, value := range account.Storage {
 			statedb.SetState(addr, key, value)
@@ -189,9 +191,8 @@ func hashAlloc(ga *types.GenesisAlloc, isVerkle, isIsthmus bool) (common.Hash, c
 }
 
 // flushAlloc is very similar with hash, but the main difference is all the
-// generated states will be persisted into the given database. Returns the
-// same values as hashAlloc.
-func flushAlloc(ga *types.GenesisAlloc, triedb *triedb.Database, isIsthmus bool) (common.Hash, common.Hash, error) {
+// generated states will be persisted into the given database.
+func flushAlloc(ga *types.GenesisAlloc, triedb *triedb.Database, tracer *tracing.Hooks, isIsthmus bool) (common.Hash, common.Hash, error) {
 	emptyRoot := types.EmptyRootHash
 	if triedb.IsVerkle() {
 		emptyRoot = types.EmptyVerkleHash
@@ -206,23 +207,40 @@ func flushAlloc(ga *types.GenesisAlloc, triedb *triedb.Database, isIsthmus bool)
 			// already captures the allocations.
 			statedb.AddBalance(addr, uint256.MustFromBig(account.Balance), tracing.BalanceIncreaseGenesisBalance)
 		}
-		statedb.SetCode(addr, account.Code)
+		statedb.SetCode(addr, account.Code, tracing.CodeChangeGenesis)
 		statedb.SetNonce(addr, account.Nonce, tracing.NonceChangeGenesis)
 		for key, value := range account.Storage {
 			statedb.SetState(addr, key, value)
 		}
 	}
-	root, err := statedb.Commit(0, false, false)
-	if err != nil {
-		return common.Hash{}, common.Hash{}, err
+
+	var root common.Hash
+	if tracer != nil && tracer.OnStateUpdate != nil {
+		r, update, err := statedb.CommitWithUpdate(0, false, false)
+		if err != nil {
+			return common.Hash{}, common.Hash{}, err
+		}
+		trUpdate, err := update.ToTracingUpdate()
+		if err != nil {
+			return common.Hash{}, common.Hash{}, err
+		}
+		tracer.OnStateUpdate(trUpdate)
+		root = r
+	} else {
+		root, err = statedb.Commit(0, false, false)
+		if err != nil {
+			return common.Hash{}, common.Hash{}, err
+		}
 	}
+
 	// get the storage root of the L2ToL1MessagePasser contract
 	var storageRootMessagePasser common.Hash
 	if isIsthmus {
 		storageRootMessagePasser = statedb.GetStorageRoot(params.OptimismL2ToL1MessagePasser)
 	}
+
 	// Commit newly generated states into disk if it's not empty.
-	if root != types.EmptyRootHash {
+	if root != emptyRoot {
 		if err := triedb.Commit(root, true); err != nil {
 			return common.Hash{}, common.Hash{}, err
 		}
@@ -291,6 +309,8 @@ func (e *GenesisMismatchError) Error() string {
 // ChainOverrides contains the changes to chain config.
 type ChainOverrides struct {
 	OverrideOsaka  *uint64
+	OverrideBPO1   *uint64
+	OverrideBPO2   *uint64
 	OverrideVerkle *uint64
 
 	// OP-Stack additions
@@ -301,6 +321,7 @@ type ChainOverrides struct {
 	OverrideOptimismHolocene *uint64
 	OverrideOptimismIsthmus  *uint64
 	OverrideOptimismJovian   *uint64
+	OverrideOptimismKarst    *uint64
 	OverrideOptimismInterop  *uint64
 	ApplySuperchainUpgrades  bool
 }
@@ -340,6 +361,12 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	if o.OverrideOsaka != nil {
 		cfg.OsakaTime = o.OverrideOsaka
 	}
+	if o.OverrideBPO1 != nil {
+		cfg.BPO1Time = o.OverrideBPO1
+	}
+	if o.OverrideBPO2 != nil {
+		cfg.BPO2Time = o.OverrideBPO2
+	}
 	if o.OverrideVerkle != nil {
 		cfg.VerkleTime = o.OverrideVerkle
 	}
@@ -373,6 +400,9 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	if o.OverrideOptimismJovian != nil {
 		cfg.JovianTime = o.OverrideOptimismJovian
 	}
+	if o.OverrideOptimismKarst != nil {
+		cfg.KarstTime = o.OverrideOptimismKarst
+	}
 	if o.OverrideOptimismInterop != nil {
 		cfg.InteropTime = o.OverrideOptimismInterop
 	}
@@ -399,10 +429,10 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 // specify a fork block below the local head block). In case of a conflict, the
 // error is a *params.ConfigCompatError and the new, unwritten config is returned.
 func SetupGenesisBlock(db ethdb.Database, triedb *triedb.Database, genesis *Genesis) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
-	return SetupGenesisBlockWithOverride(db, triedb, genesis, nil)
+	return SetupGenesisBlockWithOverride(db, triedb, genesis, nil, nil)
 }
 
-func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, genesis *Genesis, overrides *ChainOverrides) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
+func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, genesis *Genesis, overrides *ChainOverrides, tracer *tracing.Hooks) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
 	// Copy the genesis, so we can operate on a copy.
 	genesis = genesis.copy()
 	// Sanitize the supplied genesis, ensuring it has the associated chain
@@ -423,7 +453,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 			return nil, common.Hash{}, nil, err
 		}
 
-		block, err := genesis.Commit(db, triedb)
+		block, err := genesis.Commit(db, triedb, tracer)
 		if err != nil {
 			return nil, common.Hash{}, nil, err
 		}
@@ -457,7 +487,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 		if hash := genesis.ToBlock().Hash(); hash != ghash {
 			return nil, common.Hash{}, nil, &GenesisMismatchError{ghash, hash}
 		}
-		block, err := genesis.Commit(db, triedb)
+		block, err := genesis.Commit(db, triedb, tracer)
 		if err != nil {
 			return nil, common.Hash{}, nil, err
 		}
@@ -663,9 +693,20 @@ func (g *Genesis) toBlockWithRoot(stateRoot, storageRootMessagePasser common.Has
 			if head.BlobGasUsed == nil {
 				head.BlobGasUsed = new(uint64)
 			}
+		} else {
+			if g.ExcessBlobGas != nil {
+				log.Warn("Invalid genesis, unexpected ExcessBlobGas set before Cancun, allowing it for testing purposes")
+				head.ExcessBlobGas = g.ExcessBlobGas
+			}
 		}
 		if conf.IsPrague(num, g.Timestamp) {
 			head.RequestsHash = &types.EmptyRequestsHash
+		}
+		if conf.IsAmsterdam(num, g.Timestamp) {
+			head.SlotNumber = g.SlotNumber
+			if head.SlotNumber == nil {
+				head.SlotNumber = new(uint64)
+			}
 		}
 		// If Isthmus is active at genesis, set the WithdrawalRoot to the storage root of the L2ToL1MessagePasser contract.
 		if g.Config.IsOptimismIsthmus(g.Timestamp) {
@@ -682,7 +723,7 @@ func (g *Genesis) toBlockWithRoot(stateRoot, storageRootMessagePasser common.Has
 
 // Commit writes the block and state of a genesis specification to the database.
 // The block is committed as the canonical head block.
-func (g *Genesis) Commit(db ethdb.Database, triedb *triedb.Database) (*types.Block, error) {
+func (g *Genesis) Commit(db ethdb.Database, triedb *triedb.Database, tracer *tracing.Hooks) (*types.Block, error) {
 	if g.Number != 0 {
 		return nil, errors.New("can't commit genesis block with number > 0")
 	}
@@ -706,7 +747,7 @@ func (g *Genesis) Commit(db ethdb.Database, triedb *triedb.Database) (*types.Blo
 		}
 	} else {
 		// flush the data to disk and compute the state root
-		stateRoot, storageRootMessagePasser, err = flushAlloc(&g.Alloc, triedb, g.Config.IsIsthmus(g.Timestamp))
+		stateRoot, storageRootMessagePasser, err = flushAlloc(&g.Alloc, triedb, tracer, g.Config.IsIsthmus(g.Timestamp))
 		if err != nil {
 			return nil, err
 		}
@@ -733,7 +774,7 @@ func (g *Genesis) Commit(db ethdb.Database, triedb *triedb.Database) (*types.Blo
 // MustCommit writes the genesis block and state to db, panicking on error.
 // The block is committed as the canonical head block.
 func (g *Genesis) MustCommit(db ethdb.Database, triedb *triedb.Database) *types.Block {
-	block, err := g.Commit(db, triedb)
+	block, err := g.Commit(db, triedb, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -824,23 +865,24 @@ func DeveloperGenesisBlock(gasLimit uint64, faucet *common.Address) *Genesis {
 		BaseFee:    big.NewInt(params.InitialBaseFee),
 		Difficulty: big.NewInt(0),
 		Alloc: map[common.Address]types.Account{
-			common.BytesToAddress([]byte{0x01}): {Balance: big.NewInt(1)}, // ECRecover
-			common.BytesToAddress([]byte{0x02}): {Balance: big.NewInt(1)}, // SHA256
-			common.BytesToAddress([]byte{0x03}): {Balance: big.NewInt(1)}, // RIPEMD
-			common.BytesToAddress([]byte{0x04}): {Balance: big.NewInt(1)}, // Identity
-			common.BytesToAddress([]byte{0x05}): {Balance: big.NewInt(1)}, // ModExp
-			common.BytesToAddress([]byte{0x06}): {Balance: big.NewInt(1)}, // ECAdd
-			common.BytesToAddress([]byte{0x07}): {Balance: big.NewInt(1)}, // ECScalarMul
-			common.BytesToAddress([]byte{0x08}): {Balance: big.NewInt(1)}, // ECPairing
-			common.BytesToAddress([]byte{0x09}): {Balance: big.NewInt(1)}, // BLAKE2b
-			common.BytesToAddress([]byte{0x0a}): {Balance: big.NewInt(1)}, // KZGPointEval
-			common.BytesToAddress([]byte{0x0b}): {Balance: big.NewInt(1)}, // BLSG1Add
-			common.BytesToAddress([]byte{0x0c}): {Balance: big.NewInt(1)}, // BLSG1MultiExp
-			common.BytesToAddress([]byte{0x0d}): {Balance: big.NewInt(1)}, // BLSG2Add
-			common.BytesToAddress([]byte{0x0e}): {Balance: big.NewInt(1)}, // BLSG2MultiExp
-			common.BytesToAddress([]byte{0x0f}): {Balance: big.NewInt(1)}, // BLSG1Pairing
-			common.BytesToAddress([]byte{0x10}): {Balance: big.NewInt(1)}, // BLSG1MapG1
-			common.BytesToAddress([]byte{0x11}): {Balance: big.NewInt(1)}, // BLSG2MapG2
+			common.BytesToAddress([]byte{0x01}):    {Balance: big.NewInt(1)}, // ECRecover
+			common.BytesToAddress([]byte{0x02}):    {Balance: big.NewInt(1)}, // SHA256
+			common.BytesToAddress([]byte{0x03}):    {Balance: big.NewInt(1)}, // RIPEMD
+			common.BytesToAddress([]byte{0x04}):    {Balance: big.NewInt(1)}, // Identity
+			common.BytesToAddress([]byte{0x05}):    {Balance: big.NewInt(1)}, // ModExp
+			common.BytesToAddress([]byte{0x06}):    {Balance: big.NewInt(1)}, // ECAdd
+			common.BytesToAddress([]byte{0x07}):    {Balance: big.NewInt(1)}, // ECScalarMul
+			common.BytesToAddress([]byte{0x08}):    {Balance: big.NewInt(1)}, // ECPairing
+			common.BytesToAddress([]byte{0x09}):    {Balance: big.NewInt(1)}, // BLAKE2b
+			common.BytesToAddress([]byte{0x0a}):    {Balance: big.NewInt(1)}, // KZGPointEval
+			common.BytesToAddress([]byte{0x0b}):    {Balance: big.NewInt(1)}, // BLSG1Add
+			common.BytesToAddress([]byte{0x0c}):    {Balance: big.NewInt(1)}, // BLSG1MultiExp
+			common.BytesToAddress([]byte{0x0d}):    {Balance: big.NewInt(1)}, // BLSG2Add
+			common.BytesToAddress([]byte{0x0e}):    {Balance: big.NewInt(1)}, // BLSG2MultiExp
+			common.BytesToAddress([]byte{0x0f}):    {Balance: big.NewInt(1)}, // BLSG1Pairing
+			common.BytesToAddress([]byte{0x10}):    {Balance: big.NewInt(1)}, // BLSG1MapG1
+			common.BytesToAddress([]byte{0x11}):    {Balance: big.NewInt(1)}, // BLSG2MapG2
+			common.BytesToAddress([]byte{0x1, 00}): {Balance: big.NewInt(1)}, // P256Verify
 			// Pre-deploy system contracts
 			params.BeaconRootsAddress:        {Nonce: 1, Code: params.BeaconRootsCode, Balance: common.Big0},
 			params.HistoryStorageAddress:     {Nonce: 1, Code: params.HistoryStorageCode, Balance: common.Big0},

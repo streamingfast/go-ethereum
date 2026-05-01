@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -36,12 +37,21 @@ import (
 	"github.com/ethereum/go-ethereum/internal/ethapi/override"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 const (
 	// maxSimulateBlocks is the maximum number of blocks that can be simulated
 	// in a single request.
 	maxSimulateBlocks = 256
+
+	// maxSimulateCallsPerBlock is the maximum number of calls allowed in a
+	// single simulated block.
+	maxSimulateCallsPerBlock = 5000
+
+	// maxSimulateTotalCalls is the maximum total number of calls allowed
+	// across all simulated blocks in a single request.
+	maxSimulateTotalCalls = 10000
 
 	// timestampIncrement is the default increment between block timestamps.
 	timestampIncrement = 12
@@ -59,6 +69,7 @@ type simCallResult struct {
 	ReturnValue hexutil.Bytes  `json:"returnData"`
 	Logs        []*types.Log   `json:"logs"`
 	GasUsed     hexutil.Uint64 `json:"gasUsed"`
+	MaxUsedGas  hexutil.Uint64 `json:"maxUsedGas"`
 	Status      hexutil.Uint64 `json:"status"`
 	Error       *callError     `json:"error,omitempty"`
 }
@@ -163,6 +174,39 @@ func (m *simChainHeadReader) GetHeaderByHash(hash common.Hash) *types.Header {
 	return header
 }
 
+// gasBudget tracks the remaining gas allowed across all simulated blocks.
+// It enforces the RPC-level gas cap to prevent DoS.
+type gasBudget struct {
+	remaining uint64
+}
+
+// newGasBudget creates a gas budget with the given cap.
+// A cap of 0 is treated as unlimited.
+func newGasBudget(cap uint64) *gasBudget {
+	if cap == 0 {
+		cap = math.MaxUint64
+	}
+	return &gasBudget{remaining: cap}
+}
+
+// cap returns the given gas value clamped to the remaining budget.
+func (b *gasBudget) cap(gas uint64) uint64 {
+	if gas > b.remaining {
+		return b.remaining
+	}
+	return gas
+}
+
+// consume deducts the given amount from the budget.
+// Returns an error if the amount exceeds the remaining budget.
+func (b *gasBudget) consume(amount uint64) error {
+	if amount > b.remaining {
+		return fmt.Errorf("RPC gas cap exhausted: need %d, remaining %d", amount, b.remaining)
+	}
+	b.remaining -= amount
+	return nil
+}
+
 // simulator is a stateful object that simulates a series of blocks.
 // it is not safe for concurrent use.
 type simulator struct {
@@ -170,13 +214,18 @@ type simulator struct {
 	state          *state.StateDB
 	base           *types.Header
 	chainConfig    *params.ChainConfig
-	gp             *core.GasPool
+	budget         *gasBudget
 	traceTransfers bool
 	validate       bool
 	fullTx         bool
+
+	// OP-Stack diff
+	l1AttributesTx *types.Transaction
 }
 
 // execute runs the simulation of a series of blocks.
+// OPStack-diff: execute accepts an l1 attributes transaction which (if non-nil) will be injected into each block
+// at position 0.
 func (sim *simulator) execute(ctx context.Context, blocks []simBlock) ([]*simBlockResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -214,12 +263,21 @@ func (sim *simulator) execute(ctx context.Context, blocks []simBlock) ([]*simBlo
 			return nil, err
 		}
 		headers[bi] = result.Header()
-		results[bi] = &simBlockResult{fullTx: sim.fullTx, chainConfig: sim.chainConfig, Block: result, Calls: callResults, senders: senders, Receipts: receipts}
+		results[bi] = &simBlockResult{
+			fullTx:      sim.fullTx,
+			chainConfig: sim.chainConfig,
+			Block:       result,
+			Calls:       callResults,
+			senders:     senders,
+			Receipts:    receipts,
+		}
 		parent = result.Header()
 	}
 	return results, nil
 }
 
+// OP-Stack diff: proceesBlock accepts an l1 attributes transaction which (if non-nil) will be injected into the block
+// at position 0.
 func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header, parent *types.Header, headers []*types.Header, timeout time.Duration) (*types.Block, []simCallResult, map[common.Hash]common.Address, types.Receipts, error) {
 	// Set header fields that depend only on parent block.
 	// Parent hash is needed for evm.GetHashFn to work.
@@ -247,18 +305,22 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 	if block.BlockOverrides.BlobBaseFee != nil {
 		blockContext.BlobBaseFee = block.BlockOverrides.BlobBaseFee.ToInt()
 	}
-	precompiles := sim.activePrecompiles(sim.base)
+	precompiles := sim.activePrecompiles(header)
+
 	// State overrides are applied prior to execution of a block
 	if err := block.StateOverrides.Apply(sim.state, precompiles); err != nil {
 		return nil, nil, nil, nil, err
 	}
 	var (
-		gasUsed, blobGasUsed uint64
-		txes                 = make([]*types.Transaction, len(block.Calls))
-		callResults          = make([]simCallResult, len(block.Calls))
-		receipts             = make([]*types.Receipt, len(block.Calls))
+		gp          = core.NewGasPool(blockContext.GasLimit)
+		blobGasUsed uint64
+
+		txes        = make([]*types.Transaction, len(block.Calls))
+		callResults = make([]simCallResult, len(block.Calls))
+		receipts    = make([]*types.Receipt, len(block.Calls))
+
 		// Block hash will be repaired after execution.
-		tracer   = newTracer(sim.traceTransfers, blockContext.BlockNumber.Uint64(), common.Hash{}, common.Hash{}, 0)
+		tracer   = newTracer(sim.traceTransfers, blockContext.BlockNumber.Uint64(), blockContext.Time, common.Hash{}, common.Hash{}, 0)
 		vmConfig = &vm.Config{
 			NoBaseFee: !sim.validate,
 			Tracer:    tracer.Hooks(),
@@ -286,10 +348,12 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 	}
 	var allLogs []*types.Log
 	for i, call := range block.Calls {
+		// Terminate if the context is cancelled
 		if err := ctx.Err(); err != nil {
 			return nil, nil, nil, nil, err
 		}
-		if err := sim.sanitizeCall(&call, sim.state, header, blockContext, &gasUsed); err != nil {
+		gasCapped, err := sim.sanitizeCall(&call, sim.state, header, gp)
+		if err != nil {
 			return nil, nil, nil, nil, err
 		}
 		var (
@@ -299,10 +363,11 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 		txes[i] = tx
 		senders[txHash] = call.from()
 		tracer.reset(txHash, uint(i))
-		sim.state.SetTxContext(txHash, i)
+
 		// EoA check is always skipped, even in validation mode.
-		msg := call.ToMessage(header.BaseFee, !sim.validate, true)
-		result, err := applyMessageWithEVM(ctx, evm, msg, timeout, sim.gp)
+		sim.state.SetTxContext(txHash, i)
+		msg := call.ToMessage(header.BaseFee, !sim.validate)
+		result, err := applyMessageWithEVM(ctx, evm, msg, timeout, gp)
 		if err != nil {
 			txErr := txValidationError(err)
 			return nil, nil, nil, nil, txErr
@@ -314,19 +379,29 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 		} else {
 			root = sim.state.IntermediateRoot(sim.chainConfig.IsEIP158(blockContext.BlockNumber)).Bytes()
 		}
-		gasUsed += result.UsedGas
-		receipts[i] = core.MakeReceipt(evm, result, sim.state, blockContext.BlockNumber, common.Hash{}, blockContext.Time, tx, gasUsed, root, sim.chainConfig, tx.Nonce())
+		receipts[i] = core.MakeReceipt(evm, result, sim.state, blockContext.BlockNumber, common.Hash{}, blockContext.Time, tx, gp.CumulativeUsed(), root, sim.chainConfig, tx.Nonce())
 		blobGasUsed += receipts[i].BlobGasUsed
+
+		// Make sure the gas cap is still enforced. It's only for
+		// internally protection.
+		if err := sim.budget.consume(result.UsedGas); err != nil {
+			return nil, nil, nil, nil, err
+		}
+
 		logs := tracer.Logs()
-		callRes := simCallResult{ReturnValue: result.Return(), Logs: logs, GasUsed: hexutil.Uint64(result.UsedGas)}
+		callRes := simCallResult{ReturnValue: result.Return(), Logs: logs, GasUsed: hexutil.Uint64(result.UsedGas), MaxUsedGas: hexutil.Uint64(result.MaxUsedGas)}
 		if result.Failed() {
 			callRes.Status = hexutil.Uint64(types.ReceiptStatusFailed)
 			if errors.Is(result.Err, vm.ErrExecutionReverted) {
 				// If the result contains a revert reason, try to unpack it.
 				revertErr := newRevertError(result.Revert())
-				callRes.Error = &callError{Message: revertErr.Error(), Code: errCodeReverted, Data: revertErr.ErrorData().(string)}
+				callRes.Error = &callError{Message: revertErr.Error(), Code: revertErr.ErrorCode(), Data: revertErr.ErrorData().(string)}
 			} else {
-				callRes.Error = &callError{Message: result.Err.Error(), Code: errCodeVMError}
+				msg := result.Err.Error()
+				if gasCapped {
+					msg += " (gas limit was capped by the RPC server's global gas cap)"
+				}
+				callRes.Error = &callError{Message: msg, Code: errCodeVMError}
 			}
 		} else {
 			callRes.Status = hexutil.Uint64(types.ReceiptStatusSuccessful)
@@ -334,12 +409,14 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 		}
 		callResults[i] = callRes
 	}
-	header.GasUsed = gasUsed
+	// Assign total consumed gas to the header
+	header.GasUsed = gp.Used()
 	if sim.chainConfig.IsCancun(header.Number, header.Time) {
 		header.BlobGasUsed = &blobGasUsed
 	}
-	var requests [][]byte
+
 	// Process EIP-7685 requests
+	var requests [][]byte
 	if sim.chainConfig.IsPrague(header.Number, header.Time) {
 		requests = [][]byte{}
 		// EIP-6110
@@ -359,12 +436,39 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 		reqHash := types.CalcRequestsHash(requests)
 		header.RequestsHash = &reqHash
 	}
-	blockBody := &types.Body{Transactions: txes, Withdrawals: *block.BlockOverrides.Withdrawals}
+
+	// For Optimism blocks, inject the provided l1 attributes transaction at the beginning of the block.
+	// This is required because CalcDAFootprint (called by FinalizeAndAssemble for Jovian blocks)
+	// expects the first transaction to be a deposit transaction containing L1 attributes data.
+	isOptimism := sim.chainConfig.IsOptimism()
+	prependedTxes := txes
+	if isOptimism && sim.l1AttributesTx != nil {
+		prependedTxes = append([]*types.Transaction{sim.l1AttributesTx}, txes...)
+	}
+
+	blockBody := &types.Body{
+		Transactions: prependedTxes,
+		Withdrawals:  *block.BlockOverrides.Withdrawals,
+	}
 	chainHeadReader := &simChainHeadReader{ctx, sim.b}
-	b, err := sim.b.Engine().FinalizeAndAssemble(chainHeadReader, header, sim.state, blockBody, receipts)
+	b, err := sim.b.Engine().FinalizeAndAssemble(ctx, chainHeadReader, header, sim.state, blockBody, receipts)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+
+	// For Optimism blocks, reconstruct the block without the l1 attributes transaction
+	// to maintain consistent indexing between transactions and receipts.
+	// We must use types.NewBlock to recompute TxHash correctly for the user transactions only.
+	if isOptimism && sim.l1AttributesTx != nil {
+		b = types.NewBlock(
+			b.Header(),
+			&types.Body{Transactions: txes, Withdrawals: *block.BlockOverrides.Withdrawals},
+			receipts,
+			trie.NewStackTrie(nil),
+			sim.chainConfig,
+		)
+	}
+
 	repairLogs(callResults, b.Hash())
 	return b, callResults, senders, receipts, nil
 }
@@ -380,23 +484,25 @@ func repairLogs(calls []simCallResult, hash common.Hash) {
 	}
 }
 
-func (sim *simulator) sanitizeCall(call *TransactionArgs, state vm.StateDB, header *types.Header, blockContext vm.BlockContext, gasUsed *uint64) error {
+func (sim *simulator) sanitizeCall(call *TransactionArgs, state vm.StateDB, header *types.Header, gp *core.GasPool) (bool, error) {
 	if call.Nonce == nil {
 		nonce := state.GetNonce(call.from())
 		call.Nonce = (*hexutil.Uint64)(&nonce)
 	}
 	// Let the call run wild unless explicitly specified.
+	remaining := gp.Gas()
 	if call.Gas == nil {
-		remaining := blockContext.GasLimit - *gasUsed
 		call.Gas = (*hexutil.Uint64)(&remaining)
 	}
-	if *gasUsed+uint64(*call.Gas) > blockContext.GasLimit {
-		return &blockGasLimitReachedError{fmt.Sprintf("block gas limit reached: %d >= %d", gasUsed, blockContext.GasLimit)}
+	if remaining < uint64(*call.Gas) {
+		return false, &blockGasLimitReachedError{fmt.Sprintf("block gas limit reached: remaining: %d, required: %d", remaining, *call.Gas)}
 	}
-	if err := call.CallDefaults(sim.gp.Gas(), header.BaseFee, sim.chainConfig.ChainID); err != nil {
-		return err
-	}
-	return nil
+	// Clamp to the cross-block gas budget.
+	gas := sim.budget.cap(uint64(*call.Gas))
+	gasCapped := gas < uint64(*call.Gas)
+	call.Gas = (*hexutil.Uint64)(&gas)
+
+	return gasCapped, call.CallDefaults(0, header.BaseFee, sim.chainConfig.ChainID)
 }
 
 func (sim *simulator) activePrecompiles(base *types.Header) vm.PrecompiledContracts {
@@ -487,23 +593,33 @@ func (sim *simulator) makeHeaders(blocks []simBlock) ([]*types.Header, error) {
 		}
 		overrides := block.BlockOverrides
 
+		number := overrides.Number.ToInt()
+		timestamp := (uint64)(*overrides.Time)
+
 		var withdrawalsHash *common.Hash
-		if sim.chainConfig.IsShanghai(overrides.Number.ToInt(), (uint64)(*overrides.Time)) {
+		if sim.chainConfig.IsShanghai(number, timestamp) {
 			withdrawalsHash = &types.EmptyWithdrawalsHash
 		}
+
 		var parentBeaconRoot *common.Hash
-		if sim.chainConfig.IsCancun(overrides.Number.ToInt(), (uint64)(*overrides.Time)) {
+		if sim.chainConfig.IsCancun(number, timestamp) {
 			parentBeaconRoot = &common.Hash{}
 			if overrides.BeaconRoot != nil {
 				parentBeaconRoot = overrides.BeaconRoot
 			}
+		}
+		// Set difficulty to zero if the given block is post-merge. Without this, all post-merge hardforks would remain inactive.
+		// For example, calling eth_simulateV1(..., blockParameter: 0x0) on hoodi network will cause all blocks to have a difficulty of 1 and be treated as pre-merge.
+		difficulty := header.Difficulty
+		if sim.chainConfig.IsPostMerge(number.Uint64(), timestamp) {
+			difficulty = big.NewInt(0)
 		}
 		header = overrides.MakeHeader(&types.Header{
 			UncleHash:        types.EmptyUncleHash,
 			ReceiptHash:      types.EmptyReceiptsHash,
 			TxHash:           types.EmptyTxsHash,
 			Coinbase:         header.Coinbase,
-			Difficulty:       header.Difficulty,
+			Difficulty:       difficulty,
 			GasLimit:         header.GasLimit,
 			WithdrawalsHash:  withdrawalsHash,
 			ParentBeaconRoot: parentBeaconRoot,
@@ -514,7 +630,11 @@ func (sim *simulator) makeHeaders(blocks []simBlock) ([]*types.Header, error) {
 }
 
 func (sim *simulator) newSimulatedChainContext(ctx context.Context, headers []*types.Header) *ChainContext {
-	return NewChainContext(ctx, &simBackend{base: sim.base, b: sim.b, headers: headers})
+	return NewChainContext(ctx, &simBackend{
+		base:    sim.base,
+		b:       sim.b,
+		headers: headers,
+	})
 }
 
 type simBackend struct {
@@ -546,4 +666,24 @@ func (b *simBackend) HeaderByNumber(ctx context.Context, number rpc.BlockNumber)
 
 func (b *simBackend) ChainConfig() *params.ChainConfig {
 	return b.b.ChainConfig()
+}
+
+func (b *simBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+	if b.base.Hash() == hash {
+		return b.base, nil
+	}
+	if header, err := b.b.HeaderByHash(ctx, hash); err == nil {
+		return header, nil
+	}
+	// Check simulated headers
+	for _, header := range b.headers {
+		if header.Hash() == hash {
+			return header, nil
+		}
+	}
+	return nil, errors.New("header not found")
+}
+
+func (b *simBackend) CurrentHeader() *types.Header {
+	return b.b.CurrentHeader()
 }

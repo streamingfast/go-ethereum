@@ -18,6 +18,7 @@ package miner
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"math/big"
@@ -229,6 +230,7 @@ func TestDAFilters(t *testing.T) {
 func holoceneConfig() *params.ChainConfig {
 	config := *params.OptimismTestConfig
 	config.IsthmusTime = nil
+	config.KarstTime = nil
 	config.JovianTime = nil
 	config.PragueTime = nil
 	config.OsakaTime = nil
@@ -271,11 +273,11 @@ func newPayloadArgs(parentHash common.Hash, cfg *params.ChainConfig) *BuildPaylo
 		args.EIP1559Params = validEIP1559Params
 	}
 	dtx := new(types.DepositTx)
-	if cfg.IsDAFootprintBlockLimit(args.Timestamp) {
+	if cfg.IsJovian(args.Timestamp) {
 		dtx = jovianDepositTx(testDAFootprintGasScalar)
 	}
 	args.Transactions = []*types.Transaction{types.NewTx(dtx)}
-	if cfg.IsMinBaseFee(args.Timestamp) {
+	if cfg.IsJovian(args.Timestamp) {
 		args.MinBaseFee = ptr(uint64(1e9))
 	}
 
@@ -303,7 +305,7 @@ func testBuildPayload(t *testing.T, noTxPool, interrupt bool, params1559 []byte,
 
 	// payload resolution now interrupts block building, so we have to
 	// wait for the payloading building process to build its first block
-	payload, err := w.buildPayload(args, false)
+	payload, err := w.buildPayload(context.Background(), args, false)
 	if err != nil {
 		t.Fatalf("Failed to build payload %v", err)
 	}
@@ -344,8 +346,8 @@ func testBuildPayload(t *testing.T, noTxPool, interrupt bool, params1559 []byte,
 	var expected []byte
 	if len(params1559) != 0 {
 		versionByte := eip1559.HoloceneExtraDataVersionByte
-		if config.IsMinBaseFee(testTimestamp) {
-			versionByte = eip1559.MinBaseFeeExtraDataVersionByte
+		if config.IsJovian(testTimestamp) {
+			versionByte = eip1559.JovianExtraDataVersionByte
 		}
 		expected = []byte{versionByte}
 
@@ -355,7 +357,7 @@ func testBuildPayload(t *testing.T, noTxPool, interrupt bool, params1559 []byte,
 		} else {
 			expected = append(expected, params1559...)
 		}
-		if versionByte == eip1559.MinBaseFeeExtraDataVersionByte {
+		if versionByte == eip1559.JovianExtraDataVersionByte {
 			buf := make([]byte, 8)
 			binary.BigEndian.PutUint64(buf, *args.MinBaseFee)
 			expected = append(expected, buf...)
@@ -418,12 +420,12 @@ func testDAFilters(t *testing.T, maxDATxSize, maxDABlockSize *big.Int, expectedT
 	w, b := newTestWorker(t, config, ethash.NewFaker(), db, 0)
 	w.SetMaxDASize(maxDATxSize, maxDABlockSize)
 	txs := genTxs(1, numDAFilterTxs)
-	b.txPool.Add(txs, false)
+	b.txPool.Add(txs, true)
 
 	args := newPayloadArgs(b.chain.CurrentBlock().Hash(), config)
 	args.NoTxPool = false
 
-	payload, err := w.buildPayload(args, false)
+	payload, err := w.buildPayload(t.Context(), args, false)
 	if err != nil {
 		t.Fatalf("Failed to build payload %v", err)
 	}
@@ -441,7 +443,7 @@ func testBuildPayloadError(t *testing.T, config *params.ChainConfig, expErrStr s
 
 	args := newPayloadArgs(b.chain.CurrentBlock().Hash(), config)
 	mod(args)
-	payload, err := w.buildPayload(args, false)
+	payload, err := w.buildPayload(t.Context(), args, false)
 	require.Nil(t, payload)
 	if err != nil {
 		require.ErrorContains(t, err, expErrStr)
