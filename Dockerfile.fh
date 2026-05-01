@@ -5,7 +5,7 @@ FROM us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.16.2 as optimism
 #check https://github.com/Uniswap/unichain-node/docker-compose.yml
 FROM us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.13.2 as unichain-node
 # Build Geth in a stock Go builder container
-FROM golang:1.23.4-alpine as builder
+FROM golang:1.24-alpine3.22 AS builder
 
 RUN apk add --no-cache gcc musl-dev linux-headers git
 
