@@ -31,6 +31,13 @@ var ignorePbFieldNames = map[string]bool{
 	"TxDependency": true,
 }
 
+// ignoreGethFieldNames is for geth fields that exist in types.Header but are not yet
+// reflected in pbeth.BlockHeader. These are typically new EIP fields pending protobuf support.
+var ignoreGethFieldNames = map[string]bool{
+	// EIP-7928 (Block-Level Access Lists) added in v1.17.3, not yet in protobuf spec.
+	"BlockAccessListHash": true,
+}
+
 var pbFieldNameToGethMapping = map[string]string{
 	"WithdrawalsRoot":  "WithdrawalsHash",
 	"MixHash":          "MixDigest",
@@ -53,7 +60,7 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 	// When adding support for a new hard-fork that adds new block header fields, it's normal that this value
 	// changes. If you are sure the two struct are the same, then you can update the expected hash below
 	// to the new value.
-	expectedHash := common.HexToHash("1e995a03fe468e359956abad3de7aec9f4b52acbe417e78f75a109466a473d3c")
+	expectedHash := common.HexToHash("3ac8177f44b6b87313ac043bed11ca38b09322c98dae7077af1eee74e5b22a3f")
 
 	gethHeaderValue := reflect.New(gethHeaderType)
 	fillAllFieldsWithNonEmptyValues(t, gethHeaderValue, reflect.VisibleFields(gethHeaderType))
@@ -81,7 +88,9 @@ func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 		return !ignorePbFieldNames[f.Name]
 	})
 
-	gethFields := reflect.VisibleFields(gethHeaderType)
+	gethFields := filter(reflect.VisibleFields(gethHeaderType), func(f reflect.StructField) bool {
+		return !ignoreGethFieldNames[f.Name]
+	})
 
 	pbFieldCount := len(pbFields)
 	gethFieldCount := len(gethFields)

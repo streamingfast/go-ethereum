@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
@@ -86,10 +87,12 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 		return fmt.Errorf("%w: type %d rejected, pool not yet in Prague", core.ErrTxTypeNotSupported, tx.Type())
 	}
 	// Check whether the init code size has been exceeded
-	if rules.IsShanghai && tx.To() == nil && len(tx.Data()) > params.MaxInitCodeSize {
-		return fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(tx.Data()), params.MaxInitCodeSize)
+	if tx.To() == nil {
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data()))); err != nil {
+			return err
+		}
 	}
-	if rules.IsOsaka && tx.Gas() > params.MaxTxGas {
+	if rules.IsOsaka && !rules.IsAmsterdam && tx.Gas() > params.MaxTxGas {
 		return fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
 	}
 	// Transactions can't be negative. This may never happen using RLP decoded
@@ -122,16 +125,16 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 	}
 	// Ensure the transaction has more gas than the bare minimum needed to cover
 	// the transaction metadata
-	intrGas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, rules.IsIstanbul, rules.IsShanghai)
+	intrGas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, rules.IsIstanbul, rules.IsShanghai, rules.IsAmsterdam)
 	if err != nil {
 		return err
 	}
-	if tx.Gas() < intrGas {
-		return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrIntrinsicGas, tx.Gas(), intrGas)
+	if tx.Gas() < intrGas.RegularGas {
+		return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrIntrinsicGas, tx.Gas(), intrGas.RegularGas)
 	}
 	// Ensure the transaction can cover floor data gas.
 	if rules.IsPrague {
-		floorDataGas, err := core.FloorDataGas(tx.Data())
+		floorDataGas, err := core.FloorDataGas(rules, tx.Data(), tx.AccessList())
 		if err != nil {
 			return err
 		}

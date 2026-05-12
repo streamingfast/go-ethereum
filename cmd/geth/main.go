@@ -22,14 +22,10 @@ import (
 	"os"
 	"slices"
 	"sort"
-	"strconv"
-	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/cmd/utils"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/console/prompt"
-	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/internal/debug"
 	"github.com/ethereum/go-ethereum/internal/flags"
@@ -65,7 +61,7 @@ var (
 		utils.OverrideOsaka,
 		utils.OverrideBPO1,
 		utils.OverrideBPO2,
-		utils.OverrideVerkle,
+		utils.OverrideUBT,
 		utils.OverrideGenesisFlag,
 		utils.EnablePersonal, // deprecated
 		utils.TxPoolLocalsFlag,
@@ -96,6 +92,7 @@ var (
 		utils.StateHistoryFlag,
 		utils.TrienodeHistoryFlag,
 		utils.TrienodeHistoryFullValueCheckpointFlag,
+		utils.BinTrieGroupDepthFlag,
 		utils.LightKDFFlag,
 		utils.EthRequiredBlocksFlag,
 		utils.LegacyWhitelistFlag, // deprecated
@@ -261,6 +258,8 @@ func init() {
 		utils.ShowDeprecated,
 		// See snapshot.go
 		snapshotCommand,
+		// See bintrie_convert.go
+		bintrieCommand,
 		// Firehose additions
 		importFromFirehoseCommand,
 	}
@@ -317,18 +316,6 @@ func prepare(ctx *cli.Context) {
 
 	case !ctx.IsSet(utils.NetworkIdFlag.Name):
 		log.Info("Starting Geth on Ethereum mainnet...")
-	}
-	// If we're a full node on mainnet without --cache specified, bump default cache allowance
-	if !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
-		// Make sure we're not on any supported preconfigured testnet either
-		if !ctx.IsSet(utils.HoleskyFlag.Name) &&
-			!ctx.IsSet(utils.SepoliaFlag.Name) &&
-			!ctx.IsSet(utils.HoodiFlag.Name) &&
-			!ctx.IsSet(utils.DeveloperFlag.Name) {
-			// Nope, we're really on mainnet. Bump that cache up!
-			log.Info("Bumping default cache on mainnet", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 4096)
-			ctx.Set(utils.CacheFlag.Name, strconv.Itoa(4096))
-		}
 	}
 }
 
@@ -399,28 +386,4 @@ func startNode(ctx *cli.Context, stack *node.Node, isConsole bool) {
 			}
 		}
 	}()
-
-	// Spawn a standalone goroutine for status synchronization monitoring,
-	// close the node when synchronization is complete if user required.
-	if ctx.Bool(utils.ExitWhenSyncedFlag.Name) {
-		go func() {
-			sub := stack.EventMux().Subscribe(downloader.DoneEvent{})
-			defer sub.Unsubscribe()
-			for {
-				event := <-sub.Chan()
-				if event == nil {
-					continue
-				}
-				done, ok := event.Data.(downloader.DoneEvent)
-				if !ok {
-					continue
-				}
-				if timestamp := time.Unix(int64(done.Latest.Time), 0); time.Since(timestamp) < 10*time.Minute {
-					log.Info("Synchronisation completed", "latestnum", done.Latest.Number, "latesthash", done.Latest.Hash(),
-						"age", common.PrettyAge(timestamp))
-					stack.Close()
-				}
-			}
-		}()
-	}
 }

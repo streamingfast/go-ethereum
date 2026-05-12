@@ -93,6 +93,7 @@ func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, c
 			}
 			// Execute the message to preload the implicit touched states
 			evm := vm.NewEVM(NewEVMBlockContext(header, p.chain, nil), stateCpy, p.config, cfg)
+			defer evm.Release()
 
 			// Convert the transaction into an executable message and pre-cache its sender
 			msg, err := TransactionToMessage(tx, signer, header.BaseFee)
@@ -107,7 +108,7 @@ func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, c
 
 			// We attempt to apply a transaction. The goal is not to execute
 			// the transaction successfully, rather to warm up touched data slots.
-			if _, err := ApplyMessage(evm, msg, new(GasPool).AddGas(block.GasLimit())); err != nil {
+			if _, err := ApplyMessage(evm, msg, nil); err != nil {
 				fails.Add(1)
 				return nil // Ugh, something went horribly wrong, bail out
 			}

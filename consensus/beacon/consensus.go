@@ -25,12 +25,10 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip1559"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
-	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 )
 
@@ -273,12 +271,22 @@ func (beacon *Beacon) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 		}
 	}
 
+	// Verify the existence / non-existence of Amsterdam-specific header fields
 	amsterdam := chain.Config().IsAmsterdam(header.Number, header.Time)
-	if amsterdam && header.SlotNumber == nil {
-		return errors.New("header is missing slotNumber")
-	}
-	if !amsterdam && header.SlotNumber != nil {
-		return fmt.Errorf("invalid slotNumber: have %d, expected nil", *header.SlotNumber)
+	if amsterdam {
+		if header.BlockAccessListHash == nil {
+			return errors.New("header is missing block access list hash")
+		}
+		if header.SlotNumber == nil {
+			return errors.New("header is missing slotNumber")
+		}
+	} else {
+		if header.BlockAccessListHash != nil {
+			return fmt.Errorf("invalid block access list hash: have %x, expected nil", *header.BlockAccessListHash)
+		}
+		if header.SlotNumber != nil {
+			return fmt.Errorf("invalid slotNumber: have %d, expected nil", *header.SlotNumber)
+		}
 	}
 	return nil
 }
@@ -347,33 +355,6 @@ func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.
 		state.AddBalance(w.Address, amount, tracing.BalanceIncreaseWithdrawal)
 	}
 	// No block reward which is issued by consensus layer instead.
-}
-
-// FinalizeAndAssemble implements consensus.Engine, setting the final state and
-// assembling the block.
-func (beacon *Beacon) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, body *types.Body, receipts []*types.Receipt) (*types.Block, error) {
-	if !beacon.IsPoSHeader(header) {
-		return beacon.ethone.FinalizeAndAssemble(chain, header, state, body, receipts)
-	}
-	shanghai := chain.Config().IsShanghai(header.Number, header.Time)
-	if shanghai {
-		// All blocks after Shanghai must include a withdrawals root.
-		if body.Withdrawals == nil {
-			body.Withdrawals = make([]*types.Withdrawal, 0)
-		}
-	} else {
-		if len(body.Withdrawals) > 0 {
-			return nil, errors.New("withdrawals set before Shanghai activation")
-		}
-	}
-	// Finalize and assemble the block.
-	beacon.Finalize(chain, header, state, body)
-
-	// Assign the final state root to header.
-	header.Root = state.IntermediateRoot(true)
-
-	// Assemble the final block.
-	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
 }
 
 // Seal generates a new sealing request for the given input block and pushes

@@ -76,11 +76,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		if err != nil {
 			return nil, err
 		}
-		reexec := defaultTraceReexec
-		if config != nil && config.Reexec != nil {
-			reexec = *config.Reexec
-		}
-		statedb, release, err := api.backend.StateAtBlock(ctx, parent, reexec, nil, true, false)
+		statedb, release, err := api.backend.StateAtBlock(ctx, parent, nil, true, false)
 		if err != nil {
 			return nil, err
 		}

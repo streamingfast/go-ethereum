@@ -177,7 +177,7 @@ func (db *Database) NodeReader(root common.Hash) (database.NodeReader, error) {
 	return &reader{
 		db:          db,
 		state:       root,
-		noHashCheck: db.isVerkle,
+		noHashCheck: db.isUBT,
 		layer:       layer,
 	}, nil
 }
@@ -229,7 +229,7 @@ func (db *Database) HistoricReader(root common.Hash) (*HistoricalStateReader, er
 		return nil, err // e.g., the referred state history has been pruned
 	}
 	if meta.parent != root {
-		return nil, fmt.Errorf("state %#x is not canonincal", root)
+		return nil, fmt.Errorf("state %#x is not canonical", root)
 	}
 	return &HistoricalStateReader{
 		id:     *id,
@@ -349,10 +349,10 @@ func (db *Database) HistoricNodeReader(root common.Hash) (*HistoricalNodeReader,
 	// are not accessible.
 	meta, err := readTrienodeMetadata(db.trienodeFreezer, *id+1)
 	if err != nil {
-		return nil, err // e.g., the referred trienode history has been pruned
+		return nil, fmt.Errorf("state %#x is not available", root) // e.g., the referred trienode history has been pruned
 	}
 	if meta.parent != root {
-		return nil, fmt.Errorf("state %#x is not canonincal", root)
+		return nil, fmt.Errorf("state %#x is not canonical", root)
 	}
 	return &HistoricalNodeReader{
 		id:     *id,
