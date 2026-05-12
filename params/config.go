@@ -738,6 +738,7 @@ var (
 			DandeliBlock:      big.NewInt(0),
 			LisovoBlock:       big.NewInt(0),
 			LisovoProBlock:    big.NewInt(0),
+			ChicagoBlock:      big.NewInt(0),
 		},
 	}
 
@@ -954,6 +955,7 @@ type BorConfig struct {
 	LisovoBlock                *big.Int          `json:"lisovoBlock"`                // Lisovo switch block (nil = no fork, 0 = already on lisovo)
 	LisovoProBlock             *big.Int          `json:"lisovoProBlock"`             // LisovoPro switch block (nil = no fork, 0 = already on lisovoPro)
 	GiuglianoBlock             *big.Int          `json:"giuglianoBlock"`             // Giugliano switch block (nil = no fork, 0 = already on giugliano)
+	ChicagoBlock               *big.Int          `json:"chicagoBlock"`               // Chicago switch block (nil = no fork, 0 = already on chicago)
 }
 
 // String implements the stringer interface, returning the consensus engine details.
@@ -1027,6 +1029,10 @@ func (c *BorConfig) IsLisovoPro(number *big.Int) bool {
 
 func (c *BorConfig) IsGiugliano(number *big.Int) bool {
 	return isBlockForked(c.GiuglianoBlock, number)
+}
+
+func (c *BorConfig) IsChicago(number *big.Int) bool {
+	return isBlockForked(c.ChicagoBlock, number)
 }
 
 // GetTargetGasPercentage returns the target gas percentage for gas limit calculation.
@@ -1236,6 +1242,9 @@ func (c *ChainConfig) Description() string {
 		}
 		if c.Bor.GiuglianoBlock != nil {
 			banner += fmt.Sprintf(" - Giugliano:                   #%-8v\n", c.Bor.GiuglianoBlock)
+		}
+		if c.Bor.ChicagoBlock != nil {
+			banner += fmt.Sprintf(" - Chicago:                   #%-8v\n", c.Bor.ChicagoBlock)
 		}
 		return banner
 	}
@@ -1875,6 +1884,7 @@ type Rules struct {
 	IsMadhugiriPro                                          bool
 	IsLisovo                                                bool
 	IsLisovoPro                                             bool
+	IsChicago                                               bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1910,5 +1920,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, _ uint64) Rules {
 		IsMadhugiriPro:   c.Bor != nil && c.Bor.IsMadhugiriPro(num),
 		IsLisovo:         c.Bor != nil && c.Bor.IsLisovo(num),
 		IsLisovoPro:      c.Bor != nil && c.Bor.IsLisovoPro(num),
+		IsChicago:        c.Bor != nil && c.Bor.IsChicago(num),
 	}
 }
