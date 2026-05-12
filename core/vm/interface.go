@@ -19,6 +19,7 @@ package vm
 import (
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/arbitrum/filter"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -38,11 +39,12 @@ type StateDB interface {
 	ActivatedAsmMap(targets []rawdb.WasmTarget, moduleHash common.Hash) (asmMap map[rawdb.WasmTarget][]byte, missingTargets []rawdb.WasmTarget, err error)
 	RecordCacheWasm(wasm state.CacheWasm)
 	RecordEvictWasm(wasm state.EvictWasm)
-	GetRecentWasms() state.RecentWasms
+	GetRecentWasms() *state.RecentWasms
 
 	// Arbitrum: track stylus's memory footprint
 	GetStylusPages() (uint16, uint16)
 	GetStylusPagesOpen() uint16
+	SetStylusPages(open, ever uint16)
 	SetStylusPagesOpen(open uint16)
 	AddStylusPages(new uint16) (uint16, uint16)
 	AddStylusPagesEver(new uint16)
@@ -54,6 +56,9 @@ type StateDB interface {
 	FilterTx()
 	ClearTxFilter()
 	IsTxFiltered() bool
+	SetAddressChecker(checker state.AddressChecker)
+	TouchAddress(record *filter.FilteredAddressRecord)
+	IsAddressFiltered() (bool, []filter.FilteredAddressRecord)
 
 	Recording() bool
 	Deterministic() bool

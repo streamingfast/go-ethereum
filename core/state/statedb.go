@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/arbitrum/filter"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
@@ -219,6 +220,23 @@ func (s *StateDB) ClearTxFilter() {
 
 func (s *StateDB) IsTxFiltered() bool {
 	return s.arbExtraData.arbTxFilter
+}
+
+func (s *StateDB) SetAddressChecker(checker AddressChecker) {
+	s.arbExtraData.addressChecker = checker
+}
+
+func (s *StateDB) TouchAddress(record *filter.FilteredAddressRecord) {
+	if s.arbExtraData.addressCheckerState != nil {
+		s.arbExtraData.addressCheckerState.TouchAddress(record)
+	}
+}
+
+func (s *StateDB) IsAddressFiltered() (bool, []filter.FilteredAddressRecord) {
+	if s.arbExtraData.addressCheckerState != nil {
+		return s.arbExtraData.addressCheckerState.IsFiltered()
+	}
+	return false, nil
 }
 
 // StartPrefetcher initializes a new trie prefetcher to pull in nodes from the
@@ -758,6 +776,8 @@ func (s *StateDB) Copy() *StateDB {
 			openWasmPages:          s.arbExtraData.openWasmPages,
 			everWasmPages:          s.arbExtraData.everWasmPages,
 			arbTxFilter:            s.arbExtraData.arbTxFilter,
+			addressChecker:         s.arbExtraData.addressChecker, // shared reference, checker is stateless
+			addressCheckerState:    nil,                           // will be set in SetTxContext
 		},
 
 		db:                   s.db,
@@ -1129,6 +1149,13 @@ func (s *StateDB) SetTxContext(thash common.Hash, ti int) {
 	// Arbitrum: clear memory charging state for new tx
 	s.arbExtraData.openWasmPages = 0
 	s.arbExtraData.everWasmPages = 0
+
+	// Arbitrum: create fresh address checker state for new tx
+	if s.arbExtraData.addressChecker != nil {
+		s.arbExtraData.addressCheckerState = s.arbExtraData.addressChecker.NewTxState()
+	} else {
+		s.arbExtraData.addressCheckerState = nil
+	}
 }
 
 func (s *StateDB) clearJournalAndRefund() {

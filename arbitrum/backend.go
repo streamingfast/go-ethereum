@@ -34,14 +34,14 @@ type Backend struct {
 
 	shutdownTracker *shutdowncheck.ShutdownTracker
 
-	chanTxs      chan *types.Transaction
-	chanClose    chan struct{} //close coroutine
-	chanNewBlock chan struct{} //create new L2 block unless empty
+	chanTxs         chan *types.Transaction
+	closeFilterMaps chan chan struct{} // closeFilterMaps signals updateFilterMapsHeads to stop; the inner channel is closed by the goroutine to confirm it has exited
+	chanNewBlock    chan struct{}      //create new L2 block unless empty
 
 	filterSystem *filters.FilterSystem
 }
 
-func NewBackend(stack *node.Node, config *Config, chainDb ethdb.Database, publisher ArbInterface, filterConfig filters.Config, stateScheme string) (*Backend, *filters.FilterSystem, error) {
+func NewBackend(stack *node.Node, config *Config, chainDb ethdb.Database, publisher ArbInterface, filterConfig filters.Config, stateScheme string, txFilterer core.TxFilterer) (*Backend, *filters.FilterSystem, error) {
 	backend := &Backend{
 		arb:     publisher,
 		stack:   stack,
@@ -50,9 +50,9 @@ func NewBackend(stack *node.Node, config *Config, chainDb ethdb.Database, publis
 
 		shutdownTracker: shutdowncheck.NewShutdownTracker(chainDb),
 
-		chanTxs:      make(chan *types.Transaction, 100),
-		chanClose:    make(chan struct{}),
-		chanNewBlock: make(chan struct{}, 1),
+		chanTxs:         make(chan *types.Transaction, 100),
+		closeFilterMaps: make(chan chan struct{}),
+		chanNewBlock:    make(chan struct{}, 1),
 	}
 
 	scheme, err := rawdb.ParseStateScheme(stateScheme, chainDb)
@@ -84,7 +84,7 @@ func NewBackend(stack *node.Node, config *Config, chainDb ethdb.Database, publis
 		backend.stack.ApplyAPIFilter(rpcFilter)
 	}
 
-	filterSystem, err := createRegisterAPIBackend(backend, filterConfig, config.ClassicRedirect, config.ClassicRedirectTimeout, config.BlockRedirects)
+	filterSystem, err := createRegisterAPIBackend(backend, filterConfig, config.ClassicRedirect, config.ClassicRedirectTimeout, config.BlockRedirects, txFilterer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,6 +129,7 @@ func (b *Backend) Start() error {
 }
 
 func (b *Backend) updateFilterMapsHeads() {
+	defer close(b.closeFilterMaps)
 	headEventCh := make(chan core.ChainEvent, 10)
 	blockProcCh := make(chan bool, 10)
 	sub := b.arb.BlockChain().SubscribeChainEvent(headEventCh)
@@ -163,6 +164,11 @@ func (b *Backend) updateFilterMapsHeads() {
 		if head == nil || newHead.Hash() != head.Hash() {
 			head = newHead
 			chainView := b.newChainView(head)
+			// passing nil chainView to FilterMaps.SetTarget triggers a panic
+			// newChainView can return nil not only when head == nil but also when ChainView.extendNonCanonical returns false
+			if chainView == nil {
+				return
+			}
 			historyCutoff, _ := b.arb.BlockChain().HistoryPruningCutoff()
 			var finalBlock uint64
 			if fb := b.arb.BlockChain().CurrentFinalBlock(); fb != nil {
@@ -181,19 +187,27 @@ func (b *Backend) updateFilterMapsHeads() {
 			b.filterMaps.SetBlockProcessing(blockProc)
 		case <-time.After(time.Second * 10):
 			setHead(b.arb.BlockChain().CurrentBlock())
-		case _, more := <-b.chanClose:
-			if !more {
-				return
-			}
+		case ch := <-b.closeFilterMaps:
+			close(ch)
+			return
 		}
 	}
 }
 
 func (b *Backend) Stop() error {
 	b.scope.Close()
+
+	// stop updateFilterMapsHeads goroutine and wait for it to finish
+	ch := make(chan struct{})
+	select {
+	case <-b.closeFilterMaps:
+		// updateFilterMapsHeads exited earlier and closed closeFilterMaps channel
+	case b.closeFilterMaps <- ch:
+		<-ch
+	}
+
 	b.filterMaps.Stop()
 	b.shutdownTracker.Stop()
 	b.chainDb.Close()
-	close(b.chanClose)
 	return nil
 }

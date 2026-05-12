@@ -76,6 +76,21 @@ func (result *ExecutionResult) Revert() []byte {
 	return common.CopyBytes(result.ReturnData)
 }
 
+// ErrFilteredTx is returned when a transaction was found in the onchain filter
+// and executed as a no-op (nonce incremented, all gas consumed). It wraps
+// ErrExecutionReverted so receipt status checks work correctly.
+type ErrFilteredTx struct {
+	TxHash common.Hash
+}
+
+func (e *ErrFilteredTx) Error() string {
+	return fmt.Sprintf("transaction %s in onchain filter", e.TxHash.Hex())
+}
+
+func (e *ErrFilteredTx) Unwrap() error {
+	return vm.ErrExecutionReverted
+}
+
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
 func IntrinsicGas(data []byte, accessList types.AccessList, authList []types.SetCodeAuthorization, isContractCreation, isHomestead, isEIP2028, isEIP3860 bool) (uint64, error) {
 	multiGas, err := IntrinsicMultiGas(data, accessList, authList, isContractCreation, isHomestead, isEIP2028, isEIP3860)
@@ -125,8 +140,11 @@ func IntrinsicMultiGas(data []byte, accessList types.AccessList, authList []type
 		}
 	}
 	if accessList != nil {
-		gas.SaturatingIncrementInto(multigas.ResourceKindStorageAccess, uint64(len(accessList))*params.TxAccessListAddressGas)
-		gas.SaturatingIncrementInto(multigas.ResourceKindStorageAccess, uint64(accessList.StorageKeys())*params.TxAccessListStorageKeyGas)
+		// Access lists (EIP-2930) pre-warm addresses and storage keys so that subsequent reads
+		// are cheaper. This is a pre-paid read access fee — no persistent state is modified.
+		// See rationale in: https://github.com/OffchainLabs/nitro/blob/master/docs/decisions/0002-multi-dimensional-gas-metering.md
+		gas.SaturatingIncrementInto(multigas.ResourceKindStorageAccessRead, uint64(len(accessList))*params.TxAccessListAddressGas)
+		gas.SaturatingIncrementInto(multigas.ResourceKindStorageAccessRead, uint64(accessList.StorageKeys())*params.TxAccessListStorageKeyGas)
 	}
 	if authList != nil {
 		gas.SaturatingIncrementInto(multigas.ResourceKindStorageGrowth, uint64(len(authList))*params.CallNewAccountGas)
@@ -205,6 +223,8 @@ const (
 	messageEthcallMode
 	messageReplayMode
 	messageRecordingMode
+	messageSequencingMode
+	messageDelayedSequencingMode
 )
 
 type MessageRunContext struct {
@@ -212,6 +232,23 @@ type MessageRunContext struct {
 
 	wasmCacheTag uint32
 	wasmTargets  []rawdb.WasmTarget
+}
+
+func NewMessageSequencingContext(wasmTargets []rawdb.WasmTarget) *MessageRunContext {
+	messageSequencingCtx := NewMessageCommitContext(wasmTargets)
+	messageSequencingCtx.runMode = messageSequencingMode
+	return messageSequencingCtx
+}
+
+// NewMessageDelayedSequencingContext is used when the sequencer builds a block
+// from a finalized L1 delayed-inbox message. Delayed messages cannot be
+// filtered post-commitment (censorship resistance), so consumers that gate
+// FilterTx on "sequencer is actively building a block" should use IsSequencing
+// (which returns false here) rather than IsCommitMode.
+func NewMessageDelayedSequencingContext(wasmTargets []rawdb.WasmTarget) *MessageRunContext {
+	ctx := NewMessageCommitContext(wasmTargets)
+	ctx.runMode = messageDelayedSequencingMode
+	return ctx
 }
 
 func NewMessageCommitContext(wasmTargets []rawdb.WasmTarget) *MessageRunContext {
@@ -260,13 +297,32 @@ func NewMessageGasEstimationContext() *MessageRunContext {
 	}
 }
 
+// IsSequencing returns true only when the sequencer is actively building a
+// block from a directly-received (not-yet-batch-posted) L2 transaction. This
+// is the predicate that gates pre-inclusion filtering (e.g. db.FilterTx).
+// Delayed-inbox sequencing does NOT satisfy this — use IsDelayedSequencing
+// for that case.
+func (c *MessageRunContext) IsSequencing() bool {
+	return c.runMode == messageSequencingMode
+}
+
+// IsDelayedSequencing returns true only when the sequencer is actively
+// building a block from a delayed-inbox message. These must not be filtered
+// (censorship resistance), so consumers of FilterTx should treat this as
+// "exempt from filtering" even though the block is still being committed.
+func (c *MessageRunContext) IsDelayedSequencing() bool {
+	return c.runMode == messageDelayedSequencingMode
+}
+
 func (c *MessageRunContext) IsCommitMode() bool {
-	return c.runMode == messageCommitMode
+	return c.runMode == messageCommitMode ||
+		c.runMode == messageSequencingMode ||
+		c.runMode == messageDelayedSequencingMode
 }
 
 // these message modes are executed onchain so cannot make any gas shortcuts
 func (c *MessageRunContext) IsExecutedOnChain() bool {
-	return c.runMode == messageCommitMode || c.runMode == messageReplayMode || c.runMode == messageRecordingMode
+	return c.IsCommitMode() || c.runMode == messageReplayMode || c.runMode == messageRecordingMode
 }
 
 func (c *MessageRunContext) IsGasEstimation() bool {
@@ -295,6 +351,10 @@ func (c *MessageRunContext) WasmTargets() []rawdb.WasmTarget {
 
 func (c *MessageRunContext) RunModeMetricName() string {
 	switch c.runMode {
+	case messageSequencingMode:
+		return "sequencing_runmode"
+	case messageDelayedSequencingMode:
+		return "delayed_sequencing_runmode"
 	case messageCommitMode:
 		return "commit_runmode"
 	case messageGasEstimationMode:
@@ -596,8 +656,8 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 
-	// Arbitrum: drop tip for delayed (and old) messages
-	if st.evm.ProcessingHook.DropTip() && st.msg.GasPrice.Cmp(st.evm.Context.BaseFee) > 0 {
+	// Arbitrum: drop tip when tip collection is not enabled
+	if !st.evm.ProcessingHook.CollectTips() && st.msg.GasPrice.Cmp(st.evm.Context.BaseFee) > 0 {
 		st.msg.GasPrice = st.evm.Context.BaseFee
 		st.msg.GasTipCap = common.Big0
 	}
@@ -685,7 +745,7 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// Check against hardcoded transaction hashes that have previously reverted, so instead
 	// of executing the transaction we just update state nonce and remaining gas to avoid
 	// state divergence.
-	usedMultiGas, vmerr = st.handleRevertedTx(msg, usedMultiGas)
+	usedMultiGas, vmerr = st.evm.ProcessingHook.RevertedTxHook(&st.gasRemaining, usedMultiGas)
 
 	// vmerr is only not nil when we find a previous reverted transaction
 	if vmerr == nil {
@@ -753,13 +813,20 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		effectiveTip = new(big.Int).Sub(msg.GasPrice, st.evm.Context.BaseFee)
 	}
 	effectiveTipU256, _ := uint256.FromBig(effectiveTip)
+	gasUsed := st.gasUsed()
 
 	if st.evm.Config.NoBaseFee && msg.GasFeeCap.Sign() == 0 && msg.GasTipCap.Sign() == 0 {
 		// Skip fee payment when NoBaseFee is set and the fee fields
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
 	} else {
-		fee := new(uint256.Int).SetUint64(st.gasUsed())
+		// Only charge the tip on compute gas, not poster gas.
+		// The poster is compensated separately in EndTxHook.
+		computeGasUsed, posterGas := uint64(0), st.evm.ProcessingHook.PosterGas()
+		if gasUsed > posterGas {
+			computeGasUsed = gasUsed - posterGas
+		}
+		fee := new(uint256.Int).SetUint64(computeGasUsed)
 		fee.Mul(fee, effectiveTipU256)
 		st.state.AddBalance(tipReceipient, fee, tracing.BalanceIncreaseRewardTransactionFee)
 		tipAmount = fee.ToBig()
@@ -770,11 +837,11 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	}
 
 	// Arbitrum: record the tip
-	if tracer := st.evm.Config.Tracer; tracer != nil && !st.evm.ProcessingHook.DropTip() && tracer.CaptureArbitrumTransfer != nil {
+	if tracer := st.evm.Config.Tracer; tracer != nil && st.evm.ProcessingHook.CollectTips() && tracer.CaptureArbitrumTransfer != nil {
 		tracer.CaptureArbitrumTransfer(nil, &tipReceipient, tipAmount, false, tracing.BalanceIncreaseRewardTransactionFee)
 	}
 
-	st.evm.ProcessingHook.EndTxHook(st.gasRemaining, vmerr == nil)
+	st.evm.ProcessingHook.EndTxHook(st.gasRemaining, usedMultiGas, vmerr == nil)
 
 	// Arbitrum: record self destructs
 	if tracer := st.evm.Config.Tracer; tracer != nil && tracer.CaptureArbitrumTransfer != nil {
@@ -786,7 +853,7 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	}
 
 	return &ExecutionResult{
-		UsedGas:          st.gasUsed(),
+		UsedGas:          gasUsed,
 		MaxUsedGas:       peakGasUsed,
 		Err:              vmerr,
 		ReturnData:       ret,
@@ -794,30 +861,6 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		TopLevelDeployed: deployedContract,
 		UsedMultiGas:     usedMultiGas,
 	}, nil
-}
-
-// handleRevertedTx attempts to process a reverted transaction. It returns
-// ErrExecutionReverted with the updated multiGas if a matching reverted
-// tx is found; otherwise, it returns nil error with unchangedmultiGas
-func (st *stateTransition) handleRevertedTx(msg *Message, usedMultiGas multigas.MultiGas) (multigas.MultiGas, error) {
-	if msg.Tx == nil {
-		return usedMultiGas, nil
-	}
-
-	txHash := msg.Tx.Hash()
-	if l2GasUsed, ok := RevertedTxGasUsed[txHash]; ok {
-		st.state.SetNonce(msg.From, st.state.GetNonce(msg.From)+1, tracing.NonceChangeEoACall)
-
-		// Calculate adjusted gas since l2GasUsed contains params.TxGas
-		adjustedGas := l2GasUsed - params.TxGas
-		st.gasRemaining -= adjustedGas
-
-		// Update multigas and return ErrExecutionReverted error
-		usedMultiGas = usedMultiGas.SaturatingAdd(multigas.ComputationGas(adjustedGas))
-		return usedMultiGas, vm.ErrExecutionReverted
-	}
-
-	return usedMultiGas, nil
 }
 
 // validateAuthorization validates an EIP-7702 authorization against the state.

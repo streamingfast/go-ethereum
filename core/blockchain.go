@@ -190,10 +190,14 @@ type BlockChainConfig struct {
 	SnapshotRestoreMaxGas uint64 // Rollback up to this much gas to restore snapshot (otherwise snapshot recalculated from nothing)
 	HeadRewindBlocksLimit uint64 // Rollback up to this many blocks to restore chain head (0 = preserve default upstream behaviour), only for HashScheme
 
-	// Arbitrum: configure GC window
+	// Arbitrum:
+	// configure GC window
 	TriesInMemory             uint64        // Height difference before which a trie may not be garbage-collected
 	TrieRetention             time.Duration // Time limit before which a trie may not be garbage-collected
 	TrieTimeLimitRandomOffset time.Duration // Range of random offset of each commit due to TrieTimeLimit period
+	// configure write batch size thresholds
+	TrieCapBatchSize    uint32 // threshold used during capping triedb size
+	TrieCommitBatchSize uint32 // threshold used during committing triedb to disk
 
 	MaxNumberOfBlocksToSkipStateSaving uint32
 	MaxAmountOfGasToSkipStateSaving    uint64
@@ -275,6 +279,10 @@ func (cfg *BlockChainConfig) triedbConfig(isVerkle bool) *triedb.Config {
 	}
 	if cfg.StateScheme == rawdb.HashScheme {
 		config.HashDB = &hashdb.Config{
+			// Arbitrum:
+			IdealCapBatchSize:    cfg.TrieCapBatchSize,
+			IdealCommitBatchSize: cfg.TrieCommitBatchSize,
+
 			CleanCacheSize: cfg.TrieCleanLimit * 1024 * 1024,
 		}
 	}
@@ -2522,7 +2530,11 @@ func (bc *BlockChain) collectReceiptsAndLogs(b *types.Block, removed bool) ([]*t
 		blobGasPrice = eip4844.CalcBlobFee(bc.chainConfig, b.Header())
 	}
 	receipts := rawdb.ReadRawReceipts(bc.db, b.Hash(), b.NumberU64())
-	if err := receipts.DeriveFields(bc.chainConfig, b.Hash(), b.NumberU64(), b.Time(), b.BaseFee(), blobGasPrice, b.Transactions()); err != nil {
+	collectTips := true
+	if bc.chainConfig.IsArbitrum() {
+		collectTips = types.DeserializeHeaderExtraInformation(b.Header()).CollectTips
+	}
+	if err := receipts.DeriveFields(bc.chainConfig, b.Hash(), b.NumberU64(), b.Time(), b.BaseFee(), blobGasPrice, b.Transactions(), collectTips); err != nil {
 		log.Error("Failed to derive block receipts fields", "hash", b.Hash(), "number", b.NumberU64(), "err", err)
 	}
 	var logs []*types.Log

@@ -19,6 +19,7 @@ package state
 import (
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/arbitrum/filter"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/stateless"
@@ -348,7 +349,7 @@ func (s *hookedStateDB) RecordEvictWasm(wasm EvictWasm) {
 	s.inner.RecordEvictWasm(wasm)
 }
 
-func (s *hookedStateDB) GetRecentWasms() RecentWasms {
+func (s *hookedStateDB) GetRecentWasms() *RecentWasms {
 	return s.inner.GetRecentWasms()
 }
 
@@ -362,6 +363,10 @@ func (s *hookedStateDB) GetStylusPagesOpen() uint16 {
 
 func (s *hookedStateDB) SetStylusPagesOpen(open uint16) {
 	s.inner.SetStylusPagesOpen(open)
+}
+
+func (s *hookedStateDB) SetStylusPages(open, ever uint16) {
+	s.inner.SetStylusPages(open, ever)
 }
 
 func (s *hookedStateDB) AddStylusPages(new uint16) (uint16, uint16) {
@@ -386,6 +391,18 @@ func (s *hookedStateDB) ClearTxFilter() {
 
 func (s *hookedStateDB) IsTxFiltered() bool {
 	return s.inner.IsTxFiltered()
+}
+
+func (s *hookedStateDB) SetAddressChecker(checker AddressChecker) {
+	s.inner.SetAddressChecker(checker)
+}
+
+func (s *hookedStateDB) TouchAddress(record *filter.FilteredAddressRecord) {
+	s.inner.TouchAddress(record)
+}
+
+func (s *hookedStateDB) IsAddressFiltered() (bool, []filter.FilteredAddressRecord) {
+	return s.inner.IsAddressFiltered()
 }
 
 func (s *hookedStateDB) Recording() bool {

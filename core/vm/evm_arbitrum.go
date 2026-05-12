@@ -45,12 +45,17 @@ func (evm *EVM) JumpDests() JumpDestCache {
 type TxProcessingHook interface {
 	StartTxHook() (bool, multigas.MultiGas, error, []byte) // return 4-tuple rather than *struct to avoid an import cycle
 	GasChargingHook(gasRemaining *uint64, intrinsicGas uint64) (common.Address, multigas.MultiGas, error)
+	// RevertedTxHook handles pre-recorded reverted transactions and filtered transactions.
+	// Returns updated multigas and an error if the tx should not execute normally.
+	// If error is non-nil, the transaction should be treated as reverted.
+	RevertedTxHook(gasRemaining *uint64, usedMultiGas multigas.MultiGas) (multigas.MultiGas, error)
 	PushContract(contract *Contract)
 	PopContract()
 	HeldGas() uint64
 	NonrefundableGas() uint64
-	DropTip() bool
-	EndTxHook(totalGasUsed uint64, evmSuccess bool)
+	CollectTips() bool
+	PosterGas() uint64
+	EndTxHook(totalGasUsed uint64, usedMultiGas multigas.MultiGas, evmSuccess bool)
 	ScheduledTxes() types.Transactions
 	L1BlockNumber(blockCtx BlockContext) (uint64, error)
 	L1BlockHash(blockCtx BlockContext, l1BlocKNumber uint64) (common.Hash, error)
@@ -81,9 +86,11 @@ func (p DefaultTxProcessor) HeldGas() uint64 { return 0 }
 
 func (p DefaultTxProcessor) NonrefundableGas() uint64 { return 0 }
 
-func (p DefaultTxProcessor) DropTip() bool { return false }
+func (p DefaultTxProcessor) CollectTips() bool { return true }
 
-func (p DefaultTxProcessor) EndTxHook(_ uint64, _ bool) {}
+func (p DefaultTxProcessor) PosterGas() uint64 { return 0 }
+
+func (p DefaultTxProcessor) EndTxHook(_ uint64, _ multigas.MultiGas, _ bool) {}
 
 func (p DefaultTxProcessor) ScheduledTxes() types.Transactions {
 	return types.Transactions{}
@@ -115,4 +122,8 @@ func (p DefaultTxProcessor) ExecuteWASM(_ *ScopeContext, _ []byte, evm *EVM) ([]
 // The default behavior for go-ethereum is to enable calldata pricing increase. (EIP-7623)
 func (p DefaultTxProcessor) IsCalldataPricingIncreaseEnabled() bool {
 	return true
+}
+
+func (p DefaultTxProcessor) RevertedTxHook(_ *uint64, usedMultiGas multigas.MultiGas) (multigas.MultiGas, error) {
+	return usedMultiGas, nil
 }
