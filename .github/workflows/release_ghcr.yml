@@ -1,12 +1,6 @@
 name: Release GHCR
 
-on:
-  push:
-    branches-ignore:
-      - '**'
-    tags:
-      - 'v*.*.*'
-      - 'v*.*.*-*'
+on: {}
 
 env:
   REGISTRY: ghcr.io
