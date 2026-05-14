@@ -128,6 +128,14 @@ func (h *ethHandler) handleMilestone(ctx context.Context, eth *Ethereum, milesto
 
 	h.downloader.ProcessMilestone(num, hash)
 
+	// Heimdall milestones are Bor's strongest finality signal (a few sprints deep).
+	// Surface them as the chain's finalized block so consumers — firehose tracer LIB,
+	// eth_getBlockByNumber("finalized"), filtermaps boundary — see real finality
+	// instead of the nil default the upstream catalyst path leaves us with.
+	if header := eth.blockchain.GetHeaderByHash(hash); header != nil {
+		eth.blockchain.SetFinalized(header)
+	}
+
 	return nil
 }
 

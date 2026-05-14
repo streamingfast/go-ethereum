@@ -2028,6 +2028,13 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 			libNum = 0
 		}
 	}
+	// Defense in depth: LIB must never exceed the block being emitted. The normal
+	// import path guarantees this (finalized ≤ head < block being inserted), but
+	// OnSkippedBlock re-walks known blocks during sync recovery, where finalized
+	// can be ahead of the replayed block.
+	if libNum > block.Number {
+		libNum = block.Number
+	}
 
 	// **Important* The final space in the Sprintf template is mandatory!
 	buf.WriteString(fmt.Sprintf("FIRE BLOCK %d %s %d %s %d %d ", block.Number, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.MustTime().UnixNano()))
