@@ -21,8 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-var systemAddress = common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
-
 type ChainContext struct {
 	Chain consensus.ChainHeaderReader
 	Bor   consensus.Engine
@@ -74,7 +72,7 @@ func (m Callmsg) Data() []byte         { return m.CallMsg.Data }
 func GetSystemMessage(toAddress common.Address, data []byte) Callmsg {
 	return Callmsg{
 		ethereum.CallMsg{
-			From:     systemAddress,
+			From:     params.BorSystemAddress,
 			Gas:      params.MaxTxGas, // should be more than enough for state-sync related syscalls
 			GasPrice: big.NewInt(0),
 			Value:    big.NewInt(0),
@@ -159,6 +157,8 @@ func ApplyMessage(
 			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
 		}
 		state.Inner().SetTxContext(tx.Hash(), 0)
+	} else {
+		vmenv.SetTxContext(core.NewEVMTxContextForStateSync())
 	}
 
 	// nolint : contextcheck
