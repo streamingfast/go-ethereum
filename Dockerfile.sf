@@ -1,5 +1,5 @@
 # Stepd build with authenticated relayer (set to latest later)
-ARG FIREHOSE_ETHEREUM="35ef8c5"
+ARG FIREHOSE_ETHEREUM="v2.17.5"
 
 # Build Bor in a stock Go builder container
 FROM golang:1.26-alpine AS builder
