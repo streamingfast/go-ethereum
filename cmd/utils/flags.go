@@ -2461,7 +2461,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node, readonly bool) (*core.BlockCh
 		UseHeimdallApp:      ctx.Bool(UseHeimdallAppFlag.Name),
 	}
 	_ = CreateBorEthereum(configs)
-	engine, err := ethconfig.CreateConsensusEngine(config, configs, chainDb, nil)
+	engine, err := ethconfig.CreateConsensusEngine(config, configs, chainDb, nil, vm.Config{})
 	if err != nil {
 		Fatalf("%v", err)
 	}

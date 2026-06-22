@@ -287,6 +287,9 @@ type P2PConfig struct {
 
 	// DisableTxPropagation disables transaction broadcast and announcement completely to its peers
 	DisableTxPropagation bool `hcl:"disable-tx-propagation,optional" toml:"disable-tx-propagation,optional"`
+
+	// NoSnapServing disables serving snap sync requests to peers (snap/1 protocol is not advertised)
+	NoSnapServing bool `hcl:"nosnap,optional" toml:"nosnap,optional"`
 }
 
 type P2PDiscovery struct {
@@ -449,6 +452,11 @@ type SealerConfig struct {
 
 	// PrefetchGasLimitPercent is the gas limit percentage for prefetching (e.g., 100 = 100%, 110 = 110%)
 	PrefetchGasLimitPercent uint64 `hcl:"prefetch-gaslimit-percent,optional" toml:"prefetch-gaslimit-percent,optional"`
+
+	// DisablePendingBlock disables the pending block creation loop on non block producer nodes. When
+	// set, 'pending' block will be unavailable for RPC queries. This won't apply for block producer
+	// nodes.
+	DisablePendingBlock bool `hcl:"disable-pending-block,optional" toml:"disable-pending-block,optional"`
 }
 
 type JsonRPCConfig struct {
@@ -526,6 +534,8 @@ type AUTHConfig struct {
 type GRPCConfig struct {
 	// Addr is the bind address for the grpc rpc server
 	Addr string `hcl:"addr,optional" toml:"addr,optional"`
+	// Token is the bearer token required for incoming gRPC calls; empty disables auth
+	Token string `hcl:"token,optional" toml:"token,optional"`
 }
 
 type APIConfig struct {
@@ -811,20 +821,30 @@ func DefaultConfig() *Config {
 	return &Config{
 
 		Chain:                       "mainnet",
+		Ethstats:                    "",
 		Identity:                    Hostname(),
 		RequiredBlocks:              map[string]string{},
 		Verbosity:                   3,
 		EnablePreimageRecording:     false,
 		EnableEVMSwitchDispatch:     false,
 		StateSizeTracking:           ethconfig.Defaults.EnableStateSizeTracking,
-		VMTrace:                     "",
-		VMTraceJsonConfig:           "",
 		DataDir:                     DefaultDataDir(),
 		Ancient:                     "",
 		DBEngine:                    "pebble",
 		KeyStoreDir:                 "",
 		DisableBlindForkValidation:  false,
 		MaxBlindForkValidationLimit: whitelist.DefaultMaxForkCorrectnessLimit,
+		VMTrace:                     "",
+		VMTraceJsonConfig:           "{}",
+		BatchRequestLimit:           node.DefaultConfig.BatchRequestLimit,
+		BatchResponseMaxSize:        node.DefaultConfig.BatchResponseMaxSize,
+		RPCReturnDataLimit:          100000,
+		SyncMode:                    "full",
+		GcMode:                      "full",
+		StateScheme:                 "path",
+		Snapshot:                    true,
+		BorLogs:                     false,
+		DevFakeAuthor:               false,
 		Logging: &LoggingConfig{
 			Vmodule:             "",
 			Json:                false,
@@ -832,9 +852,6 @@ func DefaultConfig() *Config {
 			Debug:               false,
 			EnableBlockTracking: false,
 		},
-		BatchRequestLimit:    node.DefaultConfig.BatchRequestLimit,
-		BatchResponseMaxSize: node.DefaultConfig.BatchResponseMaxSize,
-		RPCReturnDataLimit:   100000,
 		P2P: &P2PConfig{
 			MaxPeers:             50,
 			MaxPendPeers:         50,
@@ -846,6 +863,7 @@ func DefaultConfig() *Config {
 			TxArrivalWait:        500 * time.Millisecond,
 			TxAnnouncementOnly:   false,
 			DisableTxPropagation: false,
+			NoSnapServing:        false,
 			Discovery: &P2PDiscovery{
 				DiscoveryV4:  true,
 				DiscoveryV5:  true,
@@ -864,12 +882,6 @@ func DefaultConfig() *Config {
 			GRPCAddress: "",
 			WSAddress:   "",
 		},
-		SyncMode:    "full",
-		GcMode:      "full",
-		StateScheme: "path",
-		Snapshot:    true,
-		BorLogs:     false,
-
 		TxPool: &TxPoolConfig{
 			Locals:               []string{},
 			NoLocals:             false,
@@ -909,6 +921,7 @@ func DefaultConfig() *Config {
 			PrefetchGasLimitPercent:  100,
 			TargetGasPercentage:      0, // Initialize to 0, will be set from CLI or remain 0 (meaning use default)
 			BaseFeeChangeDenominator: 0, // Initialize to 0, will be set from CLI or remain 0 (meaning use default)
+			DisablePendingBlock:      false,
 		},
 		Gpo: &GpoConfig{
 			Blocks:           20,
@@ -970,7 +983,6 @@ func DefaultConfig() *Config {
 				VHosts:    node.DefaultAuthVhosts,
 			},
 		},
-		Ethstats: "",
 		Telemetry: &TelemetryConfig{
 			Enabled:               false,
 			Expensive:             false,
@@ -1001,7 +1013,7 @@ func DefaultConfig() *Config {
 			TriesInMemory:        128,
 			FilterLogCacheSize:   ethconfig.Defaults.FilterLogCacheSize,
 			TrieTimeout:          60 * time.Minute,
-			TrieJournalDirectory: "", // Will be resolved to DATADIR/triedb in buildEth
+			TrieJournalDirectory: "", // When empty, backend resolves this to DATADIR/triedb
 			FDLimit:              0,
 			GoMemLimit:           "",  // Empty means no limit
 			GoGC:                 100, // Go default is 100%
@@ -1023,14 +1035,13 @@ func DefaultConfig() *Config {
 			DisableBorWallet:    true,
 		},
 		GRPC: &GRPCConfig{
-			Addr: ":3131",
+			Addr: "127.0.0.1:3131",
 		},
 		Developer: &DeveloperConfig{
 			Enabled:  false,
 			Period:   0,
 			GasLimit: 11500000,
 		},
-		DevFakeAuthor: false,
 		Pprof: &PprofConfig{
 			Enabled:          false,
 			Port:             6060,
@@ -1050,7 +1061,7 @@ func DefaultConfig() *Config {
 			EnableParallelStatelessImport:  false,
 			ParallelStatelessImportWorkers: 0,
 			WitnessAPI:                     false,
-			FileStore:                      false,
+			FileStore:                      true,
 			FastForwardThreshold:           6400,
 		},
 		History: &HistoryConfig{
@@ -1280,6 +1291,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.Miner.BlockTime = c.Sealer.BlockTime
 		n.Miner.EnablePrefetch = c.Sealer.EnablePrefetch
 		n.Miner.PrefetchGasLimitPercent = c.Sealer.PrefetchGasLimitPercent
+		n.Miner.DisablePendingBlock = c.Sealer.DisablePendingBlock
 
 		// Validate prefetch gas limit percentage
 		if c.Sealer.EnablePrefetch && c.Sealer.PrefetchGasLimitPercent > 150 {
@@ -1555,6 +1567,10 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.TransactionHistory = c.Cache.TxLookupLimit
 		n.TrieTimeout = c.Cache.TrieTimeout
 		n.TriesInMemory = c.Cache.TriesInMemory
+		n.TrieJournalDirectory = c.Cache.TrieJournalDirectory
+		if stack != nil && n.TrieJournalDirectory != "" {
+			n.TrieJournalDirectory = stack.ResolvePath(n.TrieJournalDirectory)
+		}
 		n.FilterLogCacheSize = c.Cache.FilterLogCacheSize
 
 		// Parse address-specific cache sizes
@@ -1668,6 +1684,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 	n.ParallelEVM.SpeculativeProcesses = c.ParallelEVM.SpeculativeProcesses
 	n.ParallelEVM.Enforce = c.ParallelEVM.Enforce
 
+	n.NoSnapServing = c.P2P.NoSnapServing
 	n.WitnessProtocol = c.Witness.Enable
 	if c.SyncMode == "stateless" {
 		if !c.Witness.Enable {

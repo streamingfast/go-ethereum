@@ -64,7 +64,9 @@ The ```bor server``` command runs the Bor client.
 
 - ```gpo.percentile```: Suggested gas price is the given percentile of a set of recent transaction gas prices (default: 60)
 
-- ```grpc.addr```: Address and port to bind the GRPC server (default: :3131)
+- ```grpc.addr```: Address and port to bind the GRPC server. Empty disables the server. Non-loopback binds without --grpc.token log a startup warning. (default: 127.0.0.1:3131)
+
+- ```grpc.token```: Raw token expected in the `authorization: Bearer <token>` header of incoming gRPC calls (empty disables auth; the `Bearer ` prefix is stripped before comparison). Prefer the BOR_GRPC_TOKEN environment variable over this flag.
 
 - ```history.logs```: Number of recent blocks to maintain log search index for (default = about 2 months, 0 = entire chain) (default: 2350000)
 
@@ -112,15 +114,15 @@ The ```bor server``` command runs the Bor client.
 
 - ```vmdebug```: Record information useful for VM and contract debugging (default: false)
 
-- ```vmtrace```: Name of tracer which should observe internal VM operations (e.g. 'json')
+- ```vmtrace```: Name of a tracer to record internal VM operations during blockchain synchronization (costly) (e.g. 'json')
 
-- ```vmtrace.jsonconfig```: Tracer configuration (JSON)
+- ```vmtrace.jsonconfig```: Tracer configuration (JSON) (default: {})
 
 - ```witness.enable```: Enable witness protocol (default: false)
 
 - ```witness.fastforwardthreshold```: Minimum necessary distance between local header and chain tip to trigger fast forward (default: 6400)
 
-- ```witness.filestore```: Store witness blobs on the filesystem instead of the key-value database (default: false)
+- ```witness.filestore```: Store witness blobs on the filesystem instead of the key-value database (default: true)
 
 - ```witness.parallelstatelessimport```: Enable parallel stateless block import (default: false)
 
@@ -308,6 +310,8 @@ The ```bor server``` command runs the Bor client.
 
 - ```nodiscover```: Disables the peer discovery mechanism (manual peer addition) (default: false)
 
+- ```p2p.nosnap```: Disable serving snap sync requests to peers (snap/1 protocol is not advertised) (default: false)
+
 - ```port```: Network listening port (default: 30303)
 
 - ```relay.bp-rpc-endpoints```: Comma separated rpc endpoints of all block producers
@@ -335,6 +339,8 @@ The ```bor server``` command runs the Bor client.
 - ```miner.baseFeeChangeDenominator```: Base fee change rate denominator (must be >0, default 64) for post-Lisovo blocks (default: 0)
 
 - ```miner.blocktime```: The block time defined by the miner. Needs to be larger or equal to the consensus block time. If not set (default = 0), the miner will use the consensus block time. (default: 0s)
+
+- ```miner.disable-pending-block```: Disable the pending block creation loop on non block producer nodes. When set, 'pending' block will be unavailable for RPC queries. (default: false)
 
 - ```miner.enableDynamicGasLimit```: Enable dynamic gas limit adjustment based on base fee (default: false)
 

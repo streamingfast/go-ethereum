@@ -3,7 +3,7 @@ identity = ""
 verbosity = 3
 vmdebug = false
 vmtrace = ""
-"vmtrace.jsonconfig" = ""
+"vmtrace.jsonconfig" = "{}"
 evm-switch-dispatch = false
 "state.size-tracking" = false
 datadir = "/var/lib/bor"
@@ -45,6 +45,7 @@ devfakeauthor = false
   txarrivalwait = "500ms"
   txannouncementonly = false
   disable-tx-propagation = false
+  nosnap = false
   [p2p.discovery]
     v4disc = true
     v5disc = true
@@ -105,6 +106,7 @@ devfakeauthor = false
   base-fee-change-denominator = 0
   prefetch = false
   prefetch-gaslimit-percent = 100
+  disable-pending-block = false
 
 [jsonrpc]
   ipcdisable = false
@@ -218,7 +220,8 @@ devfakeauthor = false
   disable-bor-wallet = true
 
 [grpc]
-  addr = ":3131"
+  addr = "127.0.0.1:3131"
+  token = ""
 
 [developer]
   dev = false
@@ -237,7 +240,7 @@ devfakeauthor = false
   parallel-stateless-import = false
   parallel-stateless-import-workers = 0
   witnessapi = false
-  filestore = false
+  filestore = true
   fastforwardthreshold = 6400
 
 [pprof]
