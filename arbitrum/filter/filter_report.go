@@ -17,8 +17,8 @@ const (
 	ReasonDealiasedRetryableBeneficiary FilterReasonType = "dealiased_retryable_beneficiary"
 	ReasonDealiasedRetryableFeeRefund   FilterReasonType = "dealiased_retryable_fee_refund"
 	ReasonEventRule                     FilterReasonType = "event_rule"
-	ReasonContractAddress               FilterReasonType = "contract_address"
-	ReasonContractCaller                FilterReasonType = "contract_caller"
+	ReasonCallTarget                    FilterReasonType = "call_target"
+	ReasonCreate                        FilterReasonType = "create"
 	ReasonSelfdestructBeneficiary       FilterReasonType = "selfdestruct_beneficiary"
 )
 
@@ -43,7 +43,13 @@ type FilterReason struct {
 }
 
 // lint:require-exhaustive-initialization
-type FilteredAddressRecord struct {
+type FilteredAddressWithReason struct {
 	Address common.Address `json:"address"`
 	FilterReason
+}
+
+// lint:require-exhaustive-initialization
+type FilteredAddressRecord struct {
+	FilterSetID string `json:"filterSetId"`
+	FilteredAddressWithReason
 }
