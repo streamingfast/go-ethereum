@@ -163,7 +163,15 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		stateSyncReceipt *types.Receipt
 		stateSyncEndErr  error
 	)
-	if hooks := cfg.Tracer; hooks != nil && hasStateSyncTx && hooks.OnTxStart != nil && hooks.OnTxEnd != nil {
+	//
+	// A tracer that provides OnTxStartWithHash (Firehose) opens and closes the state-sync
+	// transaction itself, per commitState event, inside consensus/bor/statefull.ApplyMessage
+	// (the pre-#2236 behavior). Firing this generic single-window OnTxStart for it too would
+	// open a second, nested transaction over the same events and trip the tracer's invariants
+	// (Firehose panics in ensureInBlockAndNotInTrxAndNotInCall). Skip the generic wrapper for
+	// such tracers; see the matching guard in eth.New (eth/backend.go) that also leaves them
+	// unwrapped by WrapStateSyncHooks. This keeps Firehose's state-sync output identical to v2.8.2.
+	if hooks := cfg.Tracer; hooks != nil && hasStateSyncTx && hooks.OnTxStart != nil && hooks.OnTxEnd != nil && hooks.OnTxStartWithHash == nil {
 		hooks.OnTxStart(evm.GetVMContext(), txs[len(txs)-1], params.BorSystemAddress)
 		defer func() {
 			hooks.OnTxEnd(stateSyncReceipt, stateSyncEndErr)

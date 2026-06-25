@@ -268,7 +268,18 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		// For tracing state-sync transactions, we need a modified tracer. We wrap the hooks
 		// of the live tracer above with a state-sync aware tracer which is used across multiple
 		// modules.
-		if borCfg := config.Genesis.Config.Bor; borCfg != nil {
+		//
+		// A tracer that provides OnTxStartWithHash (Firehose) manages state-sync transaction
+		// boundaries itself, per commitState event, via consensus/bor/statefull.ApplyMessage
+		// (the pre-#2236 behavior). The generic single-synthetic-root wrapper would then open a
+		// second, conflicting transaction window over the same events, so we must NOT wrap such
+		// tracers. See the matching guard in core.StateProcessor.Process. This keeps Firehose's
+		// state-sync trace output identical to v2.8.2.
+		//
+		// TODO(firehose): unify on the #2236 WrapStateSyncHooks model once the Firehose output
+		// format can adopt the synthetic-root representation; drop the per-event OnTxStartWithHash
+		// path in statefull.ApplyMessage at that point.
+		if borCfg := config.Genesis.Config.Bor; borCfg != nil && t.OnTxStartWithHash == nil {
 			stateReceiver := common.HexToAddress(borCfg.StateReceiverContract)
 			t = tracers.WrapStateSyncHooks(t, stateReceiver)
 		}

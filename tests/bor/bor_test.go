@@ -873,6 +873,95 @@ func TestStateSyncTracing_LiveTracerDoesNotPanic(t *testing.T) {
 		"expected one OnExit at depth 1 per state-sync event")
 }
 
+// TestStateSyncTracing_FirehoseLiveTracerDoesNotPanic is the Firehose counterpart
+// of TestStateSyncTracing_LiveTracerDoesNotPanic. Instead of the counting-noop
+// tracer, it wires the real "firehose" live tracer (registered in
+// eth/tracers/firehose.go) through the exact production path: eth.Config.VMTrace
+// -> backend.go -> bortracing.WrapStateSyncHooks. It then imports a sprint-end
+// block carrying a state-sync transaction.
+//
+// Why a dedicated Firehose test: the noop-based test cannot catch this class of
+// bug because noop has no internal state machine. Firehose enforces strict
+// invariants (ensureInBlockAndNotInTrxAndNotInCall, etc.) and panics on an
+// unexpected nested OnTxStart. Post-Madhugiri, the import path fires
+// core/state_processor.go's OnTxStart(stateSyncTx) for the whole Finalize window
+// while consensus/bor/statefull.ApplyMessage *also* fires OnTxStartWithHash per
+// commitState event — and WrapStateSyncHooks does not intercept OnTxStartWithHash.
+// That double tx-open is exactly what Firehose's guards reject, so without the
+// fix this test panics inside InsertChain.
+//
+// The assertion is intentionally narrow: the production wiring must process a
+// state-sync block through Firehose without panicking. Output-shape parity with
+// 2.8.2 is locked separately by the firehose golden tests.
+func TestStateSyncTracing_FirehoseLiveTracerDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
+	fdlimit.Raise(2048)
+
+	stateSyncConfirmationDelay := int64(128)
+	updateGenesis := func(gen *core.Genesis) {
+		gen.Config.Bor.StateSyncConfirmationDelay = map[string]uint64{"0": uint64(stateSyncConfirmationDelay)}
+		gen.Config.Bor.Sprint = map[string]uint64{"0": sprintSize}
+		gen.Config.Bor.MadhugiriBlock = big.NewInt(0) // Madhugiri from genesis.
+	}
+	init := buildEthereumInstanceWithVMTrace(t, rawdb.NewMemoryDatabase(), "firehose", updateGenesis)
+	chain := init.ethereum.BlockChain()
+	engine := init.ethereum.Engine()
+	_bor := engine.(*bor.Bor)
+	defer _bor.Close()
+
+	block := init.genesis.ToBlock()
+	span0 := createMockSpan(addr, chain.Config().ChainID.String())
+	borValSet := borSpan.ConvertHeimdallValSetToBorValSet(span0.ValidatorSet)
+	currentValidators := borValSet.Validators
+
+	res := loadSpanFromFile(t)
+	spanner := getMockedSpanner(t, currentValidators)
+	_bor.SetSpanner(spanner)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	h := createMockHeimdall(ctrl, &span0, res)
+
+	fromID := uint64(1)
+	to := int64(chain.GetHeaderByNumber(0).Time) + 9 - stateSyncConfirmationDelay
+	const eventCount = 5 // Multiple events so the synthetic-root wrapping is meaningful.
+
+	sample := getSampleEventRecord(t)
+	sample.Time = time.Unix(to-int64(eventCount+1), 0)
+	eventRecords := generateFakeStateSyncEvents(sample, eventCount)
+
+	h.EXPECT().StateSyncEvents(gomock.Any(), fromID, to).Return(eventRecords, nil).AnyTimes()
+	h.EXPECT().GetLatestSpan(gomock.Any()).Return(nil, fmt.Errorf("span not found")).AnyTimes()
+	_bor.SetHeimdallClient(h)
+
+	// Build out the sprint up to (but not including) the sprint-end block.
+	for i := uint64(1); i < sprintSize; i++ {
+		if IsSpanEnd(i) {
+			currentValidators = borValSet.Validators
+		}
+		block = buildNextBlock(t, _bor, chain, block, nil, init.genesis.Config.Bor, nil, currentValidators, false, nil, nil)
+		insertNewBlock(t, chain, block)
+	}
+
+	// Sprint-end block carries the state-sync tx. The import path (InsertChain ->
+	// StateProcessor.Process) is where post-Madhugiri OnTxStart(stateSyncTx) fires,
+	// so this is where the double tx-open would trip Firehose's guards.
+	block = buildNextBlock(t, _bor, chain, block, nil, init.genesis.Config.Bor, nil, borValSet.Validators, false, nil, nil)
+
+	require.NotPanics(t, func() {
+		if _, err := chain.InsertChain([]*types.Block{block}, false); err != nil {
+			t.Fatalf("failed to import state-sync block through Firehose tracer: %v", err)
+		}
+	}, "Firehose live tracer must process a post-Madhugiri state-sync block without panicking")
+
+	// Sanity: the block has a state-sync tx in body.
+	lastBlock := chain.GetBlockByNumber(block.NumberU64())
+	txs := lastBlock.Transactions()
+	require.Equal(t, 1, len(txs), "state-sync tx should be in the sprint-end block body")
+	require.Equal(t, uint8(types.StateSyncTxType), txs[0].Type(), "last tx should be state-sync type")
+}
+
 func TestFetchStateSyncEvents_2(t *testing.T) {
 	t.Parallel()
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
