@@ -232,6 +232,7 @@ func isArbitrumSpecificReason(reason tracing.BalanceChangeReason) bool {
 		tracing.BalanceChangeTransferBatchposterReward,
 		tracing.BalanceChangeTransferBatchposterRefund,
 		tracing.BalanceChangeTransferRetryableExcessRefund,
+		tracing.BalanceChangeMultiGasRefund,
 
 		tracing.BalanceChangeTransferActivationFee,
 		tracing.BalanceChangeTransferActivationReimburse,
