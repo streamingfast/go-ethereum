@@ -578,7 +578,12 @@ func NewBlockChain(db ethdb.Database, chainConfig *params.ChainConfig, genesis *
 				return nil, fmt.Errorf("failed to get genesis state: %w", err)
 			}
 			if alloc == nil {
-				return nil, errors.New("live blockchain tracer requires genesis alloc to be set")
+                               // Nitro builds its ArbOS genesis without persisting a genesis state spec (see
+                               // execution/gethexec WriteOrTestGenblock), so getGenesisState finds nothing. Fall
+                               // back to an empty alloc so a live tracer (e.g. firehose) can still initialize and
+                               // emit block 0 instead of refusing to start. The genesis block then carries no
+                               // pre-state balance changes.
+                               alloc = types.GenesisAlloc{}
 			}
 			bc.logger.OnGenesisBlock(bc.genesisBlock, alloc)
 		}
