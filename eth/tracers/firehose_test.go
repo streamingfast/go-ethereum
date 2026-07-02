@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -451,6 +452,94 @@ func blockEvent(height uint64) tracing.BlockEvent {
 			Number: big.NewInt(int64(height)),
 		}, nil, nil, nil),
 	}
+}
+
+// TestFirehose_TxSkippedByRevertedTxHookSynthesizesRootCall covers Arbitrum transactions
+// skipped by `TxProcessor.RevertedTxHook`: the EVM never runs so no call is ever recorded,
+// but the transaction still gets a failed receipt consuming all gas. `completeTransaction`
+// used to panic on the missing root call (Robinhood Chain 4663, block 604227).
+func TestFirehose_TxSkippedByRevertedTxHookSynthesizesRootCall(t *testing.T) {
+	f := NewFirehose(&FirehoseConfig{
+		private: &privateFirehoseConfig{FlushToTestBuffer: true},
+	})
+
+	f.OnBlockchainInit(params.TestChainConfig)
+	f.OnBlockStart(blockEvent(604227))
+
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(120000000),
+		Gas:      100000,
+		To:       &to,
+		Value:    big.NewInt(999),
+		Data:     nil,
+	})
+
+	f.OnTxStart(&tracing.VMContext{}, tx, from)
+
+	receipt := &types.Receipt{
+		Type:              types.LegacyTxType,
+		Status:            types.ReceiptStatusFailed,
+		GasUsed:           tx.Gas(),
+		CumulativeGasUsed: tx.Gas(),
+		TransactionIndex:  1,
+	}
+
+	require.NotPanics(t, func() { f.OnTxEnd(receipt, nil) })
+
+	require.Len(t, f.block.TransactionTraces, 1)
+	trace := f.block.TransactionTraces[0]
+
+	require.Len(t, trace.Calls, 1)
+	rootCall := trace.Calls[0]
+
+	assert.Equal(t, pbeth.CallType_CALL, rootCall.CallType)
+	assert.Equal(t, from.Bytes(), rootCall.Caller)
+	assert.Equal(t, to.Bytes(), rootCall.Address)
+	assert.Equal(t, big.NewInt(999).Bytes(), rootCall.Value.Bytes)
+	assert.Equal(t, uint64(100000), rootCall.GasLimit)
+	assert.Equal(t, uint64(100000), rootCall.GasConsumed)
+	assert.True(t, rootCall.StatusFailed, "synthesized root call must be failed since the receipt is failed")
+	assert.True(t, rootCall.StateReverted, "synthesized root call must have its state reverted since it failed")
+	assert.Equal(t, pbeth.TransactionTraceStatus_FAILED, trace.Status)
+
+	// Root call BeginOrdinal is forced to 0 (known Firehose quirk, see `callStart`), the
+	// remaining ordinals must stay monotonic
+	assert.Equal(t, uint64(0), rootCall.BeginOrdinal)
+	assert.Less(t, trace.BeginOrdinal, rootCall.EndOrdinal)
+	assert.Less(t, rootCall.EndOrdinal, trace.EndOrdinal)
+
+	require.NotPanics(t, func() { f.OnBlockEnd(nil) })
+}
+
+// TestFirehose_TxSkippedByRevertedTxHookSuccessfulReceipt covers the same EVM-less shape but
+// with a successful receipt, the synthesized root call must then be successful too.
+func TestFirehose_TxSkippedByRevertedTxHookSuccessfulReceipt(t *testing.T) {
+	f := NewFirehose(&FirehoseConfig{
+		private: &privateFirehoseConfig{FlushToTestBuffer: true},
+	})
+
+	f.OnBlockchainInit(params.TestChainConfig)
+	f.OnBlockStart(blockEvent(604227))
+	f.OnTxStart(&tracing.VMContext{}, txEvent(), from)
+
+	receipt := txReceiptEvent(0)
+	receipt.GasUsed = 21000
+	receipt.CumulativeGasUsed = 21000
+
+	require.NotPanics(t, func() { f.OnTxEnd(receipt, nil) })
+
+	require.Len(t, f.block.TransactionTraces, 1)
+	trace := f.block.TransactionTraces[0]
+
+	require.Len(t, trace.Calls, 1)
+	rootCall := trace.Calls[0]
+
+	assert.False(t, rootCall.StatusFailed)
+	assert.False(t, rootCall.StateReverted)
+	assert.Equal(t, pbeth.TransactionTraceStatus_SUCCEEDED, trace.Status)
+
+	require.NotPanics(t, func() { f.OnBlockEnd(nil) })
 }
 
 func TestMemory_GetPtr(t *testing.T) {
