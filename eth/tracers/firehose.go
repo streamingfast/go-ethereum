@@ -509,6 +509,33 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 		case types.ArbitrumDepositTxType, types.ArbitrumSubmitRetryableTxType, types.ArbitrumInternalTxType:
 			firehoseDebug("closing simulated root call to arbitrum (tx_type=%d)", receipt.Type)
 			f.callEnd("root", nil, receipt.GasUsed, err, err != nil)
+
+		default:
+			// Arbitrum's `TxProcessor.RevertedTxHook` can skip EVM execution entirely (on-chain
+			// filtered transactions and hardcoded `core.RevertedTxGasUsed` hashes) leaving a receipt
+			// but no recorded call, synthesize a root call like the Arbitrum tx types above.
+			if len(f.transaction.Calls) == 0 && !f.callStack.HasActiveCall() {
+				firehoseInfo("synthesizing root call for transaction executed without any EVM call (tx_type=%d, receipt_status=%d)", receipt.Type, receipt.Status)
+
+				callErr := err
+				if callErr == nil && receipt.Status == types.ReceiptStatusFailed {
+					callErr = errors.New("transaction skipped EVM execution (Arbitrum RevertedTxHook, filtered or hardcoded reverted transaction)")
+				}
+
+				var value *big.Int
+				if f.transaction.Value != nil {
+					value = new(big.Int).SetBytes(f.transaction.Value.Bytes)
+				}
+
+				f.callStart("root", pbeth.CallType_CALL,
+					common.BytesToAddress(f.transaction.From),
+					common.BytesToAddress(f.transaction.To),
+					f.transaction.Input,
+					f.transaction.GasLimit,
+					value,
+				)
+				f.callEnd("root", nil, receipt.GasUsed, callErr, receipt.Status == types.ReceiptStatusFailed)
+			}
 		}
 
 		f.block.TransactionTraces = append(f.block.TransactionTraces, f.completeTransaction(receipt))
