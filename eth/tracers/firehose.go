@@ -166,10 +166,6 @@ type Firehose struct {
 	callStack               *CallStack
 	deferredCallState       *DeferredCallState
 	latestCallEnterSuicided bool
-	// skipNextCallExit makes the next OnCallExit a no-op. It is set when a depth-0
-	// OnCallEnter is ignored because a root call is already active (nitro's
-	// emitSkippedCallFrame re-entry over an arbitrum-simulated root, see OnCallEnter).
-	skipNextCallExit bool
 
 	// Testing state, only used in tests and private configs
 	testingBuffer             *bytes.Buffer
@@ -257,7 +253,6 @@ func (f *Firehose) resetTransaction() {
 
 	f.callStack.Reset()
 	f.latestCallEnterSuicided = false
-	f.skipNextCallExit = false
 	f.deferredCallState.Reset()
 }
 
@@ -275,7 +270,6 @@ func (f *Firehose) snapshotAndResetTransactionState() {
 		callStack:               f.callStack.Copy(),
 		deferredCallState:       f.deferredCallState.Copy(),
 		latestCallEnterSuicided: f.latestCallEnterSuicided,
-		skipNextCallExit:        f.skipNextCallExit,
 	}
 
 	f.resetTransaction()
@@ -299,7 +293,6 @@ func (f *Firehose) restoreTransactionState() {
 		f.callStack = f.transactionStateSnapshot.callStack
 		f.deferredCallState = f.transactionStateSnapshot.deferredCallState
 		f.latestCallEnterSuicided = f.transactionStateSnapshot.latestCallEnterSuicided
-		f.skipNextCallExit = f.transactionStateSnapshot.skipNextCallExit
 
 		f.transactionStateSnapshot = nil
 	}
@@ -740,19 +733,6 @@ func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 func (f *Firehose) OnCallEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
 	opCode := vm.OpCode(typ)
 
-	// Arbitrum: nitro's TxProcessor.emitSkippedCallFrame (arbos/tx_processor.go, v3.11.2+)
-	// fires a depth-0 OnEnter/OnExit pair for transaction paths that skip EVM execution. For
-	// the arbitrum-simulated tx types (deposit / submit-retryable / internal) Firehose already
-	// opened the transaction's root call in OnTxStart, so honoring this synthetic re-entry
-	// would double-record the root as a nested child call. Ignore it and its matching OnExit.
-	// For every other tx type OnTxStart opens no root call, so the callstack is empty here and
-	// the synthetic frame becomes the legitimate root (the OnTxEnd synthesis then backs off).
-	if depth == 0 && f.callStack.HasActiveCall() {
-		firehoseDebug("ignoring redundant depth-0 OnCallEnter over already-active arbitrum-simulated root call")
-		f.skipNextCallExit = true
-		return
-	}
-
 	var callType pbeth.CallType
 	if isRootCall := depth == 0; isRootCall {
 		callType = rootCallType(opCode == vm.CREATE)
@@ -904,12 +884,6 @@ func (f *Firehose) removeFirstWithdrawBalanceChange(activeCall *pbeth.Call, last
 
 // OnCallExit is called after the call finishes to finalize the tracing.
 func (f *Firehose) OnCallExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
-	if f.skipNextCallExit {
-		f.skipNextCallExit = false
-		firehoseDebug("ignoring OnCallExit matching skipped depth-0 arbitrum-simulated root re-entry")
-		return
-	}
-
 	if depth == 0 {
 		f.callEnd("root", output, gasUsed, err, reverted)
 	} else {
@@ -2696,7 +2670,6 @@ type TransactionStateSnapshot struct {
 	transaction             *pbeth.TransactionTrace
 	transactionLogIndex     uint32
 	latestCallEnterSuicided bool
-	skipNextCallExit        bool
 
 	// Those two are trickier as the actual instance is kept but reset,
 	// so a full, but shallow clone is made for those to ensure with
