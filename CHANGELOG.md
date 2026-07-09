@@ -1,4 +1,22 @@
 # Changelog
+## v1.7.5
+v1.7.5 is a maintenance release.
+
+## MetaInfo
+Mandatory Update Required: No
+Target Audience: all BSC Mainnet/Testnet users
+Procedure: simply binary replacement should be good
+Schedule(Timeline): no scheduled upgrade timeline
+
+## v1.7.4
+v1.7.4 is a maintenance release.
+
+## MetaInfo
+Mandatory Update Required: No
+Target Audience: all BSC Mainnet/Testnet users
+Procedure: simply binary replacement should be good
+Schedule(Timeline): no scheduled upgrade timeline
+
 ## v1.7.3
 v1.7.3 is a maintenance release, which mainly fixes online block pruning and kvdb abnormal continuous growth, pls refer change log for detail.
 
