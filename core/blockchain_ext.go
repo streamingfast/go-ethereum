@@ -12,10 +12,10 @@ import (
 // Contains extensions used in blockchain.go file that we put here to make it easier
 // to merge new changes from upstream with minimal diffs.
 
-var disablesFinalizedHeaderMismatchLogging = os.Getenv("FIREHOSE_ETHEREUM_TRACER_LOG_FINALIZED_HEADER_MISMATCH") == "false"
+var enabledFinalizedHeaderMismatchLogging = os.Getenv("FIREHOSE_ETHEREUM_TRACER_LOG_FINALIZED_HEADER_MISMATCH") == "true"
 
 func (bc *BlockChain) logFinalizedHeaderMismatch(prefix string, current *types.Header, against *types.Header) {
-	if disablesFinalizedHeaderMismatchLogging {
+	if !enabledFinalizedHeaderMismatchLogging {
 		return
 	}
 
@@ -49,14 +49,13 @@ func (bc *BlockChain) logFinalizedHeaderMismatch(prefix string, current *types.H
 		return
 	}
 
-	// removed this heavy log: this seems to be a normal condition
-	//if finalizedRelative.Number != current.Number || finalizedRelative.Hash() != current.Hash() {
-	//	log.Info(fmt.Sprintf("CurrentFinalBlock() and GetFinalizedHeader(tracedBlock) differs %s", prefix),
-	//		"current", (*headerView)(current),
-	//		"relative", (*headerView)(finalizedRelative),
-	//		"relative_against", (*longHeaderView)(against),
-	//	)
-	//}
+	if finalizedRelative.Number != current.Number || finalizedRelative.Hash() != current.Hash() {
+		log.Info(fmt.Sprintf("CurrentFinalBlock() and GetFinalizedHeader(tracedBlock) differs %s", prefix),
+			"current", (*headerView)(current),
+			"relative", (*headerView)(finalizedRelative),
+			"relative_against", (*longHeaderView)(against),
+		)
+	}
 }
 
 type headerView types.Header
