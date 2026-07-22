@@ -58,13 +58,14 @@ require (
 	github.com/protolambda/bls12-381-util v0.1.0
 	github.com/protolambda/zrnt v0.32.2
 	github.com/protolambda/ztyp v0.2.2
-	github.com/rs/cors v1.10.0
+	github.com/rs/cors v1.11.0
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/bstream v0.0.2-0.20250505155336-473e82240140
 	github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391
 	github.com/streamingfast/firehose-core v1.10.2
 	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250808201232-da49469285c6
+	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000
 	github.com/stretchr/testify v1.10.0
 	github.com/supranational/blst v0.3.14
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
@@ -162,7 +163,6 @@ require (
 	github.com/sercand/kuberesolver/v5 v5.1.1 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
-	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
