@@ -778,8 +778,12 @@ func (cm *chainMaker) GetBlock(hash common.Hash, number uint64) *types.Block {
 }
 
 func (cm *chainMaker) GetTd(hash common.Hash, number uint64) *big.Int {
-	// Allows tests to pass with beacon consensus engine
-	if _, ok := cm.engine.(*beacon.Beacon); ok {
+	// Allows tests to pass with beacon consensus engine. Only report a total
+	// difficulty when the chain actually has a terminal one to compare against:
+	// beacon.IsTTDReached dereferences TerminalTotalDifficulty as soon as the TD
+	// is non-nil, so a pre-merge config would panic there. Returning nil instead
+	// makes it report ErrUnknownAncestor and fall back to the legacy rules.
+	if _, ok := cm.engine.(*beacon.Beacon); ok && cm.config.TerminalTotalDifficulty != nil {
 		return new(big.Int)
 	}
 
