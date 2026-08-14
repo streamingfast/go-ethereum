@@ -158,10 +158,6 @@ func (s *hookedStateDB) AddPreimage(hash common.Hash, bytes []byte) {
 	s.inner.AddPreimage(hash, bytes)
 }
 
-func (s *hookedStateDB) RecordTransfer(sender, recipient common.Address, amount *uint256.Int) bool {
-	return s.inner.RecordTransfer(sender, recipient, amount)
-}
-
 func (s *hookedStateDB) Witness() *stateless.Witness {
 	return s.inner.Witness()
 }

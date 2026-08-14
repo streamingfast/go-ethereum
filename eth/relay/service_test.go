@@ -14,28 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func waitCachedTask(t *testing.T, service *Service, hash common.Hash) TxTask {
-	t.Helper()
-
-	return waitCachedTaskWhere(t, service, hash, func(TxTask) bool { return true }, "expected task to be stored after processing")
-}
-
-func waitCachedTaskWhere(t *testing.T, service *Service, hash common.Hash, check func(TxTask) bool, msg string) TxTask {
-	t.Helper()
-
-	var task TxTask
-	require.Eventually(t, func() bool {
-		service.storeMu.RLock()
-		defer service.storeMu.RUnlock()
-
-		var exists bool
-		task, exists = service.store[hash]
-		return exists && check(task)
-	}, 2*time.Second, 10*time.Millisecond, msg)
-
-	return task
-}
-
 func TestNewService(t *testing.T) {
 	t.Parallel()
 
@@ -965,8 +943,14 @@ func TestTaskCacheOverride(t *testing.T) {
 		err := service.SubmitTransactionForPreconf(tx)
 		require.NoError(t, err, "expected no error queuing task")
 
+		// Give some time to process
+		time.Sleep(100 * time.Millisecond)
+
 		// Ensure task was stored correctly
-		task := waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists := service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to be stored after processing")
 		require.True(t, task.preconfirmed, "expected task to be preconfirmed")
 		require.NoError(t, task.err, "expected no error in task")
 
@@ -982,7 +966,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		service.updateTaskInCache(invalidTask)
 
 		// Verify that the original preconfirmed task remains unchanged
-		task = waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists = service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to still exist in cache")
 		require.True(t, task.preconfirmed, "expected preconfirmed status to remain true")
 		require.NoError(t, task.err, "expected error to remain nil")
 	})
@@ -998,8 +985,14 @@ func TestTaskCacheOverride(t *testing.T) {
 		err := service.SubmitTransactionForPreconf(tx)
 		require.NoError(t, err, "expected no error queuing task")
 
+		// Give some time to process
+		time.Sleep(100 * time.Millisecond)
+
 		// Ensure task was stored correctly
-		task := waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists := service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to be stored after processing")
 		require.False(t, task.preconfirmed, "expected task to not be preconfirmed")
 		require.ErrorIs(t, task.err, errPreconfValidationFailed, "expected errPreconfValidationFailed in task")
 
@@ -1009,7 +1002,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		require.NoError(t, err, "expected no error from CheckTxPreconfStatus")
 
 		// Ensure the underlying task was updated to preconfirmed
-		task = waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists = service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to still exist in cache")
 		require.True(t, task.preconfirmed, "expected preconfirmed status to be updated to true")
 		require.NoError(t, task.err, "expected error to be updated to nil")
 
@@ -1022,7 +1018,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Verify that the preconfirmed task remains unchanged
-		task = waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists = service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to still exist in cache")
 		require.True(t, task.preconfirmed, "expected preconfirmed status to remain true")
 		require.NoError(t, task.err, "expected error to remain nil")
 
@@ -1042,7 +1041,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		require.NoError(t, err, "expected no error from CheckTxPreconfStatus")
 
 		// Ensure task was stored correctly in cache
-		task := waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists := service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to be stored after processing")
 		require.True(t, task.preconfirmed, "expected task to be preconfirmed")
 		require.NoError(t, task.err, "expected no error in task")
 
@@ -1058,7 +1060,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Verify that the original preconfirmed task remains unchanged
-		task = waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists = service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to still exist in cache")
 		require.True(t, task.preconfirmed, "expected preconfirmed status to remain true")
 		require.NoError(t, task.err, "expected error to remain nil")
 
@@ -1085,7 +1090,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		require.Error(t, err, "expected an error from CheckTxPreconfStatus")
 
 		// Ensure task was stored correctly in cache
-		task := waitCachedTask(t, service, tx.Hash())
+		service.storeMu.RLock()
+		task, exists := service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to be stored after processing")
 		require.False(t, task.preconfirmed, "expected preconfirmed to be false")
 		require.Error(t, task.err, "expected an error in task")
 
@@ -1098,9 +1106,10 @@ func TestTaskCacheOverride(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Verify that the underlying task is now updated
-		task = waitCachedTaskWhere(t, service, tx.Hash(), func(task TxTask) bool {
-			return task.preconfirmed && task.err == nil
-		}, "expected task to be updated after processing")
+		service.storeMu.RLock()
+		task, exists = service.store[tx.Hash()]
+		service.storeMu.RUnlock()
+		require.True(t, exists, "expected task to still exist in cache")
 		require.True(t, task.preconfirmed, "expected preconfirmed status to be true")
 		require.NoError(t, task.err, "expected no error for the task")
 

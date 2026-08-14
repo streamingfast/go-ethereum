@@ -19,7 +19,6 @@ package tracers
 import (
 	"encoding/json"
 	"math/big"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -65,7 +64,6 @@ var DefaultDirectory = directory{elems: make(map[string]elem)}
 // and a function to instantiate it. It falls back to a JS code evaluator
 // if no tracer of the given name exists.
 type directory struct {
-	mu     sync.RWMutex
 	elems  map[string]elem
 	jsEval jsCtorFn
 }
@@ -73,18 +71,12 @@ type directory struct {
 // Register registers a method as a lookup for tracers, meaning that
 // users can invoke a named tracer through that lookup.
 func (d *directory) Register(name string, f ctorFn, isJS bool) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	d.elems[name] = elem{ctor: f, isJS: isJS}
 }
 
 // RegisterJSEval registers a tracer that is able to parse
 // dynamic user-provided JS code.
 func (d *directory) RegisterJSEval(f jsCtorFn) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	d.jsEval = f
 }
 
@@ -95,27 +87,18 @@ func (d *directory) New(name string, ctx *Context, cfg json.RawMessage, chainCon
 	if len(cfg) == 0 {
 		cfg = json.RawMessage("{}")
 	}
-	d.mu.RLock()
-	elem, ok := d.elems[name]
-	jsEval := d.jsEval
-	d.mu.RUnlock()
-
-	if ok {
+	if elem, ok := d.elems[name]; ok {
 		return elem.ctor(ctx, cfg, chainConfig)
 	}
 	// Assume JS code
-	return jsEval(name, ctx, cfg, chainConfig)
+	return d.jsEval(name, ctx, cfg, chainConfig)
 }
 
 // IsJS will return true if the given tracer will evaluate
 // JS code. Because code evaluation has high overhead, this
 // info will be used in determining fast and slow code paths.
 func (d *directory) IsJS(name string) bool {
-	d.mu.RLock()
-	elem, ok := d.elems[name]
-	d.mu.RUnlock()
-
-	if ok {
+	if elem, ok := d.elems[name]; ok {
 		return elem.isJS
 	}
 	// JS eval will execute JS code
