@@ -253,10 +253,20 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		EnableEVMSwitchDispatch: config.EnableEVMSwitchDispatch,
 	}
 
-	// Setup live tracer if requested
-	if config.VMTrace != "" && config.ParallelEVM.Enable {
-		log.Warn("Live tracing requested but not supported with ParallelEVM enabled. Disable ParallelEVM via `--parallelevm.enable=false` to use live tracing.")
-	} else if config.VMTrace != "" {
+	// Setup live tracer if requested.
+	//
+	// Firehose / live tracers are not safe with BlockSTM (parallel execution):
+	// tracer hooks are not goroutine-safe across concurrent workers. ParallelEVM
+	// defaults to enabled, so prefer the live tracer and auto-disable ParallelEVM;
+	// with parallelevm.enforce the combination is unsatisfiable and errors out.
+	if config.VMTrace != "" {
+		if config.ParallelEVM.Enable {
+			if config.ParallelEVM.Enforce {
+				return nil, fmt.Errorf("live tracing cannot be used with parallelevm.enforce=true; disable enforce or disable ParallelEVM to use live tracing")
+			}
+			log.Warn("Live tracing requested with ParallelEVM enabled; disabling ParallelEVM so BlockSTM is not used while the live tracer is active")
+			config.ParallelEVM.Enable = false
+		}
 		traceConfig := json.RawMessage("{}")
 		if config.VMTraceJsonConfig != "" {
 			traceConfig = json.RawMessage(config.VMTraceJsonConfig)
