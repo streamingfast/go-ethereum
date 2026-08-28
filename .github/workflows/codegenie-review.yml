@@ -15,9 +15,7 @@
 # an unrelated comment must not kill a review already in progress.
 name: codegenie review
 
-on:
-  issue_comment:
-    types: [created]
+on: {}
 
 permissions:
   contents: read
