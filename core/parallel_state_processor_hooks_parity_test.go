@@ -74,6 +74,12 @@ var hookV2Statuses = map[string]hookV2Status{
 	"OnSystemCallStartV2": {firedInV2: true},
 	"OnSystemCallEnd":     {firedInV2: true},
 
+	// --- Firehose hooks fired by the shared EVM core or by Bor.Finalize,
+	//     so they are orthogonal to which processor ran the block ---
+	"OnKeccakPreimage":   {firedInV2: true},
+	"OnNewAccount":       {firedInV2: true},
+	"OnStateSyncReceipt": {firedInV2: true},
+
 	// --- Known V2 gap: per-tx start/end hooks ---
 	"OnTxStart": {
 		firedInV2: false,
@@ -82,6 +88,10 @@ var hookV2Statuses = map[string]hookV2Status{
 	"OnTxEnd": {
 		firedInV2: false,
 		rationale: "Pair of OnTxStart — same gap, same fix.",
+	},
+	"OnTxStartWithHash": {
+		firedInV2: false,
+		rationale: "Firehose-only variant of OnTxStart used to force deterministic hashes on Bor system transactions. It is fired from consensus/bor/statefull.ApplyMessage and the state-sync wrapper in state_processor.go, neither of which V2 runs. Moot in practice: this fork never pairs V2 with a tracer — eth/backend.go disables ParallelEVM when a live tracer is configured, BlockChain.ProcessBlock skips the parallel path while vm.Config.Tracer is set, and V2StateProcessor.Process refuses a non-nil Tracer.",
 	},
 }
 
