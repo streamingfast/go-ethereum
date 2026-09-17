@@ -1128,8 +1128,23 @@ func computeCallSource(depth int) string {
 	return "child"
 }
 
+// maxKeccakPreimageSize is the largest preimage, in bytes, that is recorded in
+// `Call.KeccakPreimages`. The map exists so a consumer can walk a storage slot back
+// to the expression that produced it, and Solidity's slot derivations are all small:
+// 32 bytes for a dynamic array or a long `bytes`/`string`, 64 bytes for a mapping
+// with a value-type key (one level per nesting), and 32 bytes plus the key for a
+// `mapping(string => …)` or `mapping(bytes => …)`. 128 bytes covers those with room
+// for a 96-byte dynamic key. Anything larger is contract-level hashing, not slot
+// derivation, and is dropped rather than truncated: a truncated preimage does not
+// hash back to its key and would be worse than no entry at all.
+const maxKeccakPreimageSize = 128
+
 func (f *Firehose) OnKeccakPreimage(hash common.Hash, data []byte) {
 	f.ensureInBlockAndInTrxAndInCall()
+
+	if len(data) > maxKeccakPreimageSize {
+		return
+	}
 
 	activeCall := f.callStack.Peek()
 	if activeCall.KeccakPreimages == nil {
@@ -1149,12 +1164,16 @@ var _ = (&Firehose{}).onOpcodeKeccak256
 // Firehose KeccakPreimage Issue: Temporary fix, called via OnKeccakPreimage directly instead until
 // we understand why we have extra keccak preimages in new version
 func (f *Firehose) onOpcodeKeccak256(call *pbeth.Call, stack []uint256.Int, memory Memory) {
+	offset, size := stack[len(stack)-1], stack[len(stack)-2]
+	preImage := memory.GetPtrUint256(&offset, &size)
+
+	if len(preImage) > maxKeccakPreimageSize {
+		return
+	}
+
 	if call.KeccakPreimages == nil {
 		call.KeccakPreimages = make(map[string]string)
 	}
-
-	offset, size := stack[len(stack)-1], stack[len(stack)-2]
-	preImage := memory.GetPtrUint256(&offset, &size)
 
 	// We should have exclusive access to the hasher, we can safely reset it.
 	f.hasher.Reset()
