@@ -1133,11 +1133,11 @@ func computeCallSource(depth int) string {
 // to the expression that produced it, and Solidity's slot derivations are all small:
 // 32 bytes for a dynamic array or a long `bytes`/`string`, 64 bytes for a mapping
 // with a value-type key (one level per nesting), and 32 bytes plus the key for a
-// `mapping(string => …)` or `mapping(bytes => …)`. 128 bytes covers those with room
-// for a 96-byte dynamic key. Anything larger is contract-level hashing, not slot
+// `mapping(string => …)` or `mapping(bytes => …)`. 256 bytes covers those with room
+// for a 224-byte dynamic key. Anything larger is contract-level hashing, not slot
 // derivation, and is dropped rather than truncated: a truncated preimage does not
 // hash back to its key and would be worse than no entry at all.
-const maxKeccakPreimageSize = 128
+const maxKeccakPreimageSize = 256
 
 func (f *Firehose) OnKeccakPreimage(hash common.Hash, data []byte) {
 	f.ensureInBlockAndInTrxAndInCall()
