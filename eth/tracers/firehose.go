@@ -116,6 +116,11 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 type FirehoseConfig struct {
 	ApplyBackwardCompatibility *bool `json:"applyBackwardCompatibility"`
 
+	// FilterKeccakPreimages keeps only the `Call.KeccakPreimages` entries that explain a
+	// storage change key of the transaction or system call, see retainStorageSlotPreimages.
+	// On when unset.
+	FilterKeccakPreimages *bool `json:"filterKeccakPreimages"`
+
 	// Only used for testing, only possible through JSON configuration
 	private *privateFirehoseConfig
 }
@@ -134,7 +139,25 @@ func (c *FirehoseConfig) LogKeyValues() []any {
 
 	return []any{
 		"config.applyBackwardCompatibility", applyBackwardCompatibility,
+		"config.filterKeccakPreimages", c.filterKeccakPreimages(),
 	}
+}
+
+func (c *FirehoseConfig) filterKeccakPreimages() bool {
+	return c.FilterKeccakPreimages == nil || *c.FilterKeccakPreimages
+}
+
+// disableKeccakFilterEnv turns the keccak preimage filter off when set to "true", "1" or
+// "yes", whatever the config says.
+const disableKeccakFilterEnv = "FIREHOSE_ETHEREUM_TRACER_DISABLE_KECCAK_FILTER"
+
+func keccakFilterDisabledByEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(disableKeccakFilterEnv))) {
+	case "true", "1", "yes":
+		log.Info("Firehose keccak preimage filter disabled by environment", "env", disableKeccakFilterEnv)
+		return true
+	}
+	return false
 }
 
 type Firehose struct {
@@ -145,6 +168,8 @@ type Firehose struct {
 	hasher       crypto.KeccakState // Keccak256 hasher instance shared across tracer needs (non-concurrent safe)
 	hasherBuf    common.Hash        // Keccak256 hasher result array shared across tracer needs (non-concurrent safe)
 	tracerID     string
+
+	filterKeccakPreimages bool
 
 	// Block state
 	block                  *pbeth.Block
@@ -207,6 +232,8 @@ func NewFirehose(config *FirehoseConfig) *Firehose {
 		chainConfig:  nil,
 		hasher:       crypto.NewKeccakState(),
 		tracerID:     "global",
+
+		filterKeccakPreimages: config.filterKeccakPreimages() && !keccakFilterDisabledByEnv(),
 
 		// Block state
 		blockOrdinal:  &Ordinal{},
@@ -427,6 +454,10 @@ func (f *Firehose) OnSystemCallEnd() {
 	f.ensureInBlockAndInTrx()
 	f.ensureInSystemCall()
 
+	if f.filterKeccakPreimages {
+		retainStorageSlotPreimages(f.transaction.Calls)
+	}
+
 	f.block.SystemCalls = append(f.block.SystemCalls, f.transaction.Calls...)
 
 	if f.transactionStateSnapshot != nil {
@@ -564,6 +595,12 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 
 	if !f.deferredCallState.IsEmpty() {
 		f.deferredCallState.MaybePopulateCallAndReset("root", rootCall)
+	}
+
+	// Every storage change of the transaction is attached to its calls once deferred state
+	// is moved to the root call.
+	if f.filterKeccakPreimages {
+		retainStorageSlotPreimages(f.transaction.Calls)
 	}
 
 	// Receipt can be nil if an error occurred during the transaction execution, right now we don't have it
