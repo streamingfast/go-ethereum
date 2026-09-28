@@ -117,6 +117,22 @@ func TestRetainStorageSlotPreimages_FollowsNestedMappingsAndStringKeys(t *testin
 	assert.ElementsMatch(t, hexHashes(inner, outer, stringParent, stringSlot), keptKeccaks(calls))
 }
 
+func TestRetainStorageSlotPreimages_FollowsMappingInsideStructInMapping(t *testing.T) {
+	// struct Pool { uint total; mapping(address => uint) shares; }
+	// mapping(uint => Pool) pools at slot 3: pools[id].shares[user] is at
+	// keccak(user . (keccak(id . 3) + 1)).
+	call := &pbeth.Call{}
+	pool := recordKeccak(call, concat(word(7), word(3)))
+	sharesSlot := addToHash(pool, uint256.NewInt(1))
+	share := recordKeccak(call, concat(word(0xee), sharesSlot[:]))
+	storeKey(call, share)
+
+	calls := []*pbeth.Call{call}
+	retainStorageSlotPreimages(calls)
+
+	assert.ElementsMatch(t, hexHashes(pool, share), keptKeccaks(calls))
+}
+
 func TestRetainStorageSlotPreimages_KeepsPreimageRecordedInAnotherCall(t *testing.T) {
 	hashing, writing := &pbeth.Call{}, &pbeth.Call{}
 	slot := recordKeccak(hashing, concat(word(1), word(0)))

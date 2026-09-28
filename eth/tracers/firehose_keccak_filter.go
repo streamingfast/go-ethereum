@@ -13,7 +13,7 @@ import (
 
 // keccakFilterMaxDepth is how many levels of nested hashing are followed from a storage
 // key, e.g. `mapping(a => mapping(b => T))` is one level.
-const keccakFilterMaxDepth = 10
+const keccakFilterMaxDepth = 16
 
 // retainStorageSlotPreimages reduces `Call.KeccakPreimages` to the preimages that explain a
 // storage slot. `calls` are all the calls of one transaction or system call, and it must
@@ -22,8 +22,9 @@ const keccakFilterMaxDepth = 10
 //   - a storage change key is its hash, or its hash plus at most 2^64-1 (array elements and
 //     struct fields live at `keccak(p) + i`; a random key lands that close to an unrelated
 //     hash with probability about 2^-192 per pair), or
-//   - its hash appears inside the preimage of a kept entry (nested mappings, and `string`
-//     or `bytes` keys), following at most keccakFilterMaxDepth such levels.
+//   - its hash, or its hash plus such an offset, appears inside the preimage of a kept
+//     entry (nested mappings, a mapping inside a struct or array element, and `string` or
+//     `bytes` keys), following at most keccakFilterMaxDepth such levels.
 //
 // Everything else is dropped: hashes only used to read storage, signatures, CREATE2
 // addresses and contract-level hashing. Those can make up tens of MB for a single
@@ -77,8 +78,8 @@ func retainStorageSlotPreimages(calls []*pbeth.Call) {
 	for depth := 0; depth < keccakFilterMaxDepth && len(frontier) > 0; depth++ {
 		var next []common.Hash
 		for _, h := range frontier {
-			for _, inner := range innerKeccakHashCandidates(preimages[h]) {
-				if _, ok := preimages[inner]; ok {
+			for _, word := range innerKeccakHashCandidates(preimages[h]) {
+				if inner, ok := keccakSlotBase(sorted, word); ok {
 					keep(inner, &next)
 				}
 			}
@@ -100,7 +101,7 @@ func retainStorageSlotPreimages(calls []*pbeth.Call) {
 }
 
 // keccakSlotBase returns the largest hash at or below `key` when `key` is less than 2^64
-// above it.
+// above it, which covers an exact match.
 func keccakSlotBase(sorted []common.Hash, key common.Hash) (common.Hash, bool) {
 	i := sort.Search(len(sorted), func(i int) bool { return bytes.Compare(sorted[i][:], key[:]) > 0 })
 	if i == 0 {
