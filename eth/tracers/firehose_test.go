@@ -107,15 +107,12 @@ var ignorePbFieldNames = map[string]bool{
 	// This was a Polygon specific field that existed for a while and has since been
 	// removed. It can be safely ignored in all protocols now.
 	"TxDependency": true,
-}
 
-// ignoreGethFieldNames is for geth fields that exist in types.Header but are not yet
-// reflected in pbeth.BlockHeader. Arbitrum blocks leave them nil.
-var ignoreGethFieldNames = map[string]bool{
-	// EIP-7928 (Block-Level Access Lists)
-	"BlockAccessListHash": true,
-	// EIP-7843 (SLOTNUM opcode)
-	"SlotNumber": true,
+	// Morph specific field.
+	"MorphNextL1MsgIndex": true,
+
+	// Full EIP-7928 block access list, not part of types.Header.
+	"BlockAccessListRlp": true,
 }
 
 var pbFieldNameToGethMapping = map[string]string{
@@ -163,14 +160,29 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 	)
 }
 
+func Test_newBlockHeaderFromChainHeader_AmsterdamFields(t *testing.T) {
+	slotNumber := uint64(42)
+	blockAccessListHash := common.HexToHash("0x01")
+
+	header := newBlockHeaderFromChainHeader(&types.Header{
+		Number:              big.NewInt(1),
+		SlotNumber:          &slotNumber,
+		BlockAccessListHash: &blockAccessListHash,
+	})
+	require.Equal(t, &slotNumber, header.SlotNumber)
+	require.Equal(t, blockAccessListHash.Bytes(), header.BlockAccessListHash)
+
+	header = newBlockHeaderFromChainHeader(&types.Header{Number: big.NewInt(1)})
+	require.Nil(t, header.SlotNumber)
+	require.Nil(t, header.BlockAccessListHash)
+}
+
 func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 	pbFields := filter(reflect.VisibleFields(pbHeaderType), func(f reflect.StructField) bool {
 		return !ignorePbFieldNames[f.Name]
 	})
 
-	gethFields := filter(reflect.VisibleFields(gethHeaderType), func(f reflect.StructField) bool {
-		return !ignoreGethFieldNames[f.Name]
-	})
+	gethFields := reflect.VisibleFields(gethHeaderType)
 
 	pbFieldCount := len(pbFields)
 	gethFieldCount := len(gethFields)

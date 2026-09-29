@@ -64,7 +64,7 @@ require (
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible
 	github.com/spf13/pflag v1.0.6
 	github.com/status-im/keycard-go v0.2.0
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260119150111-65c739f81608
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217
 	github.com/stretchr/testify v1.10.0
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
