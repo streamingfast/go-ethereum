@@ -109,6 +109,15 @@ var ignorePbFieldNames = map[string]bool{
 	"TxDependency": true,
 }
 
+// ignoreGethFieldNames is for geth fields that exist in types.Header but are not yet
+// reflected in pbeth.BlockHeader. Arbitrum blocks leave them nil.
+var ignoreGethFieldNames = map[string]bool{
+	// EIP-7928 (Block-Level Access Lists)
+	"BlockAccessListHash": true,
+	// EIP-7843 (SLOTNUM opcode)
+	"SlotNumber": true,
+}
+
 var pbFieldNameToGethMapping = map[string]string{
 	"WithdrawalsRoot":  "WithdrawalsHash",
 	"MixHash":          "MixDigest",
@@ -131,7 +140,7 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 	// When adding support for a new hard-fork that adds new block header fields, it's normal that this value
 	// changes. If you are sure the two struct are the same, then you can update the expected hash below
 	// to the new value.
-	expectedHash := common.HexToHash("4ced4916132bbf6a7819a310bbac4abf354062a00efc980ea4f0bab406546ac5")
+	expectedHash := common.HexToHash("3ac8177f44b6b87313ac043bed11ca38b09322c98dae7077af1eee74e5b22a3f")
 
 	gethHeaderValue := reflect.New(gethHeaderType)
 	fillAllFieldsWithNonEmptyValues(t, gethHeaderValue, reflect.VisibleFields(gethHeaderType))
@@ -159,7 +168,9 @@ func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {
 		return !ignorePbFieldNames[f.Name]
 	})
 
-	gethFields := reflect.VisibleFields(gethHeaderType)
+	gethFields := filter(reflect.VisibleFields(gethHeaderType), func(f reflect.StructField) bool {
+		return !ignoreGethFieldNames[f.Name]
+	})
 
 	pbFieldCount := len(pbFields)
 	gethFieldCount := len(gethFields)
