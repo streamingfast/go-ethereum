@@ -18,9 +18,19 @@ import (
 // most once whatever the limit, so a high limit costs nothing.
 const keccakFilterMaxDepth = 16
 
-// retainStorageSlotPreimages reduces `Call.KeccakPreimages` to the preimages that explain a
-// storage slot. `calls` are all the calls of one transaction or system call, and it must
-// run once all of their storage changes are attached. A preimage is kept when:
+// recordedPreimage is a KECCAK256 preimage recorded during execution: the index of the call
+// that computed it, the hash and the preimage bytes. The tracer keeps them as raw bytes until the
+// transaction ends so that only the kept ones get hex-encoded.
+type recordedPreimage struct {
+	callIndex uint32
+	hash      common.Hash
+	preimage  []byte
+}
+
+// attachStorageSlotPreimages fills `Call.KeccakPreimages` with the recorded preimages that
+// explain a storage slot, hex-encoding only those. `calls` are all the calls of one transaction
+// or system call, and it must run once all of their storage changes are attached. A preimage is
+// kept when:
 //
 //   - a storage change key is its hash, or its hash plus at most 2^64-1 (array elements and
 //     struct fields live at `keccak(p) + i`; a random key lands that close to an unrelated
@@ -32,24 +42,46 @@ const keccakFilterMaxDepth = 16
 // Everything else is dropped: hashes only used to read storage, signatures, CREATE2
 // addresses and contract-level hashing. Those can make up tens of MB for a single
 // transaction while never matching a storage change.
-func retainStorageSlotPreimages(calls []*pbeth.Call) {
-	preimages := map[common.Hash][]byte{}
+func attachStorageSlotPreimages(calls []*pbeth.Call, recorded []recordedPreimage) {
+	if len(recorded) == 0 {
+		return
+	}
+
+	kept := storageSlotHashes(calls, recorded)
+	if len(kept) == 0 {
+		return
+	}
+
+	byIndex := make(map[uint32]*pbeth.Call, len(calls))
 	for _, call := range calls {
-		for hash, preimage := range call.KeccakPreimages {
-			h, ok := decodeKeccakHash(hash)
-			if !ok {
-				continue
-			}
-			if _, seen := preimages[h]; seen {
-				continue
-			}
-			if data, err := hex.DecodeString(preimage); err == nil {
-				preimages[h] = data
-			}
+		byIndex[call.Index] = call
+	}
+	for _, r := range recorded {
+		if _, ok := kept[r.hash]; !ok {
+			continue
+		}
+		call := byIndex[r.callIndex]
+		if call == nil {
+			continue
+		}
+		if call.KeccakPreimages == nil {
+			call.KeccakPreimages = make(map[string]string)
+		}
+		key := hex.EncodeToString(r.hash[:])
+		if _, dup := call.KeccakPreimages[key]; !dup {
+			call.KeccakPreimages[key] = hex.EncodeToString(r.preimage)
 		}
 	}
-	if len(preimages) == 0 {
-		return
+}
+
+// storageSlotHashes returns the recorded hashes that explain one of the storage change keys
+// of `calls`.
+func storageSlotHashes(calls []*pbeth.Call, recorded []recordedPreimage) map[common.Hash]struct{} {
+	preimages := make(map[common.Hash][]byte, len(recorded))
+	for _, r := range recorded {
+		if _, seen := preimages[r.hash]; !seen {
+			preimages[r.hash] = r.preimage
+		}
 	}
 
 	sorted := make([]common.Hash, 0, len(preimages))
@@ -90,17 +122,7 @@ func retainStorageSlotPreimages(calls []*pbeth.Call) {
 		frontier = next
 	}
 
-	for _, call := range calls {
-		for hash := range call.KeccakPreimages {
-			h, ok := decodeKeccakHash(hash)
-			if _, isKept := kept[h]; !ok || !isKept {
-				delete(call.KeccakPreimages, hash)
-			}
-		}
-		if len(call.KeccakPreimages) == 0 {
-			call.KeccakPreimages = nil
-		}
-	}
+	return kept
 }
 
 // keccakSlotBase returns the largest hash at or below `key` when `key` is less than 2^64
@@ -127,15 +149,4 @@ func innerKeccakHashCandidates(preimage []byte) []common.Hash {
 		candidates = append(candidates, common.Hash(preimage[len(preimage)-32:]))
 	}
 	return candidates
-}
-
-func decodeKeccakHash(hash string) (common.Hash, bool) {
-	var out common.Hash
-	if len(hash) != 64 {
-		return out, false
-	}
-	if _, err := hex.Decode(out[:], []byte(hash)); err != nil {
-		return out, false
-	}
-	return out, true
 }

@@ -46,6 +46,22 @@ func addToHash(h common.Hash, offset *uint256.Int) common.Hash {
 	return common.Hash(new(uint256.Int).Add(new(uint256.Int).SetBytes32(h[:]), offset).Bytes32())
 }
 
+// retainStorageSlotPreimages moves the preimages the tests put in the maps into a recorded
+// list, as the tracer holds them during execution, then attaches the kept ones back.
+func retainStorageSlotPreimages(calls []*pbeth.Call) {
+	var recorded []recordedPreimage
+	for position, call := range calls {
+		call.Index = uint32(position + 1)
+		for hash, preimage := range call.KeccakPreimages {
+			h, _ := hex.DecodeString(hash)
+			data, _ := hex.DecodeString(preimage)
+			recorded = append(recorded, recordedPreimage{call.Index, common.BytesToHash(h), data})
+		}
+		call.KeccakPreimages = nil
+	}
+	attachStorageSlotPreimages(calls, recorded)
+}
+
 func keptKeccaks(calls []*pbeth.Call) []string {
 	var out []string
 	for _, call := range calls {
