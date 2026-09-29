@@ -12,7 +12,10 @@ import (
 )
 
 // keccakFilterMaxDepth is how many levels of nested hashing are followed from a storage
-// key, e.g. `mapping(a => mapping(b => T))` is one level.
+// key, e.g. `mapping(a => mapping(b => T))` is one level. Nesting that comes from types stayed
+// within 5 levels on the Polygon, BSC, Base and Robinhood blocks sampled; hash chains (a key
+// derived from the previous hash, as in linked lists) went past 10. Each preimage is visited at
+// most once whatever the limit, so a high limit costs nothing.
 const keccakFilterMaxDepth = 16
 
 // retainStorageSlotPreimages reduces `Call.KeccakPreimages` to the preimages that explain a
