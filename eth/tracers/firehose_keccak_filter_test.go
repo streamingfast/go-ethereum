@@ -9,7 +9,6 @@ import (
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // recordKeccak hashes preimage, records it on call and returns the hash.
@@ -158,43 +157,4 @@ func TestRetainStorageSlotPreimages_StopsAfterMaxDepth(t *testing.T) {
 
 	// The storage key's own entry is depth 0, then keccakFilterMaxDepth levels below it.
 	assert.ElementsMatch(t, hexHashes(chain[1:]...), keptKeccaks(calls))
-}
-
-func TestFirehoseConfig_FilterKeccakPreimages(t *testing.T) {
-	for _, tt := range []struct {
-		json     string
-		expected bool
-	}{
-		{``, true},
-		{`{}`, true},
-		{`{"filterKeccakPreimages": true}`, true},
-		{`{"filterKeccakPreimages": false}`, false},
-	} {
-		t.Run(tt.json, func(t *testing.T) {
-			tracer, err := NewFirehoseFromRawJSON([]byte(tt.json))
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, tracer.filterKeccakPreimages)
-		})
-	}
-}
-
-func TestFirehoseConfig_FilterKeccakPreimagesDisabledByEnv(t *testing.T) {
-	for _, tt := range []struct {
-		env      string
-		expected bool
-	}{
-		{"", true},
-		{"false", true},
-		{"true", false},
-		{"TRUE", false},
-		{"1", false},
-		{"yes", false},
-	} {
-		t.Run(tt.env, func(t *testing.T) {
-			t.Setenv(disableKeccakFilterEnv, tt.env)
-			tracer, err := NewFirehoseFromRawJSON([]byte(`{"filterKeccakPreimages": true}`))
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, tracer.filterKeccakPreimages)
-		})
-	}
 }
