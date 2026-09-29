@@ -107,6 +107,12 @@ var ignorePbFieldNames = map[string]bool{
 	// This was a Polygon specific field that existed for a while and has since been
 	// removed. It can be safely ignored in all protocols now.
 	"TxDependency": true,
+
+	// Morph specific field.
+	"MorphNextL1MsgIndex": true,
+
+	// Full EIP-7928 block access list, not part of types.Header.
+	"BlockAccessListRlp": true,
 }
 
 var pbFieldNameToGethMapping = map[string]string{
@@ -131,7 +137,7 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 	// When adding support for a new hard-fork that adds new block header fields, it's normal that this value
 	// changes. If you are sure the two struct are the same, then you can update the expected hash below
 	// to the new value.
-	expectedHash := common.HexToHash("4ced4916132bbf6a7819a310bbac4abf354062a00efc980ea4f0bab406546ac5")
+	expectedHash := common.HexToHash("3ac8177f44b6b87313ac043bed11ca38b09322c98dae7077af1eee74e5b22a3f")
 
 	gethHeaderValue := reflect.New(gethHeaderType)
 	fillAllFieldsWithNonEmptyValues(t, gethHeaderValue, reflect.VisibleFields(gethHeaderType))
@@ -152,6 +158,23 @@ func Test_TypesHeader_AllConsensusFieldsAreKnown(t *testing.T) {
 		expectedHash,
 		asIndentedJSON(t, gethHeader),
 	)
+}
+
+func Test_newBlockHeaderFromChainHeader_AmsterdamFields(t *testing.T) {
+	slotNumber := uint64(42)
+	blockAccessListHash := common.HexToHash("0x01")
+
+	header := newBlockHeaderFromChainHeader(&types.Header{
+		Number:              big.NewInt(1),
+		SlotNumber:          &slotNumber,
+		BlockAccessListHash: &blockAccessListHash,
+	})
+	require.Equal(t, &slotNumber, header.SlotNumber)
+	require.Equal(t, blockAccessListHash.Bytes(), header.BlockAccessListHash)
+
+	header = newBlockHeaderFromChainHeader(&types.Header{Number: big.NewInt(1)})
+	require.Nil(t, header.SlotNumber)
+	require.Nil(t, header.BlockAccessListHash)
 }
 
 func Test_FirehoseAndGethHeaderFieldMatches(t *testing.T) {

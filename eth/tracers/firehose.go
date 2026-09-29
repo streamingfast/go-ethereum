@@ -1774,6 +1774,11 @@ func newBlockHeaderFromChainHeader(h *types.Header) *pbeth.BlockHeader {
 		requestHashBytes = hash.Bytes()
 	}
 
+	var blockAccessListHashBytes []byte
+	if hash := h.BlockAccessListHash; hash != nil {
+		blockAccessListHashBytes = hash.Bytes()
+	}
+
 	pbHead := &pbeth.BlockHeader{
 		Hash:             h.Hash().Bytes(),
 		Number:           h.Number.Uint64(),
@@ -1797,6 +1802,9 @@ func newBlockHeaderFromChainHeader(h *types.Header) *pbeth.BlockHeader {
 		ExcessBlobGas:    h.ExcessBlobGas,
 		ParentBeaconRoot: parentBeaconRootBytes,
 		RequestsHash:     requestHashBytes,
+		SlotNumber:       h.SlotNumber,
+
+		BlockAccessListHash: blockAccessListHashBytes,
 
 		// Not supported anymore across Ethereum forks
 		TotalDifficulty: nil,
