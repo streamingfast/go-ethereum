@@ -162,6 +162,10 @@ type Firehose struct {
 	transactionLogIndex      uint32
 	inSystemCall             bool
 
+	// KECCAK256 preimages of the current transaction or system call, kept as raw bytes until it
+	// ends; attachStorageSlotPreimages then hex-encodes the ones that explain a storage change.
+	transactionKeccakPreimages []recordedPreimage
+
 	// Call state
 	callStack               *CallStack
 	deferredCallState       *DeferredCallState
@@ -250,6 +254,7 @@ func (f *Firehose) resetTransaction() {
 	f.transaction = nil
 	f.transactionLogIndex = 0
 	f.inSystemCall = false
+	f.transactionKeccakPreimages = nil
 
 	f.callStack.Reset()
 	f.latestCallEnterSuicided = false
@@ -264,12 +269,13 @@ func (f *Firehose) snapshotAndResetTransactionState() {
 	firehoseDebug("snapshotting transaction state")
 
 	f.transactionStateSnapshot = &TransactionStateSnapshot{
-		evm:                     f.evm,
-		transaction:             f.transaction,
-		transactionLogIndex:     f.transactionLogIndex,
-		callStack:               f.callStack.Copy(),
-		deferredCallState:       f.deferredCallState.Copy(),
-		latestCallEnterSuicided: f.latestCallEnterSuicided,
+		evm:                        f.evm,
+		transaction:                f.transaction,
+		transactionLogIndex:        f.transactionLogIndex,
+		transactionKeccakPreimages: f.transactionKeccakPreimages,
+		callStack:                  f.callStack.Copy(),
+		deferredCallState:          f.deferredCallState.Copy(),
+		latestCallEnterSuicided:    f.latestCallEnterSuicided,
 	}
 
 	f.resetTransaction()
@@ -290,6 +296,7 @@ func (f *Firehose) restoreTransactionState() {
 		f.evm = f.transactionStateSnapshot.evm
 		f.transaction = f.transactionStateSnapshot.transaction
 		f.transactionLogIndex = f.transactionStateSnapshot.transactionLogIndex
+		f.transactionKeccakPreimages = f.transactionStateSnapshot.transactionKeccakPreimages
 		f.callStack = f.transactionStateSnapshot.callStack
 		f.deferredCallState = f.transactionStateSnapshot.deferredCallState
 		f.latestCallEnterSuicided = f.transactionStateSnapshot.latestCallEnterSuicided
@@ -426,6 +433,9 @@ func (f *Firehose) OnSystemCallEnd() {
 
 	f.ensureInBlockAndInTrx()
 	f.ensureInSystemCall()
+
+	attachStorageSlotPreimages(f.transaction.Calls, f.transactionKeccakPreimages)
+	f.transactionKeccakPreimages = nil
 
 	f.block.SystemCalls = append(f.block.SystemCalls, f.transaction.Calls...)
 
@@ -565,6 +575,11 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 	if !f.deferredCallState.IsEmpty() {
 		f.deferredCallState.MaybePopulateCallAndReset("root", rootCall)
 	}
+
+	// Every storage change of the transaction is attached to its calls once deferred state
+	// is moved to the root call.
+	attachStorageSlotPreimages(f.transaction.Calls, f.transactionKeccakPreimages)
+	f.transactionKeccakPreimages = nil
 
 	// Receipt can be nil if an error occurred during the transaction execution, right now we don't have it
 	if receipt != nil {
@@ -1146,12 +1161,12 @@ func (f *Firehose) OnKeccakPreimage(hash common.Hash, data []byte) {
 		return
 	}
 
-	activeCall := f.callStack.Peek()
-	if activeCall.KeccakPreimages == nil {
-		activeCall.KeccakPreimages = make(map[string]string)
-	}
-
-	activeCall.KeccakPreimages[hex.EncodeToString(hash.Bytes())] = hex.EncodeToString(data)
+	// `data` points into EVM memory, which later opcodes overwrite, so it's copied.
+	f.transactionKeccakPreimages = append(f.transactionKeccakPreimages, recordedPreimage{
+		callIndex: f.callStack.Peek().Index,
+		hash:      hash,
+		preimage:  bytes.Clone(data),
+	})
 }
 
 // Ignores the unused warning
@@ -2685,10 +2700,11 @@ func (m Memory) GetPtr(offset, size int64) []byte {
 }
 
 type TransactionStateSnapshot struct {
-	evm                     *tracing.VMContext
-	transaction             *pbeth.TransactionTrace
-	transactionLogIndex     uint32
-	latestCallEnterSuicided bool
+	evm                        *tracing.VMContext
+	transaction                *pbeth.TransactionTrace
+	transactionLogIndex        uint32
+	transactionKeccakPreimages []recordedPreimage
+	latestCallEnterSuicided    bool
 
 	// Those two are trickier as the actual instance is kept but reset,
 	// so a full, but shallow clone is made for those to ensure with
