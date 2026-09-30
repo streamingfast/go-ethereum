@@ -647,6 +647,27 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Default: c.cliConfig.Cache.TxLookupLimit,
 		Group:   "Cache",
 	})
+	f.BoolFlag(&flagset.BoolFlag{
+		Name:    "pipeline.enable-import-src",
+		Usage:   "Enable pipelined state root computation during block import: overlap SRC(N) with block N+1 tx execution",
+		Value:   &c.cliConfig.Pipeline.EnableImportSRC,
+		Default: c.cliConfig.Pipeline.EnableImportSRC,
+		Group:   "Pipeline",
+	})
+	f.BoolFlag(&flagset.BoolFlag{
+		Name:    "pipeline.import-src-logs",
+		Usage:   "Enable verbose logging for pipelined import SRC",
+		Value:   &c.cliConfig.Pipeline.ImportSRCLogs,
+		Default: c.cliConfig.Pipeline.ImportSRCLogs,
+		Group:   "Pipeline",
+	})
+	f.BoolFlag(&flagset.BoolFlag{
+		Name:    "pipeline.warm-snapshot",
+		Usage:   "Enable warm-node handoff from the execution-side trie prefetcher to the pipelined SRC when witnesses are produced; no effect when import SRC is disabled or witnesses are off",
+		Value:   &c.cliConfig.Pipeline.WarmSnapshot,
+		Default: c.cliConfig.Pipeline.WarmSnapshot,
+		Group:   "Pipeline",
+	})
 	f.IntFlag(&flagset.IntFlag{
 		Name:    "fdlimit",
 		Usage:   "Raise the open file descriptor resource limit (default = system fd limit)",
@@ -775,6 +796,13 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Usage:   "Maximum allowed timeout for eth_sendRawTransactionSync (e.g. 5m)",
 		Value:   &c.cliConfig.JsonRPC.TxSyncMaxTimeout,
 		Default: c.cliConfig.JsonRPC.TxSyncMaxTimeout,
+		Group:   "JsonRPC",
+	})
+	f.IntFlag(&flagset.IntFlag{
+		Name:    "rpc.txsync.maxconcurrent",
+		Usage:   "Maximum eth_sendRawTransactionSync calls waiting for a receipt at once (0 = no limit)",
+		Value:   &c.cliConfig.JsonRPC.TxSyncMaxConcurrent,
+		Default: c.cliConfig.JsonRPC.TxSyncMaxConcurrent,
 		Group:   "JsonRPC",
 	})
 	f.BoolFlag(&flagset.BoolFlag{
@@ -1452,5 +1480,41 @@ func (c *Command) Flags(config *Config) *flagset.Flagset {
 		Group:   "P2P",
 	})
 
+	c.registerSequencerFlags(f)
+
 	return f
+}
+
+func (c *Command) registerSequencerFlags(f *flagset.Flagset) {
+	// An HCL/JSON config without a [sequencer] block decodes the field as
+	// nil (only TOML starts from DefaultConfig); register against the
+	// defaults so startup does not require the block to exist.
+	if c.cliConfig.Sequencer == nil {
+		c.cliConfig.Sequencer = DefaultConfig().Sequencer
+	}
+
+	f.BoolFlag(&flagset.BoolFlag{
+		Name:    "sequencer.enabled",
+		Usage:   "Enable the sequence store integration (a mining node publishes the block lifecycle)",
+		Value:   &c.cliConfig.Sequencer.Enabled,
+		Default: c.cliConfig.Sequencer.Enabled,
+	})
+	f.StringFlag(&flagset.StringFlag{
+		Name:    "sequencer.publisher-endpoint",
+		Usage:   "Sequence store publisher service gRPC endpoint (publish stream)",
+		Value:   &c.cliConfig.Sequencer.PublisherEndpoint,
+		Default: c.cliConfig.Sequencer.PublisherEndpoint,
+	})
+	f.StringFlag(&flagset.StringFlag{
+		Name:    "sequencer.consumer-endpoint",
+		Usage:   "Sequence store consumer service gRPC endpoint (tail reads during reconciliation)",
+		Value:   &c.cliConfig.Sequencer.ConsumerEndpoint,
+		Default: c.cliConfig.Sequencer.ConsumerEndpoint,
+	})
+	f.DurationFlag(&flagset.DurationFlag{
+		Name:    "sequencer.poll",
+		Usage:   "Producer txpool poll cadence while a block is open (continuous building); 0 keeps the one-shot fill",
+		Value:   &c.cliConfig.Sequencer.Poll,
+		Default: c.cliConfig.Sequencer.Poll,
+	})
 }

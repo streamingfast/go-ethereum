@@ -104,6 +104,14 @@ The ```bor server``` command runs the Bor client.
 
 - ```rpc.returndatalimit```: Maximum size (in bytes) a result of an rpc request could have (use 0 for no limits) (default: 100000)
 
+- ```sequencer.consumer-endpoint```: Sequence store consumer service gRPC endpoint (tail reads during reconciliation)
+
+- ```sequencer.enabled```: Enable the sequence store integration (a mining node publishes the block lifecycle) (default: false)
+
+- ```sequencer.poll```: Producer txpool poll cadence while a block is open (continuous building); 0 keeps the one-shot fill (default: 200ms)
+
+- ```sequencer.publisher-endpoint```: Sequence store publisher service gRPC endpoint (publish stream)
+
 - ```snapshot```: Enables the snapshot-database mode (default: true)
 
 - ```state.scheme```: Scheme to use for storing ethereum state ('hash' or 'path') (default: path)
@@ -258,6 +266,8 @@ The ```bor server``` command runs the Bor client.
 
 - ```rpc.txsync.defaulttimeout```: Default timeout for eth_sendRawTransactionSync (e.g. 2s, 500ms) (default: 20s)
 
+- ```rpc.txsync.maxconcurrent```: Maximum eth_sendRawTransactionSync calls waiting for a receipt at once (0 = no limit) (default: 4096)
+
 - ```rpc.txsync.maxtimeout```: Maximum allowed timeout for eth_sendRawTransactionSync (e.g. 5m) (default: 1m0s)
 
 - ```ws```: Enable the WS-RPC server (default: false)
@@ -329,6 +339,14 @@ The ```bor server``` command runs the Bor client.
 - ```v4disc```: Enables the V4 discovery mechanism (default: true)
 
 - ```v5disc```: Enables the V5 discovery mechanism (default: true)
+
+### Pipeline Options
+
+- ```pipeline.enable-import-src```: Enable pipelined state root computation during block import: overlap SRC(N) with block N+1 tx execution (default: false)
+
+- ```pipeline.import-src-logs```: Enable verbose logging for pipelined import SRC (default: false)
+
+- ```pipeline.warm-snapshot```: Enable warm-node handoff from the execution-side trie prefetcher to the pipelined SRC when witnesses are produced; no effect when import SRC is disabled or witnesses are off (default: true)
 
 ### Sealer Options
 

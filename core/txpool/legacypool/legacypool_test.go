@@ -117,6 +117,10 @@ func (bc *testBlockChain) StateAt(common.Hash) (*state.StateDB, error) {
 	return bc.statedb, nil
 }
 
+func (bc *testBlockChain) PostExecState(header *types.Header) (*state.StateDB, error) {
+	return bc.statedb, nil
+}
+
 func (bc *testBlockChain) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription {
 	return bc.chainHeadFeed.Subscribe(ch)
 }
@@ -215,6 +219,31 @@ func pricedSetCodeTxWithAuth(nonce uint64, gaslimit uint64, gasFee, tip *uint256
 
 func setupPool() (*LegacyPool, *ecdsa.PrivateKey) {
 	return setupPoolWithConfig(params.TestChainConfig)
+}
+
+func TestSetSpeculativeState(t *testing.T) {
+	pool, _ := setupPool()
+	defer pool.Close()
+
+	statedb, err := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+	if err != nil {
+		t.Fatalf("failed to create speculative state: %v", err)
+	}
+	account := common.HexToAddress("0x1234")
+	statedb.SetNonce(account, 7, tracing.NonceChangeUnspecified)
+	header := &types.Header{Number: big.NewInt(42), GasLimit: 10_000_000}
+
+	pool.SetSpeculativeState(header, statedb)
+
+	if got := pool.currentHead.Load(); got != header {
+		t.Fatal("speculative head was not installed")
+	}
+	if pool.currentState != statedb {
+		t.Fatal("speculative state was not installed")
+	}
+	if got := pool.pendingNonces.get(account); got != 7 {
+		t.Fatalf("speculative nonce = %d, want 7", got)
+	}
 }
 
 // reserver is a utility struct to sanity check that accounts are
@@ -5560,6 +5589,7 @@ func TestRebroadcastLoopIntegration(t *testing.T) {
 		if event.Txs[0].Hash() != tx.Hash() {
 			t.Errorf("wrong transaction hash in rebroadcast event")
 		}
+		pool.RebroadcastAcknowledgement(event.Txs)([]common.Hash{tx.Hash()})
 	case <-time.After(500 * time.Millisecond):
 		t.Error("timeout waiting for rebroadcast event")
 	}

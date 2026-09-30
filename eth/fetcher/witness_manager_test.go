@@ -72,7 +72,7 @@ func newTestWitnessManager() *testWitnessManager {
 	getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
 	chainHeight := chainHeightFn(func() uint64 { return 100 })
 
-	tw.manager = newWitnessManager(quit, dropPeer, nil, enqueueCh, getBlock, getHeader, chainHeight, nil, 0)
+	tw.manager = newWitnessManager(quit, dropPeer, enqueueCh, getBlock, getHeader, chainHeight, nil, nil, nil, 0)
 	return tw
 }
 
@@ -184,11 +184,12 @@ func TestHandleNeedDuplicates(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -241,11 +242,12 @@ func TestHandleNeedKnownBlock(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -290,11 +292,12 @@ func TestHandleBroadcast(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -363,11 +366,12 @@ func TestWitnessUnavailable(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -425,11 +429,12 @@ func TestForget(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -476,11 +481,12 @@ func TestHandleFilterResult(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -515,11 +521,12 @@ func TestCheckCompleting(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -558,11 +565,12 @@ func TestWitnessFetchFailure(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -671,11 +679,12 @@ func TestCleanupUnavailableCache(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -727,11 +736,12 @@ func TestWitnessFetchWithBlockNoLongerPending(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -840,11 +850,12 @@ func TestTick(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -926,11 +937,12 @@ func TestTickMaxRetries(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -985,11 +997,12 @@ func TestTickWithWitnessAlreadyPresent(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1068,11 +1081,12 @@ func TestHandleWitnessFetchSuccess(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1103,7 +1117,7 @@ func TestHandleWitnessFetchSuccess(t *testing.T) {
 
 	// Test successful witness fetch
 	announcedAt := time.Now()
-	manager.handleWitnessFetchSuccess("fetch-peer", block.Hash(), witness, announcedAt)
+	manager.handleWitnessFetchSuccess("fetch-peer", block.Hash(), witness, announcedAt, false)
 
 	time.Sleep(10 * time.Millisecond) // Give time for async processing
 
@@ -1136,11 +1150,12 @@ func TestHandleWitnessFetchSuccessNoPending(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1150,7 +1165,7 @@ func TestHandleWitnessFetchSuccessNoPending(t *testing.T) {
 
 	// Test with no pending state - should handle gracefully
 	announcedAt := time.Now()
-	manager.handleWitnessFetchSuccess("fetch-peer", block.Hash(), witness, announcedAt)
+	manager.handleWitnessFetchSuccess("fetch-peer", block.Hash(), witness, announcedAt, false)
 
 	// Should not panic or cause issues
 }
@@ -1169,11 +1184,12 @@ func TestHandleWitnessFetchSuccessWitnessAlreadyPresent(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1197,7 +1213,7 @@ func TestHandleWitnessFetchSuccessWitnessAlreadyPresent(t *testing.T) {
 
 	// Test with witness already present - should be ignored
 	announcedAt := time.Now()
-	manager.handleWitnessFetchSuccess("fetch-peer", block.Hash(), witness2, announcedAt)
+	manager.handleWitnessFetchSuccess("fetch-peer", block.Hash(), witness2, announcedAt, false)
 
 	// Verify original witness is still there
 	if state.op.witness != witness1 {
@@ -1219,11 +1235,12 @@ func TestRescheduleWitness(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1275,11 +1292,12 @@ func TestSafeEnqueueWithNilWitness(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1319,11 +1337,12 @@ func TestSafeEnqueueChannelClosed(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1356,11 +1375,12 @@ func TestHandleNeedDistanceCheck(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1400,11 +1420,12 @@ func TestHandleNeedMissingFetchWitness(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1440,11 +1461,12 @@ func TestLoop(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1514,11 +1536,12 @@ func TestHandleFilterResultWithoutWitness(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1555,11 +1578,12 @@ func TestCheckCompletingWithoutWitness(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1596,11 +1620,12 @@ func TestFetchWitnessError(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1639,11 +1664,12 @@ func TestHandleFilterResultWitnessUnavailable(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1682,11 +1708,12 @@ func TestHandleFilterResultDuplicate(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1728,11 +1755,12 @@ func TestCheckCompletingWitnessUnavailable(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1771,11 +1799,12 @@ func TestCheckCompletingDuplicate(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1824,11 +1853,12 @@ func TestCheckCompletingKnownBlock(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1862,11 +1892,12 @@ func TestTickInvalidPendingState(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1905,11 +1936,12 @@ func TestTickNotReadyYet(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -1968,11 +2000,12 @@ func TestSafeEnqueueSuccess(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -2031,11 +2064,12 @@ func TestConcurrentWitnessFetchFailure(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		nil,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -2064,520 +2098,13 @@ func TestConcurrentWitnessFetchFailure(t *testing.T) {
 	wg.Wait()
 }
 
-// TestCheckWitnessPageCountWithPeerJailing tests that dishonest peers are jailed
-func TestCheckWitnessPageCountWithPeerJailing(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-
-	var jailedPeers []string
-	var jailMutex sync.Mutex
-
-	jailPeer := peerJailFn(func(id string) {
-		jailMutex.Lock()
-		jailedPeers = append(jailedPeers, id)
-		jailMutex.Unlock()
-	})
-
-	dropPeer := peerDropFn(func(id string) {})
-	enqueueCh := make(chan *enqueueRequest, 10)
-	getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-	getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-	chainHeight := chainHeightFn(func() uint64 { return 100 })
-
-	// Set gas ceil to trigger verification for large witnesses
-	gasCeil := uint64(30_000_000) // 30M gas -> ~30 pages threshold
-
-	manager := newWitnessManager(
-		quit,
-		dropPeer,
-		jailPeer,
-		enqueueCh,
-		getBlock,
-		getHeader,
-		chainHeight,
-		nil,
-		gasCeil,
-	)
-
-	hash := common.HexToHash("0x123")
-	dishonestPeer := "dishonest-peer"
-	reportedPageCount := uint64(100) // Dishonest peer claims 100 pages
-
-	// Mock getRandomPeers to return 2 honest peers
-	getRandomPeers := func() []string {
-		return []string{"honest-peer-1", "honest-peer-2"}
-	}
-
-	// Mock getWitnessPageCount - honest peers report 15 pages
-	getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-		if peerID == "honest-peer-1" || peerID == "honest-peer-2" {
-			return 15, nil // Honest page count
-		}
-		return 0, errors.New("unknown peer")
-	}
-
-	// Run verification - should jail the dishonest peer
-	isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, dishonestPeer, getRandomPeers, getWitnessPageCount)
-
-	// Verify peer was marked as dishonest
-	if isHonest {
-		t.Error("Expected dishonest peer to be marked as dishonest")
-	}
-
-	// Verify peer was jailed
-	jailMutex.Lock()
-	jailedCount := len(jailedPeers)
-	jailMutex.Unlock()
-
-	if jailedCount != 1 {
-		t.Errorf("Expected 1 jailed peer, got %d", jailedCount)
-	}
-
-	if len(jailedPeers) > 0 && jailedPeers[0] != dishonestPeer {
-		t.Errorf("Expected %s to be jailed, got %s", dishonestPeer, jailedPeers[0])
-	}
-}
-
-// TestCheckWitnessPageCountWithConsensusFailure tests consensus edge cases
-func TestCheckWitnessPageCountWithConsensusFailure(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-
-	jailPeer := peerJailFn(func(id string) {})
-	dropPeer := peerDropFn(func(id string) {})
-	enqueueCh := make(chan *enqueueRequest, 10)
-	getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-	getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-	chainHeight := chainHeightFn(func() uint64 { return 100 })
-	gasCeil := uint64(30_000_000)
-
-	manager := newWitnessManager(
-		quit,
-		dropPeer,
-		jailPeer,
-		enqueueCh,
-		getBlock,
-		getHeader,
-		chainHeight,
-		nil,
-		gasCeil,
-	)
-
-	hash := common.HexToHash("0x123")
-	peer := "test-peer"
-
-	t.Run("NoConsensus_AllDifferent", func(t *testing.T) {
-		// All 3 peers report different page counts - no consensus
-		reportedPageCount := uint64(15)
-
-		getRandomPeers := func() []string {
-			return []string{"peer-1", "peer-2"}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			if peerID == "peer-1" {
-				return 20, nil
-			}
-			if peerID == "peer-2" {
-				return 25, nil
-			}
-			return 0, errors.New("unknown peer")
-		}
-
-		// Should assume honest when no consensus (conservative approach)
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be considered honest when no consensus reached")
-		}
-	})
-
-	t.Run("EdgeCase_ReportedZeroWithNoConsensus", func(t *testing.T) {
-		// Test edge case: original peer reports 0, consensus is also 0 (no majority)
-		reportedPageCount := uint64(0)
-
-		getRandomPeers := func() []string {
-			return []string{"peer-1", "peer-2"}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			if peerID == "peer-1" {
-				return 5, nil
-			}
-			if peerID == "peer-2" {
-				return 10, nil
-			}
-			return 0, errors.New("unknown peer")
-		}
-
-		// With current implementation, this would incorrectly mark peer as honest
-		// This test documents the edge case identified in the review
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		// Current behavior: peer is considered honest (no consensus)
-		// Ideal behavior: should detect that 0 is suspicious
-		if !isHonest {
-			t.Log("Peer correctly identified as dishonest despite consensus returning 0")
-		} else {
-			t.Log("KNOWN ISSUE: Peer incorrectly considered honest when reporting 0 and no consensus (edge case)")
-		}
-	})
-}
-
-// TestCheckWitnessPageCountWithPeerFailures tests handling of peer query failures
-func TestCheckWitnessPageCountWithPeerFailures(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-
-	var droppedPeers []string
-	var dropMutex sync.Mutex
-
-	jailPeer := peerJailFn(func(id string) {})
-	dropPeer := peerDropFn(func(id string) {
-		dropMutex.Lock()
-		droppedPeers = append(droppedPeers, id)
-		dropMutex.Unlock()
-	})
-	enqueueCh := make(chan *enqueueRequest, 10)
-	getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-	getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-	chainHeight := chainHeightFn(func() uint64 { return 100 })
-	gasCeil := uint64(30_000_000)
-
-	manager := newWitnessManager(
-		quit,
-		dropPeer,
-		jailPeer,
-		enqueueCh,
-		getBlock,
-		getHeader,
-		chainHeight,
-		nil,
-		gasCeil,
-	)
-
-	hash := common.HexToHash("0x123")
-	peer := "test-peer"
-
-	t.Run("OnePeerFails_OtherAgrees", func(t *testing.T) {
-		reportedPageCount := uint64(15)
-
-		getRandomPeers := func() []string {
-			return []string{"peer-1", "peer-2"}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			if peerID == "peer-1" {
-				return 0, errors.New("peer disconnected")
-			}
-			if peerID == "peer-2" {
-				return 15, nil // Agrees with original
-			}
-			return 0, errors.New("unknown peer")
-		}
-
-		// Should succeed - 2 out of 3 peers agree (original + peer-2)
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be honest when majority agrees despite one peer failing")
-		}
-	})
-
-	t.Run("BothRandomPeersFail_AssumeHonest", func(t *testing.T) {
-		reportedPageCount := uint64(15)
-
-		getRandomPeers := func() []string {
-			return []string{"peer-1", "peer-2"}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			// Both peers fail
-			return 0, errors.New("network error")
-		}
-
-		// Should assume honest (conservative approach when verification fails)
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be assumed honest when all verification peers fail")
-		}
-	})
-}
-
-// TestCheckWitnessPageCountWithInsufficientPeers tests behavior with not enough peers
-func TestCheckWitnessPageCountWithInsufficientPeers(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-
-	jailPeer := peerJailFn(func(id string) {})
-	dropPeer := peerDropFn(func(id string) {})
-	enqueueCh := make(chan *enqueueRequest, 10)
-	getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-	getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-	chainHeight := chainHeightFn(func() uint64 { return 100 })
-	gasCeil := uint64(30_000_000)
-
-	manager := newWitnessManager(
-		quit,
-		dropPeer,
-		jailPeer,
-		enqueueCh,
-		getBlock,
-		getHeader,
-		chainHeight,
-		nil,
-		gasCeil,
-	)
-
-	hash := common.HexToHash("0x123")
-	peer := "test-peer"
-	reportedPageCount := uint64(100)
-
-	t.Run("OnlyOnePeerAvailable", func(t *testing.T) {
-		getRandomPeers := func() []string {
-			return []string{"peer-1"} // Only 1 peer available
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			return 15, nil
-		}
-
-		// Should assume honest (not enough peers for verification)
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be assumed honest when insufficient peers for verification")
-		}
-	})
-
-	t.Run("NoPeersAvailable", func(t *testing.T) {
-		getRandomPeers := func() []string {
-			return []string{} // No peers available
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			return 0, errors.New("should not be called")
-		}
-
-		// Should assume honest (conservative approach)
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be assumed honest when no peers available for verification")
-		}
-	})
-}
-
-// TestCheckWitnessPageCountBelowThreshold tests that small witnesses skip verification
-func TestCheckWitnessPageCountBelowThreshold(t *testing.T) {
-	t.Run("WithCurrentHeader", func(t *testing.T) {
-		quit := make(chan struct{})
-		defer close(quit)
-
-		jailPeer := peerJailFn(func(id string) {
-			t.Error("Peer should not be jailed for page count below threshold")
-		})
-		dropPeer := peerDropFn(func(id string) {})
-		enqueueCh := make(chan *enqueueRequest, 10)
-		getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-		getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-		chainHeight := chainHeightFn(func() uint64 { return 100 })
-		gasCeil := uint64(30_000_000) // Config value
-
-		// Create a mock current header with a different gas limit
-		currentBlockGasLimit := uint64(50_000_000) // 50M gas limit in current block
-		currentHeader := currentHeaderFn(func() *types.Header {
-			return &types.Header{
-				Number:   big.NewInt(100),
-				GasLimit: currentBlockGasLimit,
-			}
-		})
-
-		manager := newWitnessManager(
-			quit,
-			dropPeer,
-			jailPeer,
-			enqueueCh,
-			getBlock,
-			getHeader,
-			chainHeight,
-			currentHeader,
-			gasCeil,
-		)
-
-		hash := common.HexToHash("0x123")
-		peer := "test-peer"
-
-		// Calculate actual threshold - should use currentBlockGasLimit (50M), not gasCeil (30M)
-		threshold := manager.calculatePageThreshold()
-
-		// Expected threshold: 50M gas / 1M gas per MB = 50 MB
-		// 50 MB / 15 MB per page = ceil(3.33) = 4 pages
-		expectedThreshold := uint64(4)
-		if threshold != expectedThreshold {
-			t.Errorf("Expected threshold %d (from header gas limit %d), got %d", expectedThreshold, currentBlockGasLimit, threshold)
-		}
-
-		reportedPageCount := threshold - 1 // Ensure it's below threshold
-
-		getRandomPeers := func() []string {
-			t.Error("getRandomPeers should not be called for page count below threshold")
-			return []string{}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			t.Error("getWitnessPageCount should not be called for page count below threshold")
-			return 0, errors.New("should not be called")
-		}
-
-		// Should skip verification and assume honest
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be honest for page count below threshold")
-		}
-	})
-
-	t.Run("FallbackToConfigWhenHeaderNil", func(t *testing.T) {
-		quit := make(chan struct{})
-		defer close(quit)
-
-		jailPeer := peerJailFn(func(id string) {
-			t.Error("Peer should not be jailed for page count below threshold")
-		})
-		dropPeer := peerDropFn(func(id string) {})
-		enqueueCh := make(chan *enqueueRequest, 10)
-		getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-		getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-		chainHeight := chainHeightFn(func() uint64 { return 100 })
-		gasCeil := uint64(30_000_000) // Config value
-
-		// Current header function returns nil
-		currentHeader := currentHeaderFn(func() *types.Header {
-			return nil
-		})
-
-		manager := newWitnessManager(
-			quit,
-			dropPeer,
-			jailPeer,
-			enqueueCh,
-			getBlock,
-			getHeader,
-			chainHeight,
-			currentHeader,
-			gasCeil,
-		)
-
-		hash := common.HexToHash("0x123")
-		peer := "test-peer"
-
-		// Calculate actual threshold - should fallback to gasCeil (30M)
-		threshold := manager.calculatePageThreshold()
-
-		// Expected threshold: 30M gas / 1M gas per MB = 30 MB
-		// 30 MB / 15 MB per page = ceil(2) = 2 pages
-		expectedThreshold := uint64(2)
-		if threshold != expectedThreshold {
-			t.Errorf("Expected threshold %d (from config gas ceil %d), got %d", expectedThreshold, gasCeil, threshold)
-		}
-
-		reportedPageCount := threshold - 1 // Ensure it's below threshold
-
-		getRandomPeers := func() []string {
-			t.Error("getRandomPeers should not be called for page count below threshold")
-			return []string{}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			t.Error("getWitnessPageCount should not be called for page count below threshold")
-			return 0, errors.New("should not be called")
-		}
-
-		// Should skip verification and assume honest
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be honest for page count below threshold")
-		}
-	})
-
-	t.Run("FallbackToConfigWhenCurrentHeaderFnNil", func(t *testing.T) {
-		quit := make(chan struct{})
-		defer close(quit)
-
-		jailPeer := peerJailFn(func(id string) {
-			t.Error("Peer should not be jailed for page count below threshold")
-		})
-		dropPeer := peerDropFn(func(id string) {})
-		enqueueCh := make(chan *enqueueRequest, 10)
-		getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-		getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-		chainHeight := chainHeightFn(func() uint64 { return 100 })
-		gasCeil := uint64(30_000_000)
-
-		// No current header function provided
-		manager := newWitnessManager(
-			quit,
-			dropPeer,
-			jailPeer,
-			enqueueCh,
-			getBlock,
-			getHeader,
-			chainHeight,
-			nil, // currentHeader is nil
-			gasCeil,
-		)
-
-		hash := common.HexToHash("0x123")
-		peer := "test-peer"
-
-		// Calculate actual threshold - should fallback to gasCeil
-		threshold := manager.calculatePageThreshold()
-
-		// Expected threshold: 30M gas / 1M gas per MB = 30 MB
-		// 30 MB / 15 MB per page = ceil(2) = 2 pages
-		expectedThreshold := uint64(2)
-		if threshold != expectedThreshold {
-			t.Errorf("Expected threshold %d (from config gas ceil %d), got %d", expectedThreshold, gasCeil, threshold)
-		}
-
-		reportedPageCount := threshold - 1 // Ensure it's below threshold
-
-		getRandomPeers := func() []string {
-			t.Error("getRandomPeers should not be called for page count below threshold")
-			return []string{}
-		}
-
-		getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-			t.Error("getWitnessPageCount should not be called for page count below threshold")
-			return 0, errors.New("should not be called")
-		}
-
-		// Should skip verification and assume honest
-		isHonest := manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
-
-		if !isHonest {
-			t.Error("Expected peer to be honest for page count below threshold")
-		}
-	})
-}
-
-// TestConcurrentWitnessVerification tests concurrent verification requests don't cause races
+// TestConcurrentWitnessVerification tests that concurrent page-count checks do
+// not race. Page counts are non-deterministic, so the check no longer polls
+// peers or jails; it only bounds against the gas-derived threshold.
 func TestConcurrentWitnessVerification(t *testing.T) {
 	quit := make(chan struct{})
 	defer close(quit)
 
-	var jailedPeers []string
-	var jailMutex sync.Mutex
-
-	jailPeer := peerJailFn(func(id string) {
-		jailMutex.Lock()
-		jailedPeers = append(jailedPeers, id)
-		jailMutex.Unlock()
-	})
-
 	dropPeer := peerDropFn(func(id string) {})
 	enqueueCh := make(chan *enqueueRequest, 10)
 	getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
@@ -2588,16 +2115,16 @@ func TestConcurrentWitnessVerification(t *testing.T) {
 	manager := newWitnessManager(
 		quit,
 		dropPeer,
-		jailPeer,
 		enqueueCh,
 		getBlock,
 		getHeader,
 		chainHeight,
 		nil,
+		nil,
+		nil,
 		gasCeil,
 	)
 
-	// Simulate concurrent verification requests (potential DoS scenario)
 	var wg sync.WaitGroup
 	numGoroutines := 50
 
@@ -2608,37 +2135,16 @@ func TestConcurrentWitnessVerification(t *testing.T) {
 
 			hash := common.HexToHash(fmt.Sprintf("0x%d", index))
 			peer := fmt.Sprintf("peer-%d", index)
+			// Page counts far above the gas-derived threshold (~2 at 30M gas):
+			// every one is refused, and no peer is jailed.
 			reportedPageCount := uint64(50 + index%10)
-
-			getRandomPeers := func() []string {
-				return []string{fmt.Sprintf("random-peer-1-%d", index), fmt.Sprintf("random-peer-2-%d", index)}
+			if manager.CheckWitnessPageCount(hash, reportedPageCount, peer) {
+				t.Errorf("page count %d far above threshold must be refused", reportedPageCount)
 			}
-
-			getWitnessPageCount := func(peerID string, hash common.Hash) (uint64, error) {
-				// Simulate some peers being dishonest
-				if index%3 == 0 {
-					return 15, nil // Honest response
-				}
-				return reportedPageCount, nil // Agree with original
-			}
-
-			manager.CheckWitnessPageCount(hash, reportedPageCount, peer, getRandomPeers, getWitnessPageCount)
 		}(i)
 	}
 
 	wg.Wait()
-
-	// Verify no race conditions occurred and some dishonest peers were jailed
-	jailMutex.Lock()
-	jailedCount := len(jailedPeers)
-	jailMutex.Unlock()
-
-	t.Logf("Jailed %d peers out of %d concurrent verification requests", jailedCount, numGoroutines)
-
-	// We expect some peers to be jailed (every 3rd peer in this test)
-	if jailedCount == 0 {
-		t.Log("Note: No peers were jailed, which may indicate the consensus logic needs review")
-	}
 }
 
 // TestFetchWitnessNoPeerError covers the soft-failure path in
@@ -2660,8 +2166,8 @@ func TestFetchWitnessNoPeerError(t *testing.T) {
 	chainHeight := chainHeightFn(func() uint64 { return 100 })
 
 	manager := newWitnessManager(
-		quit, dropPeer, nil, enqueueCh,
-		getBlock, getHeader, chainHeight, nil, 0,
+		quit, dropPeer, enqueueCh,
+		getBlock, getHeader, chainHeight, nil, nil, nil, 0,
 	)
 
 	hash := common.HexToHash("0xabc")
@@ -2725,8 +2231,8 @@ func TestWitnessTickPreservesValidPendingEntry(t *testing.T) {
 	chainHeight := chainHeightFn(func() uint64 { return 100 })
 
 	manager := newWitnessManager(
-		quit, dropPeer, nil, enqueueCh,
-		getBlock, getHeader, chainHeight, nil, 0,
+		quit, dropPeer, enqueueCh,
+		getBlock, getHeader, chainHeight, nil, nil, nil, 0,
 	)
 
 	block := createTestBlock(101)
@@ -2776,8 +2282,8 @@ func TestFetchWitnessOtherErrorKeepsPending(t *testing.T) {
 	chainHeight := chainHeightFn(func() uint64 { return 100 })
 
 	manager := newWitnessManager(
-		quit, dropPeer, nil, enqueueCh,
-		getBlock, getHeader, chainHeight, nil, 0,
+		quit, dropPeer, enqueueCh,
+		getBlock, getHeader, chainHeight, nil, nil, nil, 0,
 	)
 
 	hash := common.HexToHash("0xfade")
@@ -2820,58 +2326,6 @@ func TestFetchWitnessOtherErrorKeepsPending(t *testing.T) {
 	}
 }
 
-// TestCheckWitnessPageCountAtThreshold covers the exact-boundary case where
-// pageCount equals the computed threshold. The guard is `pageCount <=
-// threshold` — flipping to `<` would incorrectly trigger peer verification at
-// the boundary. The existing below-threshold tests all use threshold-1, so
-// the boundary itself was untested.
-func TestCheckWitnessPageCountAtThreshold(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-
-	dropPeer := peerDropFn(func(id string) { t.Errorf("unexpected drop for peer at threshold: %s", id) })
-	jailPeer := peerJailFn(func(id string) { t.Errorf("unexpected jail for peer at threshold: %s", id) })
-	enqueueCh := make(chan *enqueueRequest, 10)
-	getBlock := blockRetrievalFn(func(hash common.Hash) *types.Block { return nil })
-	getHeader := HeaderRetrievalFn(func(hash common.Hash) *types.Header { return nil })
-	chainHeight := chainHeightFn(func() uint64 { return 100 })
-
-	// 30M gas / 1M per MB / 15MB per page → ceil(2.0) = 2 pages threshold.
-	currentHeader := currentHeaderFn(func() *types.Header {
-		return &types.Header{Number: big.NewInt(100), GasLimit: 30_000_000}
-	})
-
-	manager := newWitnessManager(
-		quit, dropPeer, jailPeer, enqueueCh,
-		getBlock, getHeader, chainHeight, currentHeader, 30_000_000,
-	)
-
-	threshold := manager.calculatePageThreshold()
-
-	// Explicit failure if verification is unexpectedly invoked. If the guard
-	// mutates from `<=` to `<`, pageCount == threshold will fall through to
-	// verification and these mocks will fire.
-	getRandomPeers := func() []string {
-		t.Error("getRandomPeers should not be called for pageCount == threshold")
-		return nil
-	}
-	getWitnessPageCount := func(string, common.Hash) (uint64, error) {
-		t.Error("getWitnessPageCount should not be called for pageCount == threshold")
-		return 0, errors.New("unreachable")
-	}
-
-	isHonest := manager.CheckWitnessPageCount(
-		common.HexToHash("0xdef"),
-		threshold, // exactly at the boundary
-		"test-peer",
-		getRandomPeers,
-		getWitnessPageCount,
-	)
-	if !isHonest {
-		t.Error("expected peer to be considered honest at pageCount == threshold")
-	}
-}
-
 // newWitnessManagerForTest returns a minimal witness manager wired up for
 // tests that directly invoke individual methods. The returned channel can
 // be read from to observe enqueued ops.
@@ -2883,11 +2337,12 @@ func newWitnessManagerForTest(t *testing.T) (*witnessManager, <-chan *enqueueReq
 	m := newWitnessManager(
 		quit,
 		peerDropFn(func(string) {}),
-		nil,
 		enqueueCh,
 		blockRetrievalFn(func(common.Hash) *types.Block { return nil }),
 		HeaderRetrievalFn(func(common.Hash) *types.Header { return nil }),
 		chainHeightFn(func() uint64 { return 100 }),
+		nil,
+		nil,
 		nil,
 		0,
 	)
@@ -3156,7 +2611,6 @@ func TestWitnessCalculatePageThresholdMinimumClamp(t *testing.T) {
 		m := newWitnessManager(
 			quit,
 			peerDropFn(func(string) {}),
-			nil,
 			make(chan *enqueueRequest, 10),
 			blockRetrievalFn(func(common.Hash) *types.Block { return nil }),
 			HeaderRetrievalFn(func(common.Hash) *types.Header { return nil }),
@@ -3164,6 +2618,8 @@ func TestWitnessCalculatePageThresholdMinimumClamp(t *testing.T) {
 			currentHeaderFn(func() *types.Header {
 				return &types.Header{Number: big.NewInt(100), GasLimit: 1} // < 1MB → 0 pages pre-clamp
 			}),
+			nil,
+			nil,
 			0,
 		)
 		if got := m.calculatePageThreshold(); got < 1 {
@@ -3177,12 +2633,13 @@ func TestWitnessCalculatePageThresholdMinimumClamp(t *testing.T) {
 		m := newWitnessManager(
 			quit,
 			peerDropFn(func(string) {}),
-			nil,
 			make(chan *enqueueRequest, 10),
 			blockRetrievalFn(func(common.Hash) *types.Block { return nil }),
 			HeaderRetrievalFn(func(common.Hash) *types.Header { return nil }),
 			chainHeightFn(func() uint64 { return 100 }),
 			nil, // no current header → fallback to config path
+			nil, // no signed-witness lookup
+			nil, // no cache-witness-for-serving
 			1,   // 1 gas ceil → 0 pages pre-clamp
 		)
 		if got := m.calculatePageThreshold(); got < 1 {
@@ -3301,7 +2758,7 @@ func TestHandleWitnessFetchSuccessUpdatesBlockTimestamps(t *testing.T) {
 	m.mu.Unlock()
 
 	announcedAt := time.Now().Add(-time.Second)
-	m.handleWitnessFetchSuccess("peer", hash, witness, announcedAt)
+	m.handleWitnessFetchSuccess("peer", hash, witness, announcedAt, false)
 
 	select {
 	case req := <-enqueueCh:
@@ -3315,78 +2772,6 @@ func TestHandleWitnessFetchSuccessUpdatesBlockTimestamps(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for enqueue")
-	}
-}
-
-// TestVerifyWitnessPageCountDishonestPeer exercises the dishonest-peer
-// detection at line 1089:
-//
-//	if consensusPageCount != reportedPageCount && consensusPageCount != 0
-//
-// Flipping either `!=` to `==` would cause honest or no-consensus cases
-// to be classified as dishonest and incorrectly drop/jail the peer.
-func TestVerifyWitnessPageCountDishonestPeer(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-
-	var droppedPeer, jailedPeer string
-	dropPeer := peerDropFn(func(id string) { droppedPeer = id })
-	jailPeer := peerJailFn(func(id string) { jailedPeer = id })
-
-	m := newWitnessManager(
-		quit, dropPeer, jailPeer,
-		make(chan *enqueueRequest, 10),
-		blockRetrievalFn(func(common.Hash) *types.Block { return nil }),
-		HeaderRetrievalFn(func(common.Hash) *types.Header { return nil }),
-		chainHeightFn(func() uint64 { return 100 }),
-		nil,
-		0,
-	)
-
-	// Reported: 999 (the lying peer). Consensus from other peers: 5 (x2).
-	// 999 vs consensus 5 → dishonest path.
-	getRandomPeers := func() []string { return []string{"honest1", "honest2"} }
-	getWitnessPageCount := func(peer string, _ common.Hash) (uint64, error) {
-		return 5, nil
-	}
-
-	isHonest := m.verifyWitnessPageCountSync(
-		common.HexToHash("0xe1"), 999, "liar",
-		getRandomPeers, getWitnessPageCount,
-	)
-	if isHonest {
-		t.Error("expected liar to be classified dishonest")
-	}
-	if droppedPeer != "liar" {
-		t.Errorf("expected drop of 'liar', got %q", droppedPeer)
-	}
-	if jailedPeer != "liar" {
-		t.Errorf("expected jail of 'liar', got %q", jailedPeer)
-	}
-}
-
-// TestGetConsensusPageCountMajority verifies that the majority vote is
-// correctly picked. This covers the `freq > maxCount` comparison at line
-// 1030 — flipping to `>=` could change which vote wins on ties (though in
-// most cases Go map iteration nondeterminism already makes ties undefined,
-// a clear-majority case must still pick the winner).
-func TestWitnessGetConsensusPageCountMajority(t *testing.T) {
-	m, _ := newWitnessManagerForTest(t)
-
-	// Original: 10. Peers vote 10, 10, 999 → consensus 10 (3/4 includes self).
-	peers := []string{"p1", "p2", "p3"}
-	votes := map[string]uint64{"p1": 10, "p2": 10, "p3": 999}
-	getCount := func(peer string, _ common.Hash) (uint64, error) {
-		return votes[peer], nil
-	}
-
-	consensus := m.getConsensusPageCountWithOriginal(
-		peers, common.HexToHash("0xe2"),
-		10, // original reported
-		getCount,
-	)
-	if consensus != 10 {
-		t.Errorf("consensus = %d, want 10 (clear majority)", consensus)
 	}
 }
 
@@ -3412,8 +2797,8 @@ func TestWitnessLoopDrivesFetchesForPending(t *testing.T) {
 	chainHeight := chainHeightFn(func() uint64 { return 100 })
 
 	manager := newWitnessManager(
-		quit, dropPeer, nil, enqueueCh,
-		getBlock, getHeader, chainHeight, nil, 0,
+		quit, dropPeer, enqueueCh,
+		getBlock, getHeader, chainHeight, nil, nil, nil, 0,
 	)
 
 	fetchCalled := make(chan struct{}, 1)
@@ -3443,5 +2828,54 @@ func TestWitnessLoopDrivesFetchesForPending(t *testing.T) {
 	case <-fetchCalled:
 	case <-time.After(3 * time.Second):
 		t.Fatal("fetchWitness was never invoked — loop is not driving tick for pending requests")
+	}
+}
+
+// newPageCountTestManager builds a witnessManager with no current-header hook,
+// so calculatePageThreshold falls back to gasCeil. At gasCeil=30M the threshold
+// is ceil(30/15) = 2 pages.
+func newPageCountTestManager(t *testing.T, onDrop func(string)) *witnessManager {
+	t.Helper()
+	return newWitnessManager(
+		make(chan struct{}),
+		peerDropFn(onDrop),
+		make(chan *enqueueRequest, 1),
+		blockRetrievalFn(func(common.Hash) *types.Block { return nil }),
+		HeaderRetrievalFn(func(common.Hash) *types.Header { return nil }),
+		chainHeightFn(func() uint64 { return 100 }),
+		nil, nil, nil,
+		uint64(30_000_000),
+	)
+}
+
+// TestCheckWitnessPageCountAcceptsWithinThreshold: a page count at or below the
+// gas-derived threshold is accepted with no peer interaction.
+func TestCheckWitnessPageCountAcceptsWithinThreshold(t *testing.T) {
+	dropped := false
+	m := newPageCountTestManager(t, func(string) { dropped = true })
+
+	if !m.CheckWitnessPageCount(common.HexToHash("0x1"), 1, "peer") {
+		t.Fatal("page count below threshold must be accepted")
+	}
+	if !m.CheckWitnessPageCount(common.HexToHash("0x2"), 2, "peer") {
+		t.Fatal("page count at threshold must be accepted")
+	}
+	if dropped {
+		t.Fatal("accepting within threshold must not drop the peer")
+	}
+}
+
+// TestCheckWitnessPageCountRefusesAboveThresholdWithoutDrop: a page count above
+// the gas-derived threshold is refused, but the peer is NOT dropped or jailed —
+// page counts are non-deterministic, so the old cross-peer vote + jail is gone.
+func TestCheckWitnessPageCountRefusesAboveThresholdWithoutDrop(t *testing.T) {
+	dropped := false
+	m := newPageCountTestManager(t, func(string) { dropped = true })
+
+	if m.CheckWitnessPageCount(common.HexToHash("0x3"), 100, "peer") {
+		t.Fatal("page count far above the gas-derived threshold must be refused")
+	}
+	if dropped {
+		t.Fatal("refusing an above-threshold page count must NOT drop or jail the peer")
 	}
 }
