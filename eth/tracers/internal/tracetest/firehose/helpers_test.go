@@ -32,16 +32,15 @@ type firehoseBlockLines []firehoseBlockLine
 func newFirehoseTestTracer(t *testing.T, model tracingModel) (*tracers.Firehose, *tracing.Hooks, func()) {
 	t.Helper()
 
-	tracer, err := tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
+	tracer, err := tracers.NewFirehoseFromRawJSON([]byte(`{
 		"_private": {
 			"flushToTestBuffer": true,
-			"ignoreGenesisBlock": true,
-			"forcedBackwardCompatibility": %t
+			"ignoreGenesisBlock": true
 		}
-	}`, model == tracingModelFirehose2_3)))
+	}`))
 	require.NoError(t, err)
 
-	hooks := tracers.NewTracingHooksFromFirehose(tracer)
+	hooks := tracer.TracingHooks()
 
 	return tracer, hooks, func() {
 		if hooks.OnClose != nil {
@@ -121,6 +120,7 @@ type firehoseBlockLine struct {
 
 type firehoseBlockLineParams struct {
 	Number       string
+	PartialIndex string
 	Hash         string
 	PreviousNum  string
 	PreviousHash string
@@ -143,7 +143,7 @@ func assertBlockEquals(t *testing.T, tracer *tracers.Firehose, goldenDir string,
 func readTracerFirehoseLines(t *testing.T, tracer *tracers.Firehose) (genesisLine *firehoseInitLine, blockLines firehoseBlockLines, unknownLines []unknownLine) {
 	t.Helper()
 
-	lines := bytes.Split(tracer.InternalTestingBuffer().Bytes(), []byte{'\n'})
+	lines := bytes.Split(tracer.GetTestingOutputBuffer().Bytes(), []byte{'\n'})
 	for _, line := range lines {
 		if len(line) == 0 {
 			continue
@@ -166,7 +166,7 @@ func readTracerFirehoseLines(t *testing.T, tracer *tracers.Firehose) (genesisLin
 			}
 
 		case "BLOCK":
-			protoBytes, err := base64.StdEncoding.DecodeString(string(fireParts[6]))
+			protoBytes, err := base64.StdEncoding.DecodeString(string(fireParts[7]))
 			require.NoError(t, err)
 
 			block := &pbeth.Block{}
@@ -175,11 +175,12 @@ func readTracerFirehoseLines(t *testing.T, tracer *tracers.Firehose) (genesisLin
 			blockLines = append(blockLines, firehoseBlockLine{
 				Params: firehoseBlockLineParams{
 					Number:       string(fireParts[0]),
-					Hash:         string(fireParts[1]),
-					PreviousNum:  string(fireParts[2]),
-					PreviousHash: string(fireParts[3]),
-					LibNum:       string(fireParts[4]),
-					Time:         string(fireParts[5]),
+					PartialIndex: string(fireParts[1]),
+					Hash:         string(fireParts[2]),
+					PreviousNum:  string(fireParts[3]),
+					PreviousHash: string(fireParts[4]),
+					LibNum:       string(fireParts[5]),
+					Time:         string(fireParts[6]),
 				},
 				Block: block,
 			})
