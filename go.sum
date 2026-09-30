@@ -121,6 +121,8 @@ github.com/dop251/goja_nodejs v0.0.0-20210225215109-d91c329300e7/go.mod h1:hn7BA
 github.com/dop251/goja_nodejs v0.0.0-20211022123610-8dd9abb0616d/go.mod h1:DngW8aVqWbuLRMHItjPUyqdj+HWPvnQe8V8y1nDpIbM=
 github.com/emicklei/dot v1.6.2 h1:08GN+DD79cy/tzN6uLCT84+2Wk9u+wvqP+Hkx/dIR8A=
 github.com/emicklei/dot v1.6.2/go.mod h1:DeV7GvQtIw4h2u73RKBkkFdvVAz0D9fzeJrgPW6gy/s=
+github.com/emmansun/base64 v0.8.0 h1:HSF5Yj8x7xAWeXG9nWesAflFTi5d9o1wlqhIGjvF1n8=
+github.com/emmansun/base64 v0.8.0/go.mod h1:IYGtqjG0NQwY+3EgUiDjDEXbFq9nFJ/W9fqDzkFcxPk=
 github.com/ethereum/c-kzg-4844/v2 v2.1.5 h1:aVtoLK5xwJ6c5RiqO8g8ptJ5KU+2Hdquf6G3aXiHh5s=
 github.com/ethereum/c-kzg-4844/v2 v2.1.5/go.mod h1:u59hRTTah4Co6i9fDWtiCjTrblJv0UwsqZKCc0GfgUs=
 github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab h1:rvv6MJhy07IMfEKuARQ9TKojGqLVNxQajaXEp/BoqSk=
@@ -359,8 +361,8 @@ github.com/status-im/keycard-go v0.2.0 h1:QDLFswOQu1r5jsycloeQh3bVU8n/NatHHaZobt
 github.com/status-im/keycard-go v0.2.0/go.mod h1:wlp8ZLbsmrF6g6WjugPAx+IzoLrkdf9+mHxBEeo3Hbg=
 github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a h1:jHKRM0gM5Gh/vRzJTv5u0myac8zxlGgICZr71+QRPz0=
 github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
-github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930195824-c3c68f594463 h1:IE9+qBnNvrHNx80UZ2h+xR5daRvm2dwMcOrYDCb6o7s=
-github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930195824-c3c68f594463/go.mod h1:cziUVzBRezT40LFCjX+12rr8zbgvsqg4Hg/8SJkyd9o=
+github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930220430-1428b939c7c8 h1:vmTn0p3hp4hr/sy9137TzK2qUKRhINNvcK0f7lBjFhQ=
+github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930220430-1428b939c7c8/go.mod h1:fIlwaEno35otwk+e1/ATjU8UYuD4flA2cE1U0z7/KM8=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217 h1:nBDPZf1bPfmstsdMXXP26Fk1W/5s+UPIekSc3PIP93g=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217/go.mod h1:+ala1ZHyPZy6QZwTw3k7V6tHQ2bXFKP8wIldp2SUJ9Y=
 github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641 h1:dI+b2TyFS0rJw1xVGzxBBvn/RrSgBpqM/RjwDInxEfo=
