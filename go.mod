@@ -33,7 +33,6 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/donovanhide/eventsource v0.0.0-20210830082556-c59027999da0
 	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3
-	github.com/emmansun/base64 v0.8.0
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5
 	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab
 	github.com/ethereum/go-verkle v0.2.2
@@ -84,7 +83,7 @@ require (
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/status-im/keycard-go v0.3.2
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260119150111-65c739f81608
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260416183402-21195c1bf9b7
 	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.16
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
@@ -207,6 +206,7 @@ require (
 	github.com/armon/go-radix v0.0.0-20180808171621-7fddfc383310 // indirect
 	github.com/aws/aws-sdk-go v1.44.274 // indirect
 	github.com/bgentry/speakeasy v0.2.0 // indirect
+	github.com/blendle/zapdriver v1.3.2-0.20200203083823-9200777f8a3d // indirect
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect
 	github.com/cbergoon/merkletree v0.2.0 // indirect
@@ -277,6 +277,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/lib/pq v1.12.0 // indirect
 	github.com/linxGnu/grocksdb v1.10.3 // indirect
+	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/manifoldco/promptui v0.9.0 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/mitchellh/copystructure v1.0.0 // indirect
@@ -310,6 +311,8 @@ require (
 	github.com/spf13/cobra v1.10.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
+	github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a // indirect
+	github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect
 	github.com/tidwall/btree v1.8.1 // indirect
@@ -344,6 +347,7 @@ require (
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/prometheus/tsdb v0.10.0
+	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930190838-adb76acff650
 	github.com/zclconf/go-cty v1.13.0 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
 	go.opencensus.io v0.24.0 // indirect

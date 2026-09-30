@@ -1,18 +1,20 @@
 package tracers
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
-	"os"
 	"reflect"
 	"regexp"
-	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -21,61 +23,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-func TestFirehoseCallStack_Push(t *testing.T) {
-	type actionRunner func(t *testing.T, s *CallStack)
-
-	push := func(call *pbeth.Call) actionRunner { return func(_ *testing.T, s *CallStack) { s.Push(call) } }
-	pop := func() actionRunner { return func(_ *testing.T, s *CallStack) { s.Pop() } }
-	check := func(r actionRunner) actionRunner { return func(t *testing.T, s *CallStack) { r(t, s) } }
-
-	tests := []struct {
-		name    string
-		actions []actionRunner
-	}{
-		{
-			"push/pop empty", []actionRunner{
-				push(&pbeth.Call{}),
-				pop(),
-				check(func(t *testing.T, s *CallStack) {
-					require.Len(t, s.stack, 0)
-				}),
-			},
-		},
-		{
-			"push/push/push", []actionRunner{
-				push(&pbeth.Call{}),
-				push(&pbeth.Call{}),
-				push(&pbeth.Call{}),
-				check(func(t *testing.T, s *CallStack) {
-					require.Len(t, s.stack, 3)
-
-					require.Equal(t, 1, int(s.stack[0].Index))
-					require.Equal(t, 0, int(s.stack[0].ParentIndex))
-
-					require.Equal(t, 2, int(s.stack[1].Index))
-					require.Equal(t, 1, int(s.stack[1].ParentIndex))
-
-					require.Equal(t, 3, int(s.stack[2].Index))
-					require.Equal(t, 2, int(s.stack[2].ParentIndex))
-				}),
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := NewCallStack()
-
-			for _, action := range tt.actions {
-				action(t, s)
-			}
-		})
-	}
-}
 
 func Test_validateKnownTransactionTypes(t *testing.T) {
 	tests := []struct {
@@ -112,11 +62,15 @@ var ignorePbFieldNames = map[string]bool{
 	// This was a Polygon specific field that existed for a while and has since been
 	// removed. It can be safely ignored in all protocols now.
 	"TxDependency": true,
+
+	// EIP-7843 (Amsterdam) field, not in Bor's header
+	"SlotNumber": true,
 }
 
 var ignoreGethFieldNames = map[string]bool{
-	// This is a field used internally by the polygon miners
-	"ActualTime": true,
+	// Those are fields used internally by the polygon miners
+	"ActualTime":    true,
+	"AbortRecovery": true,
 }
 
 var pbFieldNameToGethMapping = map[string]string{
@@ -225,31 +179,6 @@ func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
 	}
 }
 
-func TestFirehose_GasChangeAllMappedCorrectly(t *testing.T) {
-	for i := 0; i <= math.MaxUint8; i++ {
-		tracingReason := tracing.GasChangeReason(i)
-
-		// Those are ignored and never mapped
-		if tracingReason == tracing.GasChangeUnspecified || tracingReason == tracing.GasChangeCallOpCode || tracingReason == tracing.GasChangeIgnored {
-			continue
-		}
-
-		// Here, we leverage the fact that the `tracing.GasChangeReason` Stringer will render the String
-		// as `<EnumName>(<indexValue>)` if the index is not mapped to a constant in the enum. If this happens,
-		// we know it's not a defined constant in the Geth tracing package.
-		//
-		// Otherwise, it's defined and we should have some mapping for it in the `gasChangeReasonFromChain` function.
-		//
-		// There is a loophole of this technique and it's that if the code generator defining the enum Stringer is
-		// not run, we will think it's an undefined constant and will miss it.
-		if !endsWithUnknownConstant.MatchString(tracingReason.String()) {
-			require.NotPanics(t, func() {
-				gasChangeReasonFromChain(tracingReason)
-			}, "GasChangeReason panicked for value %v", tracingReason)
-		}
-	}
-}
-
 func fillAllFieldsWithNonEmptyValues(t *testing.T, structValue reflect.Value, fields []reflect.StructField) {
 	t.Helper()
 
@@ -260,6 +189,8 @@ func fillAllFieldsWithNonEmptyValues(t *testing.T, structValue reflect.Value, fi
 		switch fieldValue.Interface().(type) {
 		case []byte:
 			fieldValue.Set(reflect.ValueOf([]byte{1}))
+		case bool:
+			fieldValue.Set(reflect.ValueOf(true))
 		case uint64:
 			fieldValue.Set(reflect.ValueOf(uint64(1)))
 		case *uint64:
@@ -358,198 +289,62 @@ func filter[S ~[]T, T any](s S, f func(T) bool) (out S) {
 	return out
 }
 
-func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
-	tests := []struct {
-		name              string
-		populate          func(t *Firehose)
-		expectedBlockFile string
-	}{
-		{
-			name: "empty",
-			populate: func(t *Firehose) {
-				t.OnBlockStart(blockEvent(1))
-
-				// Simulated GetTxTracer being called
-				t.blockReorderOrdinalOnce.Do(func() {
-					t.blockReorderOrdinal = true
-					t.blockReorderOrdinalSnapshot = t.blockOrdinal.value
-				})
-
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("CC"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(2), nil)
-
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("AA"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(0), nil)
-
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("BB"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(1), nil)
-			},
-			expectedBlockFile: "testdata/firehose/reorder-ordinals-empty.golden.json",
-		},
+func TestFirehose_PolygonFeeTransferLog(t *testing.T) {
+	from, to := common.HexToAddress("0x01"), common.HexToAddress("0x02")
+	feeLog := &types.Log{
+		Address: core.GetFeeAddress(),
+		Topics:  []common.Hash{core.GetTransferFeeLogSig(), {}, {}, {}},
+		Index:   3,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := NewFirehose(&FirehoseConfig{
-				ApplyBackwardCompatibility: ptr(false),
-			})
-			f.OnBlockchainInit(params.AllEthashProtocolChanges)
+	tracer, err := NewFirehoseFromRawJSON([]byte(`{"_private":{"flushToTestBuffer":true}}`))
+	require.NoError(t, err)
+	hooks := tracer.TracingHooks()
 
-			tt.populate(f)
+	hooks.OnBlockchainInit(&params.ChainConfig{ChainID: big.NewInt(137)})
+	hooks.OnBlockStart(tracing.BlockEvent{Block: types.NewBlockWithHeader(&types.Header{Number: big.NewInt(1), Difficulty: big.NewInt(1)})})
+	hooks.OnTxStart(&tracing.VMContext{}, types.NewTx(&types.LegacyTx{To: &to, Gas: 21000}), from)
+	hooks.OnEnter(0, byte(vm.CALL), from, to, nil, 21000, nil)
+	hooks.OnLog(&types.Log{Address: to, Index: 2})
+	hooks.OnExit(0, nil, 21000, vm.ErrExecutionReverted, true)
+	// Bor emits the fee transfer log after the root call ended
+	hooks.OnLog(feeLog)
+	hooks.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusFailed, Logs: []*types.Log{feeLog}}, nil)
+	hooks.OnBlockEnd(nil)
 
-			f.reorderIsolatedTransactionsAndOrdinals()
+	block := readSingleFirehoseBlock(t, tracer.GetTestingOutputBuffer())
+	require.Len(t, block.TransactionTraces, 1)
+	trx := block.TransactionTraces[0]
+	rootCall := trx.Calls[0]
+	require.True(t, rootCall.StateReverted)
+	require.Len(t, rootCall.Logs, 2)
 
-			goldenUpdate := os.Getenv("GOLDEN_UPDATE") == "true"
-			goldenPath := tt.expectedBlockFile
+	assert.Equal(t, uint32(0), rootCall.Logs[0].BlockIndex, "reverted log loses its block index")
+	assert.Equal(t, uint32(3), rootCall.Logs[1].BlockIndex, "fee transfer log keeps its block index")
 
-			if !goldenUpdate && !fileExits(t, goldenPath) {
-				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
-			}
-
-			content, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
-			require.NoError(t, err)
-
-			if goldenUpdate {
-				require.NoError(t, os.WriteFile(goldenPath, content, os.ModePerm))
-			}
-
-			expected, err := os.ReadFile(goldenPath)
-			require.NoError(t, err)
-
-			expectedBlock := &pbeth.Block{}
-			protojson.Unmarshal(expected, expectedBlock)
-
-			if !proto.Equal(expectedBlock, f.block) {
-				assert.Equal(t, expectedBlock, f.block, "Run 'GOLDEN_UPDATE=true go test ./... -run %q' to update golden file", t.Name())
-			}
-
-			seenOrdinals := make(map[uint64]int)
-
-			walkChanges(f.block.BalanceChanges, seenOrdinals)
-			walkChanges(f.block.CodeChanges, seenOrdinals)
-			walkCalls(f.block.SystemCalls, seenOrdinals)
-
-			for _, trx := range f.block.TransactionTraces {
-				seenOrdinals[trx.BeginOrdinal] = seenOrdinals[trx.BeginOrdinal] + 1
-				seenOrdinals[trx.EndOrdinal] = seenOrdinals[trx.EndOrdinal] + 1
-				walkCalls(trx.Calls, seenOrdinals)
-			}
-
-			// No ordinal should be seen more than once
-			for ordinal, count := range seenOrdinals {
-				assert.Equal(t, 1, count, "Ordinal %d seen %d times", ordinal, count)
-			}
-
-			ordinals := maps.Keys(seenOrdinals)
-			slices.Sort(ordinals)
-
-			// All ordinals should be in strictly increasing order
-			prev := -1
-			for _, ordinal := range ordinals {
-				if prev != -1 {
-					assert.Equal(t, prev+1, int(ordinal), "Ordinal %d is not in sequence", ordinal)
-				}
-			}
-		})
-	}
+	require.Len(t, trx.Receipt.Logs, 1)
+	assert.Equal(t, rootCall.Logs[1].Ordinal, trx.Receipt.Logs[0].Ordinal)
+	assert.Equal(t, uint32(3), trx.Receipt.Logs[0].BlockIndex)
 }
 
-func walkCalls(calls []*pbeth.Call, ordinals map[uint64]int) {
-	for _, call := range calls {
-		walkCall(call, ordinals)
-	}
-}
-
-func walkCall(call *pbeth.Call, ordinals map[uint64]int) {
-	ordinals[call.BeginOrdinal] = ordinals[call.BeginOrdinal] + 1
-	ordinals[call.EndOrdinal] = ordinals[call.EndOrdinal] + 1
-
-	walkChanges(call.BalanceChanges, ordinals)
-	walkChanges(call.CodeChanges, ordinals)
-	walkChanges(call.Logs, ordinals)
-	walkChanges(call.StorageChanges, ordinals)
-	walkChanges(call.NonceChanges, ordinals)
-	walkChanges(call.GasChanges, ordinals)
-}
-
-func walkChanges[T any](changes []T, ordinals map[uint64]int) {
-	for _, change := range changes {
-		var x any = change
-		if v, ok := x.(interface{ GetOrdinal() uint64 }); ok {
-			ordinals[v.GetOrdinal()] = ordinals[v.GetOrdinal()] + 1
-		}
-	}
-}
-
-var b = big.NewInt
-var empty, from, to = common.HexToAddress("00"), common.HexToAddress("01"), common.HexToAddress("02")
-var hex2Hash = common.HexToHash
-
-func fileExits(t *testing.T, path string) bool {
+func readSingleFirehoseBlock(t *testing.T, output *bytes.Buffer) *pbeth.Block {
 	t.Helper()
-	stat, err := os.Stat(path)
-	return err == nil && !stat.IsDir()
-}
 
-func txEvent() *types.Transaction {
-	return types.NewTx(&types.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(1),
-		Gas:      1,
-		To:       &to,
-		Value:    big.NewInt(1),
-		Data:     nil,
-		V:        big.NewInt(1),
-		R:        big.NewInt(1),
-		S:        big.NewInt(1),
-	})
-}
+	var blocks []*pbeth.Block
+	for _, line := range strings.Split(output.String(), "\n") {
+		if !strings.HasPrefix(line, "FIRE BLOCK ") {
+			continue
+		}
 
-func txReceiptEvent(txIndex uint) *types.Receipt {
-	return &types.Receipt{
-		Status:           1,
-		TransactionIndex: txIndex,
-	}
-}
+		fields := strings.Split(line, " ")
+		payload, err := base64.StdEncoding.DecodeString(fields[len(fields)-1])
+		require.NoError(t, err)
 
-func blockEvent(height uint64) tracing.BlockEvent {
-	return tracing.BlockEvent{
-		Block: types.NewBlock(&types.Header{
-			Number: big.NewInt(int64(height)),
-		}, nil, nil, nil),
+		block := new(pbeth.Block)
+		require.NoError(t, proto.Unmarshal(payload, block))
+		blocks = append(blocks, block)
 	}
-}
 
-func TestMemory_GetPtr(t *testing.T) {
-	type args struct {
-		offset int64
-		size   int64
-	}
-	tests := []struct {
-		name string
-		m    Memory
-		args args
-		want []byte
-	}{
-		{"memory is just a bit too small", Memory([]byte{1, 2, 3}), args{0, 4}, []byte{1, 2, 3, 0}},
-		{"memory is flushed with request", Memory([]byte{1, 2, 3, 4}), args{0, 4}, []byte{1, 2, 3, 4}},
-		{"memory is just a bit too big", Memory([]byte{1, 2, 3, 4, 5}), args{0, 4}, []byte{1, 2, 3, 4}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.m.GetPtr(tt.args.offset, tt.args.size))
-		})
-	}
+	require.Len(t, blocks, 1)
+	return blocks[0]
 }

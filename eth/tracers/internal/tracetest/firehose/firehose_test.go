@@ -27,11 +27,10 @@ import (
 type tracingModel string
 
 const (
-	tracingModelFirehose2_3 tracingModel = "fh2.3"
 	tracingModelFirehose3_0 tracingModel = "fh3.0"
 )
 
-var tracingModels = []tracingModel{tracingModelFirehose2_3, tracingModelFirehose3_0}
+var tracingModels = []tracingModel{tracingModelFirehose3_0}
 
 func TestFirehosePrestate(t *testing.T) {
 	testFolders := []string{
