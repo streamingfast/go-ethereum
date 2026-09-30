@@ -83,7 +83,7 @@ require (
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/status-im/keycard-go v0.3.2
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260416183402-21195c1bf9b7
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217
 	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.16
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
@@ -347,7 +347,7 @@ require (
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/prometheus/tsdb v0.10.0
-	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930190838-adb76acff650
+	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930195824-c3c68f594463
 	github.com/zclconf/go-cty v1.13.0 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
 	go.opencensus.io v0.24.0 // indirect

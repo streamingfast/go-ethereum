@@ -63,8 +63,13 @@ var ignorePbFieldNames = map[string]bool{
 	// removed. It can be safely ignored in all protocols now.
 	"TxDependency": true,
 
-	// EIP-7843 (Amsterdam) field, not in Bor's header
-	"SlotNumber": true,
+	// EIP-7843 and EIP-7928 (Amsterdam) fields, not in Bor's header
+	"SlotNumber":          true,
+	"BlockAccessListHash": true,
+	"BlockAccessListRlp":  true,
+
+	// Morph specific field.
+	"MorphNextL1MsgIndex": true,
 }
 
 var ignoreGethFieldNames = map[string]bool{

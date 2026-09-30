@@ -118,11 +118,9 @@ func NewFirehose(config *FirehoseConfig) *Firehose {
 		EnableConcurrentFlushing: config.ConcurrentBlockFlushing > 0,
 		ConcurrentBufferSize:     config.ConcurrentBlockFlushing,
 
-		// Polygon emits its fee transfer log after the root call ended, and that log
-		// is kept in the receipt even when the transaction reverts.
-		AllowLogsOutsideCall: true,
-		IsNeverRevertedLog:   isPolygonFeeTransferLog,
-		BeforeBlockFlush:     f.combinePolygonSystemTransactions,
+		// Polygon's fee transfer log is kept in the receipt even when the transaction reverts
+		IsNeverRevertedLog: isPolygonFeeTransferLog,
+		BeforeBlockFlush:   f.combinePolygonSystemTransactions,
 	})
 
 	return f
