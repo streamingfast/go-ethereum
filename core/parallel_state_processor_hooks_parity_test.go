@@ -77,7 +77,6 @@ var hookV2Statuses = map[string]hookV2Status{
 	// --- Firehose hooks fired by the shared EVM core or by Bor.Finalize,
 	//     so they are orthogonal to which processor ran the block ---
 	"OnKeccakPreimage":   {firedInV2: true},
-	"OnNewAccount":       {firedInV2: true},
 	"OnStateSyncReceipt": {firedInV2: true},
 
 	// --- Known V2 gap: per-tx start/end hooks ---

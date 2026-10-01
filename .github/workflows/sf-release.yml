@@ -1,6 +1,7 @@
 name: Build, push and release (if tag)
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "*-v*"

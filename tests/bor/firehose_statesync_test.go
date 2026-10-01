@@ -65,7 +65,7 @@ func TestStateSyncTracing_FirehoseOutputMatchesGolden(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return tracers.NewTracingHooksFromFirehose(fh), nil
+		return fh.TracingHooks(), nil
 	})
 
 	stateSyncConfirmationDelay := int64(128)
@@ -122,7 +122,7 @@ func TestStateSyncTracing_FirehoseOutputMatchesGolden(t *testing.T) {
 	stateSyncBlockNum := block.NumberU64()
 	require.Equal(t, uint8(types.StateSyncTxType), chain.GetBlockByNumber(stateSyncBlockNum).Transactions()[0].Type())
 
-	got := decodeFirehoseBlock(t, fh.InternalTestingBuffer().String(), stateSyncBlockNum)
+	got := decodeFirehoseBlock(t, fh.GetTestingOutputBuffer().String(), stateSyncBlockNum)
 
 	// Shape invariant: the v2.8.2 representation is a single combined state-sync
 	// transaction. If #2236's WrapStateSyncHooks had leaked in, we'd instead see a
@@ -141,7 +141,7 @@ func TestStateSyncTracing_FirehoseOutputMatchesGolden(t *testing.T) {
 }
 
 // decodeFirehoseBlock parses the Firehose testing buffer (newline-separated
-// "FIRE BLOCK <num> <hash> <prevNum> <prevHash> <libNum> <timeNano> <base64proto>"
+// "FIRE BLOCK <num> <partialIdx> <hash> <prevNum> <prevHash> <libNum> <timeNano> <base64proto>"
 // lines) and returns the decoded pbeth.Block for the requested block number.
 func decodeFirehoseBlock(t *testing.T, buffer string, blockNum uint64) *pbeth.Block {
 	t.Helper()

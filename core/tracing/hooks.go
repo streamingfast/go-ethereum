@@ -226,10 +226,7 @@ type Hooks struct {
 	// Block hash read
 	OnBlockHashRead BlockHashReadHook
 
-	// Firehose requirements.
-	//
-	// Search a368bc8a3737 within the repository to find all the details
-	OnNewAccount       func(address common.Address)
+	// Firehose requirements, receives the post-Madhugiri state-sync transaction receipt
 	OnStateSyncReceipt func(tx *types.Transaction, receipt *types.Receipt)
 
 	// Firehose requirements.
