@@ -30,6 +30,7 @@
   "systemCalls": [
     {
       "address": "AA899tcygH7xMZ+3uLuFItC+rAI=",
+      "beginOrdinal": "1",
       "callType": "CALL",
       "caller": "//////////////////////////4=",
       "endOrdinal": "2",
@@ -39,6 +40,7 @@
     },
     {
       "address": "AAD5CCfxxToQy3oCM1sXUyAAKTU=",
+      "beginOrdinal": "3",
       "callType": "CALL",
       "caller": "//////////////////////////4=",
       "endOrdinal": "4",
@@ -48,6 +50,7 @@
     },
     {
       "address": "AAAJYe9IDrVegNGa2DV5pkwAcAI=",
+      "beginOrdinal": "5",
       "callType": "CALL",
       "caller": "//////////////////////////4=",
       "endOrdinal": "6",
@@ -56,6 +59,7 @@
     },
     {
       "address": "AAC73cfOSIZC+1efiwDzpZAAclE=",
+      "beginOrdinal": "7",
       "callType": "CALL",
       "caller": "//////////////////////////4=",
       "endOrdinal": "8",
@@ -63,5 +67,5 @@
       "index": 1
     }
   ],
-  "ver": 3
+  "ver": 5
 }

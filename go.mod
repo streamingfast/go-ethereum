@@ -1,6 +1,6 @@
 module github.com/ethereum/go-ethereum
 
-go 1.25.0
+go 1.25.4
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
@@ -23,7 +23,6 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
 	github.com/donovanhide/eventsource v0.0.0-20210830082556-c59027999da0
 	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3
-	github.com/emmansun/base64 v0.8.0
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5
 	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab
 	github.com/ethereum/go-verkle v0.2.2
@@ -65,25 +64,37 @@ require (
 	github.com/spf13/pflag v1.0.6
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/automaxprocs v1.5.2
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.36.0
+	golang.org/x/crypto v0.44.0
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
-	golang.org/x/sync v0.12.0
-	golang.org/x/sys v0.38.0
-	golang.org/x/text v0.23.0
+	golang.org/x/sync v0.18.0
+	golang.org/x/sys v0.39.0
+	golang.org/x/text v0.31.0
 	golang.org/x/time v0.9.0
-	golang.org/x/tools v0.29.0
-	google.golang.org/protobuf v1.34.2
+	golang.org/x/tools v0.38.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/planetscale/vtprotobuf v0.6.0 // indirect
+require (
+	github.com/blendle/zapdriver v1.3.2-0.20200203083823-9200777f8a3d // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect
+	github.com/emmansun/base64 v0.8.0 // indirect
+	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
+	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
+	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+	github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a // indirect
+	github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
+	go.uber.org/zap v1.26.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
+)
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.7.0 // indirect
@@ -146,13 +157,14 @@ require (
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
-	github.com/rogpeppe/go-internal v1.12.0 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20261001132025-feb9613f7ce5
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
-	golang.org/x/mod v0.22.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/net v0.46.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
