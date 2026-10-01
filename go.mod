@@ -159,7 +159,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930220430-1428b939c7c8
+	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20261001132025-feb9613f7ce5
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
