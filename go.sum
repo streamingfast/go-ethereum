@@ -1166,8 +1166,8 @@ github.com/streadway/amqp v0.0.0-20190827072141-edfb9018d271/go.mod h1:AZpEONHx3
 github.com/streadway/handy v0.0.0-20190108123426-d5acb3125c2a/go.mod h1:qNTQ5P5JnDBl6z3cMAg/SywNDC5ABu5ApDIw6lUbRmI=
 github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a h1:jHKRM0gM5Gh/vRzJTv5u0myac8zxlGgICZr71+QRPz0=
 github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
-github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930220430-1428b939c7c8 h1:vmTn0p3hp4hr/sy9137TzK2qUKRhINNvcK0f7lBjFhQ=
-github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930220430-1428b939c7c8/go.mod h1:fIlwaEno35otwk+e1/ATjU8UYuD4flA2cE1U0z7/KM8=
+github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20261001132025-feb9613f7ce5 h1:hQWN7+bLE9qpNt01nYiCeeGvITFO/oX7WFtLq6eM66Q=
+github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20261001132025-feb9613f7ce5/go.mod h1:fIlwaEno35otwk+e1/ATjU8UYuD4flA2cE1U0z7/KM8=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217 h1:nBDPZf1bPfmstsdMXXP26Fk1W/5s+UPIekSc3PIP93g=
 github.com/streamingfast/firehose-ethereum/types v0.0.0-20260929184701-68333bf7b217/go.mod h1:+ala1ZHyPZy6QZwTw3k7V6tHQ2bXFKP8wIldp2SUJ9Y=
 github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641 h1:dI+b2TyFS0rJw1xVGzxBBvn/RrSgBpqM/RjwDInxEfo=

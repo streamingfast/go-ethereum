@@ -348,7 +348,7 @@ require (
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/prometheus/tsdb v0.10.0
-	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20260930220430-1428b939c7c8
+	github.com/streamingfast/evm-firehose-tracer-go/v5 v5.0.0-20261001132025-feb9613f7ce5
 	github.com/zclconf/go-cty v1.13.0 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
