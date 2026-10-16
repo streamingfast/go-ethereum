@@ -99,15 +99,19 @@ func (r *serviceRegistry) registerName(name string, rcvr interface{}) error {
 	return nil
 }
 
+func serviceAndMethod(name string) (service, method string, ok bool) {
+	return strings.Cut(name, serviceMethodSeparator)
+}
+
 // callback returns the callback corresponding to the given RPC method name.
-func (r *serviceRegistry) callback(method string) *callback {
-	before, after, found := strings.Cut(method, serviceMethodSeparator)
+func (r *serviceRegistry) callback(name string) (cb *callback) {
+	s, m, found := serviceAndMethod(name)
 	if !found {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.services[before].callbacks[after]
+	return r.services[s].callbacks[m]
 }
 
 // subscription returns a subscription callback in the given service.
@@ -122,11 +126,15 @@ func (r *serviceRegistry) subscription(service, name string) *callback {
 // collection of callbacks. See server documentation for a summary of these criteria.
 func suitableCallbacks(receiver reflect.Value) map[string]*callback {
 	typ := receiver.Type()
+	promoted := promotedMethods(typ)
 	callbacks := make(map[string]*callback)
 	for m := 0; m < typ.NumMethod(); m++ {
 		method := typ.Method(m)
 		if method.PkgPath != "" {
 			continue // method not exported
+		}
+		if promoted[method.Name] {
+			continue // method promoted from an embedded type, not declared by the service
 		}
 		cb := newCallback(receiver, method.Func)
 		if cb == nil {
@@ -136,6 +144,33 @@ func suitableCallbacks(receiver reflect.Value) map[string]*callback {
 		callbacks[name] = cb
 	}
 	return callbacks
+}
+
+// promotedMethods returns the names of the methods that typ obtains through anonymous
+// (embedded) struct fields instead of declaring them itself. Note that a method declared
+// on typ which shadows an embedded method of the same name is reported as promoted too.
+func promotedMethods(typ reflect.Type) map[string]bool {
+	if typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		return nil
+	}
+	names := make(map[string]bool)
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if !field.Anonymous {
+			continue
+		}
+		// The method set of the embedded field's pointer type is a superset of the value
+		// type's one, and both get promoted when the service is registered as a pointer.
+		for _, ftyp := range []reflect.Type{field.Type, reflect.PointerTo(field.Type)} {
+			for m := 0; m < ftyp.NumMethod(); m++ {
+				names[ftyp.Method(m).Name] = true
+			}
+		}
+	}
+	return names
 }
 
 // newCallback turns fn (a function) into a callback object. It returns nil if the function
@@ -229,7 +264,7 @@ func isErrorType(t reflect.Type) bool {
 
 // Is t Subscription or *Subscription?
 func isSubscriptionType(t reflect.Type) bool {
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t == subscriptionType

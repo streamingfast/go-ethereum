@@ -64,7 +64,7 @@ func TestCreateStylusComponentPrefixArbosVersion(t *testing.T) {
 
 			blockCtx := BlockContext{
 				CanTransfer:  func(StateDB, common.Address, *uint256.Int) bool { return true },
-				Transfer:     func(StateDB, common.Address, common.Address, *uint256.Int) {},
+				Transfer:     func(StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
 				BlockNumber:  big.NewInt(0),
 				ArbOSVersion: tt.arbosVersion,
 			}
@@ -76,7 +76,7 @@ func TestCreateStylusComponentPrefixArbosVersion(t *testing.T) {
 			}
 
 			evm := NewEVM(blockCtx, statedb, &chainConfig, Config{})
-			ret, _, _, _, err := evm.Create(creator, initCodeForReturn(tt.code), 1_000_000, uint256.NewInt(0))
+			ret, _, _, _, err := evm.Create(creator, initCodeForReturn(tt.code), NewGasBudget(1_000_000, 0), uint256.NewInt(0))
 			if tt.wantErr != nil {
 				if err != tt.wantErr {
 					t.Fatalf("expected %v, got %v", tt.wantErr, err)

@@ -36,7 +36,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
-	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -48,7 +47,6 @@ type Node struct {
 	// Arbitrum: we support stopping the RPC early
 	rpcRunning int32
 
-	eventmux      *event.TypeMux
 	config        *Config
 	accman        *accounts.Manager
 	log           log.Logger
@@ -114,7 +112,6 @@ func New(conf *Config) (*Node, error) {
 	node := &Node{
 		config:        conf,
 		inprocHandler: server,
-		eventmux:      new(event.TypeMux),
 		log:           conf.Logger,
 		stop:          make(chan struct{}),
 		server:        &p2p.Server{Config: conf.P2P},
@@ -158,8 +155,10 @@ func New(conf *Config) (*Node, error) {
 	// Configure RPC servers.
 	node.http = newHTTPServer(node.log, conf.HTTPTimeouts)
 	node.httpAuth = newHTTPServer(node.log, conf.HTTPTimeouts)
+	node.httpAuth.disableHTTP2 = true // Engine API does not need HTTP/2
 	node.ws = newHTTPServer(node.log, rpc.DefaultHTTPTimeouts)
 	node.wsAuth = newHTTPServer(node.log, rpc.DefaultHTTPTimeouts)
+	node.wsAuth.disableHTTP2 = true
 	node.ipc = newIPCServer(node.log, conf.IPCEndpoint())
 
 	return node, nil
@@ -472,6 +471,7 @@ func (n *Node) startRPC() error {
 			Vhosts:             n.config.AuthVirtualHosts,
 			Modules:            n.config.AuthModules,
 			prefix:             DefaultAuthPrefix,
+			disableGzip:        true,
 			rpcEndpointConfig:  sharedConfig,
 		})
 		if err != nil {
@@ -734,12 +734,6 @@ func (n *Node) JWTPath() string {
 	return n.config.JWTSecret
 }
 
-// EventMux retrieves the event multiplexer used by all the network services in
-// the current protocol stack.
-func (n *Node) EventMux() *event.TypeMux {
-	return n.eventmux
-}
-
 // OpenDatabaseWithOptions opens an existing database with the given name (or creates one if no
 // previous can be found) from within the node's instance directory. If the node has no
 // data directory, an in-memory database is returned.
@@ -822,10 +816,13 @@ type closeTrackingDB struct {
 }
 
 func (db *closeTrackingDB) Close() error {
-	db.n.lock.Lock()
-	delete(db.n.databases, db)
-	db.n.lock.Unlock()
-	return db.Database.Close()
+	err := db.Database.Close()
+	if err == nil {
+		db.n.lock.Lock()
+		delete(db.n.databases, db)
+		db.n.lock.Unlock()
+	}
+	return err
 }
 
 // wrapDatabase ensures the database will be auto-closed when Node is closed.

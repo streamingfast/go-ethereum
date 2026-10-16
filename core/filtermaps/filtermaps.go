@@ -84,7 +84,7 @@ type FilterMaps struct {
 	// fields written by the indexer and read by matcher backend. Indexer can
 	// read them without a lock and write them under indexLock write lock.
 	// Matcher backend can read them under indexLock read lock.
-	indexLock    sync.RWMutex
+	indexLock    indexRWLock
 	indexedRange filterMapsRange
 	indexedView  *ChainView // always consistent with the log index
 	hasTempRange bool
@@ -237,6 +237,7 @@ func NewFilterMaps(db ethdb.KeyValueStore, initView *ChainView, historyCutoff, f
 	}
 	f := &FilterMaps{
 		db:                db,
+		indexLock:         newIndexRWLock(),
 		closeCh:           make(chan struct{}),
 		waitIdleCh:        make(chan chan bool),
 		targetCh:          make(chan targetUpdate, 1),
@@ -434,7 +435,7 @@ func (f *FilterMaps) safeDeleteWithLogs(deleteFn func(db ethdb.KeyValueStore, ha
 		lastLogPrinted = start
 	)
 	switch err := deleteFn(f.db, f.hashScheme, func(deleted bool) bool {
-		if deleted && !logPrinted || time.Since(lastLogPrinted) > time.Second*10 {
+		if deleted && (!logPrinted || time.Since(lastLogPrinted) > time.Second*10) {
 			log.Info(action+" in progress...", "elapsed", common.PrettyDuration(time.Since(start)))
 			logPrinted, lastLogPrinted = true, time.Now()
 		}

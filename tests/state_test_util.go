@@ -174,7 +174,7 @@ func GetChainConfig(forkString string) (baseConfig *params.ChainConfig, eips []i
 	}
 	for _, eip := range eipsStrings {
 		if eipNum, err := strconv.Atoi(eip); err != nil {
-			return nil, nil, fmt.Errorf("syntax error, invalid eip number %v", eipNum)
+			return nil, nil, fmt.Errorf("syntax error, invalid eip number %v", eip)
 		} else {
 			if !vm.ValidEip(eipNum) {
 				return nil, nil, fmt.Errorf("syntax error, invalid eip number %v", eipNum)
@@ -239,6 +239,20 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config, snapshotter bo
 	if err != nil {
 		// Here, an error exists but it was expected.
 		// We do not check the post state or logs.
+		// However, if the test defines a post state root, we should check it.
+		// In case of an error, the state is reverted to the snapshot, so we need to
+		// recalculate the root.
+		post := t.json.Post[subtest.Fork][subtest.Index]
+		if post.Root != (common.UnprefixedHash{}) {
+			config, _, err := GetChainConfig(subtest.Fork)
+			if err != nil {
+				return fmt.Errorf("failed to get chain config: %w", err)
+			}
+			root = st.StateDB.IntermediateRoot(config.IsEIP158(new(big.Int).SetUint64(t.json.Env.Number)))
+			if root != common.Hash(post.Root) {
+				return fmt.Errorf("post-state root does not match the pre-state root, indicates an error in the test: got %x, want %x", root, post.Root)
+			}
+		}
 		return nil
 	}
 	post := t.json.Post[subtest.Fork][subtest.Index]
@@ -334,9 +348,7 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	}
 	// Execute the message.
 	snapshot := st.StateDB.Snapshot()
-	gaspool := new(core.GasPool)
-	gaspool.AddGas(block.GasLimit())
-	vmRet, err := core.ApplyMessage(evm, msg, gaspool)
+	vmRet, err := core.ApplyMessage(evm, msg, core.NewGasPool(block.GasLimit()))
 	if err != nil {
 		st.StateDB.RevertToSnapshot(snapshot)
 		if tracer := evm.Config.Tracer; tracer != nil && tracer.OnTxEnd != nil {
@@ -473,15 +485,15 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (*core.Mess
 		From:                  from,
 		To:                    to,
 		Nonce:                 tx.Nonce,
-		Value:                 value,
+		Value:                 uint256.MustFromBig(value),
 		GasLimit:              gasLimit,
-		GasPrice:              gasPrice,
-		GasFeeCap:             tx.MaxFeePerGas,
-		GasTipCap:             tx.MaxPriorityFeePerGas,
+		GasPrice:              uint256.MustFromBig(gasPrice),
+		GasFeeCap:             uint256.MustFromBig(tx.MaxFeePerGas),
+		GasTipCap:             uint256.MustFromBig(tx.MaxPriorityFeePerGas),
 		Data:                  data,
 		AccessList:            accessList,
 		BlobHashes:            tx.BlobVersionedHashes,
-		BlobGasFeeCap:         tx.BlobGasFeeCap,
+		BlobGasFeeCap:         uint256.MustFromBig(tx.BlobGasFeeCap),
 		SetCodeAuthorizations: authList,
 	}
 	return msg, nil
@@ -538,7 +550,7 @@ func MakePreState(db ethdb.Database, accounts types.GenesisAlloc, snapshotter bo
 		}
 		snaps, _ = snapshot.New(snapconfig, db, triedb, root)
 	}
-	sdb = state.NewDatabase(triedb, snaps)
+	sdb = state.NewMPTDatabase(triedb, nil).WithSnapshot(snaps)
 	statedb, _ = state.New(root, sdb)
 	return StateTestState{statedb, triedb, snaps}
 }

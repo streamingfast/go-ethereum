@@ -33,6 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/filtermaps"
+	"github.com/ethereum/go-ethereum/core/history"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state/pruner"
 	"github.com/ethereum/go-ethereum/core/txpool"
@@ -94,6 +95,7 @@ type Ethereum struct {
 	config         *ethconfig.Config
 	txPool         *txpool.TxPool
 	blobTxPool     *blobpool.BlobPool
+	blobCache      *blobpool.Cache
 	localTxTracker *locals.TxTracker
 	blockchain     *core.BlockChain
 
@@ -104,12 +106,18 @@ type Ethereum struct {
 	// DB interfaces
 	chainDb ethdb.Database // Block chain database
 
-	eventMux       *event.TypeMux
 	engine         consensus.Engine
 	accountManager *accounts.Manager
 
 	filterMaps      *filtermaps.FilterMaps
 	closeFilterMaps chan chan struct{}
+
+	// Chain event subscriptions driving updateFilterMapsHeads. The
+	// subscriptions are registered and consumed in Start.
+	fmHeadEventCh  chan core.ChainEvent
+	fmHeadSub      event.Subscription
+	fmBlockProcCh  chan bool
+	fmBlockProcSub event.Subscription
 
 	APIBackend *EthAPIBackend
 
@@ -175,7 +183,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 
 	// Here we determine genesis hash and active ChainConfig.
 	// We need these to figure out the consensus parameters and to set up history pruning.
-	chainConfig, _, err := core.LoadChainConfig(chainDb, config.Genesis)
+	chainConfig, genesisHash, err := core.LoadChainConfig(chainDb, config.Genesis)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +201,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth := &Ethereum{
 		config:          config,
 		chainDb:         chainDb,
-		eventMux:        stack.EventMux(),
 		accountManager:  stack.AccountManager(),
 		engine:          engine,
 		networkID:       networkID,
@@ -201,6 +208,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		p2pServer:       stack.Server(),
 		discmix:         enode.NewFairMix(discmixTimeout),
 		shutdownTracker: shutdowncheck.NewShutdownTracker(chainDb),
+		fmHeadEventCh:   make(chan core.ChainEvent, 10),
+		fmBlockProcCh:   make(chan bool, 10),
 	}
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
@@ -220,6 +229,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			rawdb.WriteDatabaseVersion(chainDb, core.BlockChainVersion)
 		}
 	}
+	histPolicy, err := history.NewPolicy(config.HistoryMode, genesisHash)
+	if err != nil {
+		return nil, err
+	}
 	var (
 		options = &core.BlockChainConfig{
 
@@ -227,24 +240,25 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			TriesInMemory: 128,
 			TrieRetention: 30 * time.Minute,
 
-			TrieCleanLimit:   config.TrieCleanCache,
-			NoPrefetch:       config.NoPrefetch,
-			TrieDirtyLimit:   config.TrieDirtyCache,
-			ArchiveMode:      config.NoPruning,
-			TrieTimeLimit:    config.TrieTimeout,
-			SnapshotLimit:    config.SnapshotCache,
-			Preimages:        config.Preimages,
-			StateHistory:     config.StateHistory,
-			MaxDiffLayers:    config.MaxDiffLayers,
-			StateScheme:      scheme,
-			ChainHistoryMode: config.HistoryMode,
+			TrieCleanLimit:          config.TrieCleanCache,
+			NoPrefetch:              config.NoPrefetch,
+			TrieDirtyLimit:          config.TrieDirtyCache,
+			ArchiveMode:             config.NoPruning,
+			TrieTimeLimit:           config.TrieTimeout,
+			SnapshotLimit:           config.SnapshotCache,
+			Preimages:               config.Preimages,
+			StateHistory:            config.StateHistory,
+			MaxDiffLayers:           config.MaxDiffLayers,
+			TrienodeHistory:         config.TrienodeHistory,
+			NodeFullValueCheckpoint: config.NodeFullValueCheckpoint,
+			BinTrieGroupDepth:       config.BinTrieGroupDepth,
+			StateScheme:             scheme,
+			HistoryPolicy:           histPolicy,
 			TxIndexer: &core.TxIndexerConfig{
 				Limit: min(config.TransactionHistory, math.MaxUint64),
 			},
 			VmConfig: vm.Config{
 				EnablePreimageRecording: config.EnablePreimageRecording,
-				EnableWitnessStats:      config.EnableWitnessStats,
-				StatelessSelfValidation: config.StatelessSelfValidation,
 			},
 			// Enables file journaling for the trie database. The journal files will be stored
 			// within the data directory. The corresponding paths will be either:
@@ -252,6 +266,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			// - DATADIR/triedb/verkle.journal
 			TrieJournalDirectory: stack.ResolvePath("triedb"),
 			StateSizeTracking:    config.EnableStateSizeTracking,
+			SlowBlockThreshold:   config.SlowBlockThreshold,
+
+			StatelessSelfValidation: config.StatelessSelfValidation,
+			EnableWitnessStats:      config.EnableWitnessStats,
 		}
 	)
 	if config.VMTrace != "" {
@@ -276,8 +294,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if config.OverrideBPO2 != nil {
 		overrides.OverrideBPO2 = config.OverrideBPO2
 	}
-	if config.OverrideVerkle != nil {
-		overrides.OverrideVerkle = config.OverrideVerkle
+	if config.OverrideUBT != nil {
+		overrides.OverrideUBT = config.OverrideUBT
 	}
 	options.Overrides = &overrides
 
@@ -316,6 +334,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		config.BlobPool.Datadir = stack.ResolvePath(config.BlobPool.Datadir)
 	}
 	eth.blobTxPool = blobpool.New(config.BlobPool, eth.blockchain, legacyPool.HasPendingAuth)
+	eth.blobCache = blobpool.NewCache(eth.blobTxPool)
 
 	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, []txpool.SubPool{legacyPool, eth.blobTxPool})
 	if err != nil {
@@ -342,8 +361,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		Network:        networkID,
 		Sync:           config.SyncMode,
 		BloomCache:     uint64(cacheLimit),
-		EventMux:       eth.eventMux,
 		RequiredBlocks: config.RequiredBlocks,
+		SnapV2:         config.SnapV2,
 	}); err != nil {
 		return nil, err
 	}
@@ -403,7 +422,7 @@ func (s *Ethereum) APIs() []rpc.API {
 			Service:   NewMinerAPI(s),
 		}, {
 			Namespace: "eth",
-			Service:   downloader.NewDownloaderAPI(s.handler.downloader, s.blockchain, s.eventMux),
+			Service:   downloader.NewDownloaderAPI(s.handler.downloader, s.blockchain),
 		}, {
 			Namespace: "admin",
 			Service:   NewAdminAPI(s),
@@ -427,6 +446,7 @@ func (s *Ethereum) AccountManager() *accounts.Manager  { return s.accountManager
 func (s *Ethereum) BlockChain() *core.BlockChain       { return s.blockchain }
 func (s *Ethereum) TxPool() *txpool.TxPool             { return s.txPool }
 func (s *Ethereum) BlobTxPool() *blobpool.BlobPool     { return s.blobTxPool }
+func (s *Ethereum) BlobCache() *blobpool.Cache         { return s.blobCache }
 func (s *Ethereum) Engine() consensus.Engine           { return s.engine }
 func (s *Ethereum) ChainDb() ethdb.Database            { return s.chainDb }
 func (s *Ethereum) IsListening() bool                  { return true } // Always listening
@@ -440,7 +460,7 @@ func (s *Ethereum) ArchiveMode() bool                  { return s.config.NoPruni
 func (s *Ethereum) Protocols() []p2p.Protocol {
 	protos := eth.MakeProtocols((*ethHandler)(s.handler), s.networkID, s.discmix)
 	if s.config.SnapshotCache > 0 {
-		protos = append(protos, snap.MakeProtocols((*snapHandler)(s.handler))...)
+		protos = append(protos, snap.MakeProtocols((*snapHandler)(s.handler), s.config.SnapV2)...)
 	}
 	return protos
 }
@@ -461,6 +481,10 @@ func (s *Ethereum) Start() error {
 	// Start the connection manager
 	s.dropper.Start(s.p2pServer, func() bool { return !s.Synced() })
 
+	// Subscribe to chain events for the filterMaps head updater.
+	s.fmHeadSub = s.blockchain.SubscribeChainEvent(s.fmHeadEventCh)
+	s.fmBlockProcSub = s.blockchain.SubscribeBlockProcessingEvent(s.fmBlockProcCh)
+
 	// start log indexer
 	s.filterMaps.Start()
 	go s.updateFilterMapsHeads()
@@ -475,13 +499,11 @@ func (s *Ethereum) newChainView(head *types.Header) *filtermaps.ChainView {
 }
 
 func (s *Ethereum) updateFilterMapsHeads() {
-	headEventCh := make(chan core.ChainEvent, 10)
-	blockProcCh := make(chan bool, 10)
-	sub := s.blockchain.SubscribeChainEvent(headEventCh)
-	sub2 := s.blockchain.SubscribeBlockProcessingEvent(blockProcCh)
+	headEventCh := s.fmHeadEventCh
+	blockProcCh := s.fmBlockProcCh
 	defer func() {
-		sub.Unsubscribe()
-		sub2.Unsubscribe()
+		s.fmHeadSub.Unsubscribe()
+		s.fmBlockProcSub.Unsubscribe()
 		for {
 			select {
 			case <-headEventCh:
@@ -500,6 +522,9 @@ func (s *Ethereum) updateFilterMapsHeads() {
 		if head == nil || newHead.Hash() != head.Hash() {
 			head = newHead
 			chainView := s.newChainView(head)
+			if chainView == nil {
+				return
+			}
 			historyCutoff, _ := s.blockchain.HistoryPruningCutoff()
 			var finalBlock uint64
 			if fb := s.blockchain.CurrentFinalBlock(); fb != nil {
@@ -587,6 +612,7 @@ func (s *Ethereum) Stop() error {
 	s.closeFilterMaps <- ch
 	<-ch
 	s.filterMaps.Stop()
+	s.blobCache.Stop()
 	s.txPool.Close()
 	s.blockchain.Stop()
 	s.engine.Close()
@@ -595,33 +621,6 @@ func (s *Ethereum) Stop() error {
 	s.shutdownTracker.Stop()
 
 	s.chainDb.Close()
-	s.eventMux.Stop()
 
 	return nil
-}
-
-// SyncMode retrieves the current sync mode, either explicitly set, or derived
-// from the chain status.
-func (s *Ethereum) SyncMode() ethconfig.SyncMode {
-	// If we're in snap sync mode, return that directly
-	if s.handler.snapSync.Load() {
-		return ethconfig.SnapSync
-	}
-	// We are probably in full sync, but we might have rewound to before the
-	// snap sync pivot, check if we should re-enable snap sync.
-	head := s.blockchain.CurrentBlock()
-	if pivot := rawdb.ReadLastPivotNumber(s.chainDb); pivot != nil {
-		if head.Number.Uint64() < *pivot {
-			return ethconfig.SnapSync
-		}
-	}
-	// We are in a full sync, but the associated head state is missing. To complete
-	// the head state, forcefully rerun the snap sync. Note it doesn't mean the
-	// persistent state is corrupted, just mismatch with the head block.
-	if !s.blockchain.HasState(head.Root) {
-		log.Info("Reenabled snap sync as chain is stateless")
-		return ethconfig.SnapSync
-	}
-	// Nope, we're really full syncing
-	return ethconfig.FullSync
 }

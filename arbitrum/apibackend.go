@@ -21,7 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/history"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth"
@@ -371,6 +370,15 @@ func (a *APIBackend) FeeHistory(
 	return big.NewInt(int64(oldestBlock)), rewards, basefees, gasUsed, nil, nil, nil
 }
 
+func (a *APIBackend) BaseFee(ctx context.Context) *big.Int {
+	// Follow the FeeHistory convention above and report the head base fee
+	// unchanged.
+	if baseFee := a.CurrentHeader().BaseFee; baseFee != nil {
+		return new(big.Int).Set(baseFee)
+	}
+	return nil
+}
+
 func (a *APIBackend) BlobBaseFee(ctx context.Context) *big.Int {
 	if excess := a.CurrentHeader().ExcessBlobGas; excess != nil {
 		return eip4844.CalcBlobFee(a.ChainConfig(), a.CurrentHeader())
@@ -415,7 +423,7 @@ func (a *APIBackend) UnprotectedAllowed() bool {
 }
 
 // Blockchain API
-func (a *APIBackend) SetHead(number uint64) {
+func (a *APIBackend) SetHead(number uint64) error {
 	panic("not implemented") // TODO: Implement
 }
 
@@ -567,9 +575,9 @@ func StateAndHeaderFromHeader(ctx context.Context, chainDb ethdb.Database, bc *c
 	// - intermediate state recreation and trie node referencing doesn't apply to pathdb
 	// - HistoricState is supported only by pathdb
 	if bc.TrieDB().Scheme() == rawdb.PathScheme {
-		statedb, err := bc.StateAt(header.Root)
+		statedb, err := bc.StateAt(header)
 		if err != nil {
-			statedb, err = bc.HistoricState(header.Root)
+			statedb, err = bc.HistoricState(header)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -577,7 +585,7 @@ func StateAndHeaderFromHeader(ctx context.Context, chainDb ethdb.Database, bc *c
 		return statedb, header, nil
 	}
 
-	stateFor := func(db state.Database, snapshots *snapshot.Tree) func(header *types.Header) (*state.StateDB, StateReleaseFunc, error) {
+	stateFor := func(db state.Database) func(header *types.Header) (*state.StateDB, StateReleaseFunc, error) {
 		return func(header *types.Header) (*state.StateDB, StateReleaseFunc, error) {
 			if header.Root != (common.Hash{}) {
 				// Try referencing the root, if it isn't in dirties cache then Reference will have no effect
@@ -594,7 +602,7 @@ func StateAndHeaderFromHeader(ctx context.Context, chainDb ethdb.Database, bc *c
 			return statedb, NoopStateRelease, nil
 		}
 	}
-	liveState, liveStateRelease, err := stateFor(bc.StateCache(), bc.Snapshots())(header)
+	liveState, liveStateRelease, err := stateFor(state.NewMPTDatabase(bc.TrieDB(), bc.CodeDB()).WithSnapshot(bc.Snapshots()))(header)
 	if err == nil {
 		liveStatesReferencedCounter.Inc(1)
 		liveState.SetArbFinalizer(func(*state.ArbitrumExtraData) {
@@ -609,9 +617,8 @@ func StateAndHeaderFromHeader(ctx context.Context, chainDb ethdb.Database, bc *c
 	// note: triedb cleans cache is disabled in trie.HashDefaults
 	// note: only states committed to diskdb can be found as we're creating new triedb
 	// note: snapshots are not used here
-	ephemeral := state.NewDatabase(triedb.NewDatabase(chainDb, triedb.HashDefaults), nil)
-	ephemeral.SetArbNodeConfig(bc.StateCache().ArbNodeConfig())
-	lastState, lastHeader, lastStateRelease, err := FindLastAvailableState(ctx, bc, stateFor(ephemeral, nil), header, nil, maxRecreateStateDepth)
+	ephemeral := state.NewDatabase(triedb.NewDatabase(chainDb, triedb.HashDefaults), bc.CodeDB())
+	lastState, lastHeader, lastStateRelease, err := FindLastAvailableState(ctx, bc, stateFor(ephemeral), header, nil, maxRecreateStateDepth)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -633,10 +640,9 @@ func StateAndHeaderFromHeader(ctx context.Context, chainDb ethdb.Database, bc *c
 	if lastBlock == nil {
 		return nil, nil, errors.New("last block not found")
 	}
-	reexec := uint64(0)
 	checkLive := false
 	preferDisk := false // preferDisk is ignored in this case
-	statedb, release, err := eth.NewArbEthereum(bc, chainDb).StateAtBlock(ctx, targetBlock, reexec, lastState, lastBlock, checkLive, preferDisk)
+	statedb, release, err := eth.NewArbEthereum(bc, chainDb).StateAtBlock(ctx, targetBlock, lastState, lastBlock, checkLive, preferDisk)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to recreate state: %w", err)
 	}
@@ -665,25 +671,33 @@ func (a *APIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOr
 	return StateAndHeaderFromHeader(ctx, a.ChainDb(), a.b.arb.BlockChain(), a.b.config.MaxRecreateStateDepth, header, err, a.archiveClientsManager)
 }
 
-func (a *APIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, release tracers.StateReleaseFunc, err error) {
+func (a *APIBackend) StateAtBlock(ctx context.Context, block *types.Block, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, release tracers.StateReleaseFunc, err error) {
 	if !a.BlockChain().Config().IsArbitrumNitro(block.Number()) {
 		return nil, nil, types.ErrUseFallback
 	}
 	// DEV: This assumes that `StateAtBlock` only accesses the blockchain and chainDb fields
-	return eth.NewArbEthereum(a.b.arb.BlockChain(), a.ChainDb()).StateAtBlock(ctx, block, reexec, base, nil, checkLive, preferDisk)
+	return eth.NewArbEthereum(a.b.arb.BlockChain(), a.ChainDb()).StateAtBlock(ctx, block, base, nil, checkLive, preferDisk)
 }
 
-func (a *APIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*types.Transaction, vm.BlockContext, *state.StateDB, tracers.StateReleaseFunc, error) {
+func (a *APIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int) (*types.Transaction, vm.BlockContext, *state.StateDB, tracers.StateReleaseFunc, error) {
 	if !a.BlockChain().Config().IsArbitrumNitro(block.Number()) {
 		return nil, vm.BlockContext{}, nil, nil, types.ErrUseFallback
 	}
 	// DEV: This assumes that `StateAtTransaction` only accesses the blockchain and chainDb fields
-	return eth.NewArbEthereum(a.b.arb.BlockChain(), a.ChainDb()).StateAtTransaction(ctx, block, txIndex, reexec)
+	return eth.NewArbEthereum(a.b.arb.BlockChain(), a.ChainDb()).StateAtTransaction(ctx, block, txIndex)
 }
 
 func (a *APIBackend) HistoryPruningCutoff() uint64 {
 	bn, _ := a.BlockChain().HistoryPruningCutoff()
 	return bn
+}
+
+func (a *APIBackend) HistoryRetention() ethapi.HistoryRetention {
+	return ethapi.HistoryRetention{
+		LogIndexHistory:  a.b.config.LogHistory,
+		LogIndexDisabled: a.b.config.LogNoHistory,
+		StateScheme:      a.BlockChain().TrieDB().Scheme(),
+	}
 }
 
 func (a *APIBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {

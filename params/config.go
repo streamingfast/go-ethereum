@@ -207,7 +207,7 @@ var (
 		CancunTime:              nil,
 		PragueTime:              nil,
 		OsakaTime:               nil,
-		VerkleTime:              nil,
+		UBTTime:                 nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
 		ArbitrumChainParams:     DisableArbitrumParams(),
@@ -264,7 +264,7 @@ var (
 		CancunTime:              nil,
 		PragueTime:              nil,
 		OsakaTime:               nil,
-		VerkleTime:              nil,
+		UBTTime:                 nil,
 		TerminalTotalDifficulty: big.NewInt(math.MaxInt64),
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
@@ -295,7 +295,7 @@ var (
 		CancunTime:              nil,
 		PragueTime:              nil,
 		OsakaTime:               nil,
-		VerkleTime:              nil,
+		UBTTime:                 nil,
 		TerminalTotalDifficulty: big.NewInt(math.MaxInt64),
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -326,7 +326,7 @@ var (
 		CancunTime:              newUint64(0),
 		PragueTime:              newUint64(0),
 		OsakaTime:               newUint64(0),
-		VerkleTime:              nil,
+		UBTTime:                 nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -361,7 +361,7 @@ var (
 		CancunTime:              nil,
 		PragueTime:              nil,
 		OsakaTime:               nil,
-		VerkleTime:              nil,
+		UBTTime:                 nil,
 		TerminalTotalDifficulty: big.NewInt(math.MaxInt64),
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -478,7 +478,7 @@ type ChainConfig struct {
 	BPO4Time      *uint64 `json:"bpo4Time,omitempty"`      // BPO4 switch time (nil = no fork, 0 = already on bpo4)
 	BPO5Time      *uint64 `json:"bpo5Time,omitempty"`      // BPO5 switch time (nil = no fork, 0 = already on bpo5)
 	AmsterdamTime *uint64 `json:"amsterdamTime,omitempty"` // Amsterdam switch time (nil = no fork, 0 = already on amsterdam)
-	VerkleTime    *uint64 `json:"verkleTime,omitempty"`    // Verkle switch time (nil = no fork, 0 = already on verkle)
+	UBTTime       *uint64 `json:"ubtTime,omitempty"`       // UBT switch time (nil = no fork, 0 = already on UBT)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -486,18 +486,18 @@ type ChainConfig struct {
 
 	DepositContractAddress common.Address `json:"depositContractAddress,omitempty"`
 
-	// EnableVerkleAtGenesis is a flag that specifies whether the network uses
+	// EnableUBTAtGenesis is a flag that specifies whether the network uses
 	// the Verkle tree starting from the genesis block. If set to true, the
-	// genesis state will be committed using the Verkle tree, eliminating the
-	// need for any Verkle transition later.
+	// genesis state will be committed using the Binary tree, eliminating the
+	// need for any Binary transition later.
 	//
-	// This is a temporary flag only for verkle devnet testing, where verkle is
+	// This is a temporary flag only for binary devnet testing, where binary is
 	// activated at genesis, and the configured activation date has already passed.
 	//
-	// In production networks (mainnet and public testnets), verkle activation
+	// In production networks (mainnet and public testnets), binary activation
 	// always occurs after the genesis block, making this flag irrelevant in
 	// those cases.
-	EnableVerkleAtGenesis bool `json:"enableVerkleAtGenesis,omitempty"`
+	EnableUBTAtGenesis bool `json:"enableUBTAtGenesis,omitempty"`
 
 	// Various consensus engines
 	Ethash             *EthashConfig       `json:"ethash,omitempty"`
@@ -609,8 +609,8 @@ func (c *ChainConfig) String() string {
 	if c.AmsterdamTime != nil {
 		result += fmt.Sprintf(", AmsterdamTime: %v", *c.AmsterdamTime)
 	}
-	if c.VerkleTime != nil {
-		result += fmt.Sprintf(", VerkleTime: %v", *c.VerkleTime)
+	if c.UBTTime != nil {
+		result += fmt.Sprintf(", UBTTime: %v", *c.UBTTime)
 	}
 	result += "}"
 	return result
@@ -704,8 +704,8 @@ func (c *ChainConfig) Description() string {
 	if c.AmsterdamTime != nil {
 		banner += fmt.Sprintf(" - Amsterdam:									 @%-10v blob: (%s)\n", *c.AmsterdamTime, c.BlobScheduleConfig.Amsterdam)
 	}
-	if c.VerkleTime != nil {
-		banner += fmt.Sprintf(" - Verkle:                      @%-10v blob: (%s)\n", *c.VerkleTime, c.BlobScheduleConfig.Verkle)
+	if c.UBTTime != nil {
+		banner += fmt.Sprintf(" - UBT:                         @%-10v blob: (%s)\n", *c.UBTTime, c.BlobScheduleConfig.UBT)
 	}
 	banner += fmt.Sprintf("\nAll fork specifications can be found at https://ethereum.github.io/execution-specs/src/ethereum/forks/\n")
 	return banner
@@ -731,13 +731,13 @@ type BlobScheduleConfig struct {
 	Cancun    *BlobConfig `json:"cancun,omitempty"`
 	Prague    *BlobConfig `json:"prague,omitempty"`
 	Osaka     *BlobConfig `json:"osaka,omitempty"`
-	Verkle    *BlobConfig `json:"verkle,omitempty"`
 	BPO1      *BlobConfig `json:"bpo1,omitempty"`
 	BPO2      *BlobConfig `json:"bpo2,omitempty"`
 	BPO3      *BlobConfig `json:"bpo3,omitempty"`
 	BPO4      *BlobConfig `json:"bpo4,omitempty"`
 	BPO5      *BlobConfig `json:"bpo5,omitempty"`
 	Amsterdam *BlobConfig `json:"amsterdam,omitempty"`
+	UBT       *BlobConfig `json:"ubt,omitempty"`
 }
 
 // IsHomestead returns whether num is either equal to the homestead block or greater.
@@ -835,6 +835,7 @@ func (c *ChainConfig) IsPostMerge(blockNum uint64, timestamp uint64) bool {
 }
 
 // IsShanghai returns whether time is either equal to the Shanghai fork time or greater.
+// Arbitrum: On Arbitrum chains, Shanghai is gated only on ArbOS version 11
 func (c *ChainConfig) IsShanghai(num *big.Int, time uint64, currentArbosVersion uint64) bool {
 	if c.IsArbitrum() {
 		return currentArbosVersion >= ArbosVersion_11
@@ -843,6 +844,7 @@ func (c *ChainConfig) IsShanghai(num *big.Int, time uint64, currentArbosVersion 
 }
 
 // IsCancun returns whether num is either equal to the Cancun fork time or greater.
+// Arbitrum: On Arbitrum chains, Cancun is gated only on ArbOS version 20
 func (c *ChainConfig) IsCancun(num *big.Int, time uint64, currentArbosVersion uint64) bool {
 	if c.IsArbitrum() {
 		return currentArbosVersion >= ArbosVersion_20
@@ -851,6 +853,7 @@ func (c *ChainConfig) IsCancun(num *big.Int, time uint64, currentArbosVersion ui
 }
 
 // IsPrague returns whether time is either equal to the Prague fork time or greater.
+// Arbitrum: On Arbitrum chains, Prague is gated only on ArbOS version 40
 func (c *ChainConfig) IsPrague(num *big.Int, time uint64, currentArbosVersion uint64) bool {
 	if c.IsArbitrum() {
 		return currentArbosVersion >= ArbosVersion_40
@@ -859,6 +862,7 @@ func (c *ChainConfig) IsPrague(num *big.Int, time uint64, currentArbosVersion ui
 }
 
 // IsOsaka returns whether time is either equal to the Osaka fork time or greater.
+// Arbitrum: On Arbitrum chains, Osaka is gated only on ArbOS version 50
 func (c *ChainConfig) IsOsaka(num *big.Int, time uint64, currentArbosVersion uint64) bool {
 	if c.IsArbitrum() {
 		return currentArbosVersion >= ArbosVersion_50
@@ -892,16 +896,26 @@ func (c *ChainConfig) IsBPO5(num *big.Int, time uint64) bool {
 }
 
 // IsAmsterdam returns whether time is either equal to the Amsterdam fork time or greater.
-func (c *ChainConfig) IsAmsterdam(num *big.Int, time uint64) bool {
+// Arbitrum: On Arbitrum chains, Amsterdam is gated only on ArbOS version 70.
+// This includes EIP-8037: state creation (SSTORE new slot, SELFDESTRUCT or
+// CALL funding a new account) is priced through the state-gas side channel
+// (MultiGas.stateGas), which carries no per-resource-kind attribution and is
+// excluded from the multigas total and encodings — so those operations
+// contribute zero StorageGrowth to the multigas Nitro consumes for resource
+// pricing.
+func (c *ChainConfig) IsAmsterdam(num *big.Int, time uint64, currentArbosVersion uint64) bool {
+	if c.IsArbitrum() {
+		return currentArbosVersion >= ArbosVersion_Amsterdam
+	}
 	return c.IsLondon(num) && isTimestampForked(c.AmsterdamTime, time)
 }
 
-// IsVerkle returns whether time is either equal to the Verkle fork time or greater.
-func (c *ChainConfig) IsVerkle(num *big.Int, time uint64) bool {
-	return c.IsLondon(num) && isTimestampForked(c.VerkleTime, time)
+// IsUBT returns whether time is either equal to the Verkle fork time or greater.
+func (c *ChainConfig) IsUBT(num *big.Int, time uint64) bool {
+	return c.IsLondon(num) && isTimestampForked(c.UBTTime, time)
 }
 
-// IsVerkleGenesis checks whether the verkle fork is activated at the genesis block.
+// IsUBTGenesis checks whether the verkle fork is activated at the genesis block.
 //
 // Verkle mode is considered enabled if the verkle fork time is configured,
 // regardless of whether the local time has surpassed the fork activation time.
@@ -911,13 +925,13 @@ func (c *ChainConfig) IsVerkle(num *big.Int, time uint64) bool {
 // In production networks (mainnet and public testnets), verkle activation
 // always occurs after the genesis block, making this function irrelevant in
 // those cases.
-func (c *ChainConfig) IsVerkleGenesis() bool {
-	return c.EnableVerkleAtGenesis
+func (c *ChainConfig) IsUBTGenesis() bool {
+	return c.EnableUBTAtGenesis
 }
 
 // IsEIP4762 returns whether eip 4762 has been activated at given block.
 func (c *ChainConfig) IsEIP4762(num *big.Int, time uint64) bool {
-	return c.IsVerkle(num, time)
+	return c.IsUBT(num, time)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
@@ -975,7 +989,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "cancunTime", timestamp: c.CancunTime, optional: true},
 		{name: "pragueTime", timestamp: c.PragueTime, optional: true},
 		{name: "osakaTime", timestamp: c.OsakaTime, optional: true},
-		{name: "verkleTime", timestamp: c.VerkleTime, optional: true},
+		{name: "ubtTime", timestamp: c.UBTTime, optional: true},
 		{name: "bpo1", timestamp: c.BPO1Time, optional: true},
 		{name: "bpo2", timestamp: c.BPO2Time, optional: true},
 		{name: "bpo3", timestamp: c.BPO3Time, optional: true},
@@ -1138,8 +1152,8 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, headNumber *big.Int, 
 	if isForkTimestampIncompatible(c.OsakaTime, newcfg.OsakaTime, headTimestamp) {
 		return newTimestampCompatError("Osaka fork timestamp", c.OsakaTime, newcfg.OsakaTime)
 	}
-	if isForkTimestampIncompatible(c.VerkleTime, newcfg.VerkleTime, headTimestamp) {
-		return newTimestampCompatError("Verkle fork timestamp", c.VerkleTime, newcfg.VerkleTime)
+	if isForkTimestampIncompatible(c.UBTTime, newcfg.UBTTime, headTimestamp) {
+		return newTimestampCompatError("UBT fork timestamp", c.UBTTime, newcfg.UBTTime)
 	}
 	if isForkTimestampIncompatible(c.BPO1Time, newcfg.BPO1Time, headTimestamp) {
 		return newTimestampCompatError("BPO1 fork timestamp", c.BPO1Time, newcfg.BPO1Time)
@@ -1178,7 +1192,7 @@ func (c *ChainConfig) LatestFork(time uint64, currentArbosVersion uint64) forks.
 	london := c.LondonBlock
 
 	switch {
-	case c.IsAmsterdam(london, time):
+	case c.IsAmsterdam(london, time, currentArbosVersion):
 		return forks.Amsterdam
 	case c.IsBPO5(london, time):
 		return forks.BPO5
@@ -1435,33 +1449,49 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	IsArbitrum, IsStylus, IsGreaterEqual41, IsDia, IsGreaterEqual60 bool
-	ChainID                                                         *big.Int
-	ArbOSVersion                                                    uint64
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158                       bool
-	IsEIP2929, IsEIP4762                                            bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul         bool
-	IsBerlin, IsLondon                                              bool
-	IsMerge, IsShanghai, IsCancun, IsPrague, IsOsaka                bool
-	IsAmsterdam, IsVerkle                                           bool
+	IsArbitrum, IsStylus, IsGreaterEqual41, IsDia, IsElara  bool
+	ArbOSVersion                                            uint64
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
+	IsEIP2929, IsEIP4762                                    bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
+	IsBerlin, IsLondon                                      bool
+	IsMerge, IsShanghai, IsCancun, IsPrague, IsOsaka        bool
+	IsAmsterdam, IsUBT                                      bool
+
+	// Arbitrum: per-chain code-size limits, derived from
+	// ArbitrumChainParams.MaxCodeSize/MaxInitCodeSize when set, or from the
+	// upstream Amsterdam/default constants otherwise.
+	MaxCodeSize, MaxInitCodeSize uint64
 }
 
 // Rules ensures c's ChainID is not nil.
 func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64, currentArbosVersion uint64) Rules {
-	chainID := c.ChainID
-	if chainID == nil {
-		chainID = new(big.Int)
-	}
 	// disallow setting Merge out of order
 	isMerge = isMerge && c.IsLondon(num)
-	isVerkle := isMerge && c.IsVerkle(num, timestamp)
+	isUBT := isMerge && c.IsUBT(num, timestamp)
+
+	// Arbitrum chains may override the protocol code-size limits via
+	// ArbitrumChainParams; non-Arbitrum chains follow the Amsterdam-aware
+	// upstream defaults.
+	isAmsterdam := isMerge && c.IsAmsterdam(num, timestamp, currentArbosVersion)
+	var maxCodeSize, maxInitCodeSize uint64
+	if c.IsArbitrum() {
+		maxCodeSize = c.MaxCodeSize()
+		maxInitCodeSize = c.MaxInitCodeSize()
+	} else if isAmsterdam {
+		maxCodeSize = MaxCodeSizeAmsterdam
+		maxInitCodeSize = MaxInitCodeSizeAmsterdam
+	} else {
+		maxCodeSize = MaxCodeSize
+		maxInitCodeSize = MaxInitCodeSize
+	}
+
 	return Rules{
 		IsArbitrum:       c.IsArbitrum(),
 		IsStylus:         c.IsArbitrum() && currentArbosVersion >= ArbosVersion_Stylus,
 		IsGreaterEqual41: c.IsArbitrum() && currentArbosVersion >= ArbosVersion_41,
 		IsDia:            c.IsArbitrum() && currentArbosVersion >= ArbosVersion_Dia,
-		IsGreaterEqual60: c.IsArbitrum() && currentArbosVersion >= ArbosVersion_60,
-		ChainID:          new(big.Int).Set(chainID),
+		IsElara:          c.IsArbitrum() && currentArbosVersion >= ArbosVersion_Elara,
 		ArbOSVersion:     currentArbosVersion,
 		IsHomestead:      c.IsHomestead(num),
 		IsEIP150:         c.IsEIP150(num),
@@ -1472,15 +1502,17 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64, curren
 		IsPetersburg:     c.IsPetersburg(num),
 		IsIstanbul:       c.IsIstanbul(num),
 		IsBerlin:         c.IsBerlin(num),
-		IsEIP2929:        c.IsBerlin(num) && !isVerkle,
+		IsEIP2929:        c.IsBerlin(num) && !isUBT,
 		IsLondon:         c.IsLondon(num),
 		IsMerge:          isMerge,
 		IsShanghai:       isMerge && c.IsShanghai(num, timestamp, currentArbosVersion),
 		IsCancun:         isMerge && c.IsCancun(num, timestamp, currentArbosVersion),
 		IsPrague:         isMerge && c.IsPrague(num, timestamp, currentArbosVersion),
 		IsOsaka:          isMerge && c.IsOsaka(num, timestamp, currentArbosVersion),
-		IsAmsterdam:      isMerge && c.IsAmsterdam(num, timestamp),
-		IsVerkle:         isVerkle,
-		IsEIP4762:        isVerkle,
+		IsAmsterdam:      isAmsterdam,
+		IsUBT:            isUBT,
+		IsEIP4762:        isUBT,
+		MaxCodeSize:      maxCodeSize,
+		MaxInitCodeSize:  maxInitCodeSize,
 	}
 }
