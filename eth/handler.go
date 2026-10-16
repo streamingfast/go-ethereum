@@ -86,12 +86,15 @@ type txPool interface {
 
 	// Pending should return pending transactions.
 	// The slice should be modifiable by the caller.
-	Pending(filter txpool.PendingFilter) map[common.Address][]*txpool.LazyTransaction
+	Pending(filter txpool.PendingFilter) (map[common.Address][]*txpool.LazyTransaction, int)
 
 	// SubscribeTransactions subscribes to new transaction events. The subscriber
 	// can decide whether to receive notifications only for newly seen transactions
 	// or also for reorged out ones.
 	SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) event.Subscription
+
+	// FilterType returns whether the given tx type is supported by the txPool.
+	FilterType(kind byte) bool
 }
 
 // handlerConfig is the collection of initialization parameters to create a full
@@ -104,16 +107,14 @@ type handlerConfig struct {
 	Network        uint64                 // Network identifier to advertise
 	Sync           ethconfig.SyncMode     // Whether to snap or full sync
 	BloomCache     uint64                 // Megabytes to alloc for snap sync bloom
-	EventMux       *event.TypeMux         // Legacy event mux, deprecate for `feed`
 	RequiredBlocks map[uint64]common.Hash // Hard coded map of required block hashes for sync challenges
+	SnapV2         bool                   // Whether to advertise and sync via the snap/2 protocol
 }
 
 type handler struct {
 	nodeID    enode.ID
 	networkID uint64
-
-	snapSync atomic.Bool // Flag whether snap sync is enabled (gets disabled if we already have blocks)
-	synced   atomic.Bool // Flag whether we're considered synchronised (enables transaction processing)
+	synced    atomic.Bool // Flag whether we're considered synchronised (enables transaction processing)
 
 	database ethdb.Database
 	txpool   txPool
@@ -125,7 +126,6 @@ type handler struct {
 	peers          *peerSet
 	txBroadcastKey [16]byte
 
-	eventMux   *event.TypeMux
 	txsCh      chan core.NewTxsEvent
 	txsSub     event.Subscription
 	blockRange *blockRangeState
@@ -143,14 +143,9 @@ type handler struct {
 
 // newHandler returns a handler for all Ethereum chain management protocol.
 func newHandler(config *handlerConfig) (*handler, error) {
-	// Create the protocol manager with the base fields
-	if config.EventMux == nil {
-		config.EventMux = new(event.TypeMux) // Nicety initialization for tests
-	}
 	h := &handler{
 		nodeID:         config.NodeID,
 		networkID:      config.Network,
-		eventMux:       config.EventMux,
 		database:       config.Database,
 		txpool:         config.TxPool,
 		chain:          config.Chain,
@@ -161,40 +156,13 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		handlerDoneCh:  make(chan struct{}),
 		handlerStartCh: make(chan struct{}),
 	}
-	if config.Sync == ethconfig.FullSync {
-		// The database seems empty as the current block is the genesis. Yet the snap
-		// block is ahead, so snap sync was enabled for this node at a certain point.
-		// The scenarios where this can happen is
-		// * if the user manually (or via a bad block) rolled back a snap sync node
-		//   below the sync point.
-		// * the last snap sync is not finished while user specifies a full sync this
-		//   time. But we don't have any recent state for full sync.
-		// In these cases however it's safe to reenable snap sync.
-		fullBlock, snapBlock := h.chain.CurrentBlock(), h.chain.CurrentSnapBlock()
-		if fullBlock.Number.Uint64() == 0 && snapBlock.Number.Uint64() > 0 {
-			h.snapSync.Store(true)
-			log.Warn("Switch sync mode from full sync to snap sync", "reason", "snap sync incomplete")
-		} else if !h.chain.HasState(fullBlock.Root) {
-			h.snapSync.Store(true)
-			log.Warn("Switch sync mode from full sync to snap sync", "reason", "head state missing")
-		}
-	} else {
-		head := h.chain.CurrentBlock()
-		if head.Number.Uint64() > 0 && h.chain.HasState(head.Root) {
-			log.Info("Switch sync mode from snap sync to full sync", "reason", "snap sync complete")
-		} else {
-			// If snap sync was requested and our database is empty, grant it
-			h.snapSync.Store(true)
-			log.Info("Enabled snap sync", "head", head.Number, "hash", head.Hash())
-		}
-	}
+	// Construct the downloader (long sync)
+	h.downloader = downloader.New(config.Database, config.Sync, h.chain, h.removePeer, h.enableSyncedFeatures, config.SnapV2)
+
 	// If snap sync is requested but snapshots are disabled, fail loudly
-	if h.snapSync.Load() && (config.Chain.Snapshots() == nil && config.Chain.TrieDB().Scheme() == rawdb.HashScheme) {
+	if h.downloader.ConfigSyncMode() == ethconfig.SnapSync && (config.Chain.Snapshots() == nil && config.Chain.TrieDB().Scheme() == rawdb.HashScheme) {
 		return nil, errors.New("snap sync not supported with snapshots disabled")
 	}
-	// Construct the downloader (long sync)
-	h.downloader = downloader.New(config.Database, h.eventMux, h.chain, h.removePeer, h.enableSyncedFeatures)
-
 	fetchTx := func(peer string, hashes []common.Hash) error {
 		p := h.peers.peer(peer)
 		if p == nil {
@@ -205,7 +173,16 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	addTxs := func(txs []*types.Transaction) []error {
 		return h.txpool.Add(txs, false)
 	}
-	h.txFetcher = fetcher.NewTxFetcher(h.txpool.Has, addTxs, fetchTx, h.removePeer)
+	validateMeta := func(tx common.Hash, kind byte) error {
+		if h.txpool.Has(tx) {
+			return txpool.ErrAlreadyKnown
+		}
+		if !h.txpool.FilterType(kind) {
+			return types.ErrTxTypeNotSupported
+		}
+		return nil
+	}
+	h.txFetcher = fetcher.NewTxFetcher(h.chain, validateMeta, addTxs, fetchTx, h.removePeer)
 	return h, nil
 }
 
@@ -267,12 +244,18 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 		return err
 	}
 	reject := false // reserved peer slots
-	if h.snapSync.Load() {
-		if snap == nil {
-			// If we are running snap-sync, we want to reserve roughly half the peer
-			// slots for peers supporting the snap protocol.
-			// The logic here is; we only allow up to 5 more non-snap peers than snap-peers.
-			if all, snp := h.peers.len(), h.peers.snapLen(); all-snp > snp+5 {
+	if h.downloader.ConfigSyncMode() == ethconfig.SnapSync {
+		// A peer is useful to the active state syncer only if it offers the snap
+		// extension at (or above) the syncer's version. Non-snap peers AND peers
+		// stuck on an older snap version (e.g. snap/1 while we sync via snap/2)
+		// are both "non-usable": the node still serves them, but they must not be
+		// allowed to fill the slots reserved for peers that can serve the sync.
+		minVersion := h.downloader.SnapSyncVersion()
+		usable := snap != nil && snap.Version() >= minVersion
+		if !usable {
+			// Reserve roughly half the slots for usable peers: only allow up to 5
+			// more non-usable peers (non-snap or below-version snap) than usable ones.
+			if all, snp := h.peers.len(), h.peers.snapLen(minVersion); all-snp > snp+5 {
 				reject = true
 			}
 		}
@@ -302,7 +285,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 		return err
 	}
 	if snap != nil {
-		if err := h.downloader.SnapSyncer.Register(snap); err != nil {
+		if err := h.downloader.RegisterSnapPeer(snap); err != nil {
 			peer.Log().Error("Failed to register peer in snap syncer", "err", err)
 			return err
 		}
@@ -416,7 +399,7 @@ func (h *handler) unregisterPeer(id string) {
 
 	// Remove the `snap` extension if it exists
 	if peer.snapExt != nil {
-		h.downloader.SnapSyncer.Unregister(id)
+		h.downloader.UnregisterSnapPeer(peer.snapExt.Peer)
 	}
 	h.downloader.UnregisterPeer(id)
 	h.txFetcher.Drop(id)
@@ -437,7 +420,7 @@ func (h *handler) Start(maxPeers int) {
 
 	// broadcast block range
 	h.wg.Add(1)
-	h.blockRange = newBlockRangeState(h.chain, h.eventMux)
+	h.blockRange = newBlockRangeState(h.chain, h.downloader)
 	go h.blockRangeLoop(h.blockRange)
 
 	// start sync handlers
@@ -524,7 +507,7 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		annCount += len(hashes)
 		peer.AsyncSendPooledTransactionHashes(hashes)
 	}
-	log.Debug("Distributed transactions", "plaintxs", len(txs)-blobTxs-largeTxs, "blobtxs", blobTxs, "largetxs", largeTxs,
+	log.Trace("Distributed transactions", "plaintxs", len(txs)-blobTxs-largeTxs, "blobtxs", blobTxs, "largetxs", largeTxs,
 		"bcastpeers", len(txset), "bcastcount", directCount, "annpeers", len(annos), "anncount", annCount)
 }
 
@@ -544,15 +527,7 @@ func (h *handler) txBroadcastLoop() {
 // enableSyncedFeatures enables the post-sync functionalities when the initial
 // sync is finished.
 func (h *handler) enableSyncedFeatures() {
-	// Mark the local node as synced.
 	h.synced.Store(true)
-
-	// If we were running snap sync and it finished, disable doing another
-	// round on next sync cycle
-	if h.snapSync.Load() {
-		log.Info("Snap sync complete, auto disabling")
-		h.snapSync.Store(false)
-	}
 }
 
 // blockRangeState holds the state of the block range update broadcasting mechanism.
@@ -561,16 +536,19 @@ type blockRangeState struct {
 	next    atomic.Pointer[eth.BlockRangeUpdatePacket]
 	headCh  chan core.ChainHeadEvent
 	headSub event.Subscription
-	syncSub *event.TypeMuxSubscription
+	syncCh  chan downloader.SyncEvent
+	syncSub event.Subscription
 }
 
-func newBlockRangeState(chain *core.BlockChain, typeMux *event.TypeMux) *blockRangeState {
+func newBlockRangeState(chain *core.BlockChain, dl *downloader.Downloader) *blockRangeState {
 	headCh := make(chan core.ChainHeadEvent, chainHeadChanSize)
 	headSub := chain.SubscribeChainHeadEvent(headCh)
-	syncSub := typeMux.Subscribe(downloader.StartEvent{}, downloader.DoneEvent{}, downloader.FailedEvent{})
+	syncCh := make(chan downloader.SyncEvent, 16)
+	syncSub := dl.SubscribeSyncEvents(syncCh)
 	st := &blockRangeState{
 		headCh:  headCh,
 		headSub: headSub,
+		syncCh:  syncCh,
 		syncSub: syncSub,
 	}
 	st.update(chain, chain.CurrentBlock())
@@ -586,11 +564,8 @@ func (h *handler) blockRangeLoop(st *blockRangeState) {
 
 	for {
 		select {
-		case ev := <-st.syncSub.Chan():
-			if ev == nil {
-				continue
-			}
-			if _, ok := ev.Data.(downloader.StartEvent); ok && h.snapSync.Load() {
+		case ev := <-st.syncCh:
+			if ev.Type == downloader.SyncStarted && ev.Mode == ethconfig.SnapSync {
 				h.blockRangeWhileSnapSyncing(st)
 			}
 		case <-st.headCh:
@@ -618,12 +593,8 @@ func (h *handler) blockRangeWhileSnapSyncing(st *blockRangeState) {
 				h.broadcastBlockRange(st)
 			}
 		// back to processing head block updates when sync is done
-		case ev := <-st.syncSub.Chan():
-			if ev == nil {
-				continue
-			}
-			switch ev.Data.(type) {
-			case downloader.FailedEvent, downloader.DoneEvent:
+		case ev := <-st.syncCh:
+			if ev.Type == downloader.SyncFailed || ev.Type == downloader.SyncCompleted {
 				return
 			}
 		// ignore head updates, but exit when the subscription ends

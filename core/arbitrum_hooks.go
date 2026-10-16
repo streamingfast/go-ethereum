@@ -60,7 +60,7 @@ type TxFilterer interface {
 	// fee refund, retry target) are touched by the state transition itself
 	// as funds move to them or the retryable is created.
 	TouchAddresses(statedb *state.StateDB, tx *types.Transaction, sender common.Address)
-	// CheckFiltered applies event filtering and returns state.ErrArbTxFilter if the
+	// CheckFiltered applies event filtering and returns state.ErrSeqFilter if the
 	// transaction is filtered. rootTx and header identify the tx for reporting.
 	CheckFiltered(statedb *state.StateDB, rootTx *types.Transaction, header *types.Header) error
 }

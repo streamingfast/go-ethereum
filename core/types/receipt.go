@@ -307,7 +307,7 @@ func (r *Receipt) DeriveFields(signer Signer, context DeriveReceiptContext) {
 		r.GasUsed = context.GasUsed
 	}
 	if context.CollectTips {
-		r.EffectiveGasPrice = context.Tx.inner.effectiveGasPrice(new(big.Int), context.BaseFee)
+		r.EffectiveGasPrice = context.Tx.EffectiveGasPrice(context.BaseFee)
 	} else {
 		r.EffectiveGasPrice = context.BaseFee
 	}
@@ -538,4 +538,34 @@ func EncodeBlockReceiptLists(receipts []Receipts) []rlp.RawValue {
 		result[i] = bytes
 	}
 	return result
+}
+
+// SlimReceipt is a wrapper around a Receipt with RLP serialization that omits
+// the Bloom field and includes the tx type. Used for era files.
+type SlimReceipt Receipt
+
+type slimReceiptRLP struct {
+	Type              uint8
+	StatusEncoding    []byte
+	CumulativeGasUsed uint64
+	Logs              []*Log
+}
+
+// EncodeRLP implements rlp.Encoder, encoding the receipt as
+// [tx-type, post-state-or-status, cumulative-gas, logs].
+func (r *SlimReceipt) EncodeRLP(w io.Writer) error {
+	data := &slimReceiptRLP{r.Type, (*Receipt)(r).statusEncoding(), r.CumulativeGasUsed, r.Logs}
+	return rlp.Encode(w, data)
+}
+
+// DecodeRLP implements rlp.Decoder.
+func (r *SlimReceipt) DecodeRLP(s *rlp.Stream) error {
+	var data slimReceiptRLP
+	if err := s.Decode(&data); err != nil {
+		return err
+	}
+	r.Type = data.Type
+	r.CumulativeGasUsed = data.CumulativeGasUsed
+	r.Logs = data.Logs
+	return (*Receipt)(r).setStatus(data.StatusEncoding)
 }

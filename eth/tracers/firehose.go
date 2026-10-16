@@ -215,12 +215,12 @@ func (f *Firehose) convertBlockEvent(event tracing.BlockEvent) firehose.BlockEve
 
 	rules := f.chainConfig.Rules(header.Number, isMerge, header.Time, arbOSVersion)
 	out.Rules = &firehose.Rules{
-		ChainID:    rules.ChainID,
+		ChainID:    f.chainConfig.ChainID,
 		IsMerge:    rules.IsMerge,
 		IsShanghai: rules.IsShanghai,
 		IsCancun:   rules.IsCancun,
 		IsPrague:   rules.IsPrague,
-		IsVerkle:   rules.IsVerkle,
+		IsVerkle:   rules.IsUBT,
 	}
 
 	return out

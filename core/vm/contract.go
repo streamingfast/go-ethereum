@@ -47,7 +47,9 @@ type Contract struct {
 	IsDeployment bool
 	IsSystemCall bool
 
-	Gas   uint64
+	// Gas carries the unified gas state for this frame: running balance,
+	// reservoir, and per-frame usage accumulators. See GasBudget.
+	Gas   GasBudget
 	value *uint256.Int
 
 	// Arbitrum: total used multi-dimensional gas
@@ -56,7 +58,7 @@ type Contract struct {
 }
 
 // NewContract returns a new contract environment for the execution of EVM.
-func NewContract(caller common.Address, address common.Address, value *uint256.Int, gas uint64, jumpDests JumpDestCache) *Contract {
+func NewContract(caller common.Address, address common.Address, value *uint256.Int, gas GasBudget, jumpDests JumpDestCache) *Contract {
 	// Initialize the jump analysis cache if it's nil, mostly for tests
 	if jumpDests == nil {
 		jumpDests = newMapJumpDests()
@@ -124,7 +126,6 @@ func (c *Contract) GetOp(n uint64) OpCode {
 	if n < uint64(len(c.Code)) {
 		return OpCode(c.Code[n])
 	}
-
 	return STOP
 }
 
@@ -141,27 +142,57 @@ func (c *Contract) Jumpdest() JumpDestCache {
 	return c.jumpDests
 }
 
-// useGas attempts the use gas and subtracts it and returns true on success
-func (c *Contract) useGas(gas uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) (ok bool) {
-	if c.Gas < gas {
+// chargeRegular deducts regular gas only, with tracer integration.
+// Returns false on OOG. Delegates the arithmetic to GasBudget.ChargeRegular.
+func (c *Contract) chargeRegular(r uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) bool {
+	prior, ok := c.Gas.ChargeRegular(r)
+	if !ok {
 		return false
 	}
-	if logger != nil && logger.OnGasChange != nil && reason != tracing.GasChangeIgnored {
-		logger.OnGasChange(c.Gas, c.Gas-gas, reason)
+	if logger.HasGasHook() && reason != tracing.GasChangeIgnored {
+		logger.EmitGasChange(prior.AsTracing(), c.Gas.AsTracing(), reason)
 	}
-	c.Gas -= gas
 	return true
 }
 
-// RefundGas refunds gas to the contract
-func (c *Contract) RefundGas(gas uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) {
-	if gas == 0 {
-		return
+// chargeState deducts state gas (spilling into regular when the reservoir is
+// exhausted), with tracer integration. Returns false on OOG.
+func (c *Contract) chargeState(s uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) bool {
+	prior, ok := c.Gas.ChargeState(s)
+	if !ok {
+		return false
 	}
-	if logger != nil && logger.OnGasChange != nil && reason != tracing.GasChangeIgnored {
-		logger.OnGasChange(c.Gas, c.Gas+gas, reason)
+	if logger.HasGasHook() && reason != tracing.GasChangeIgnored {
+		logger.EmitGasChange(prior.AsTracing(), c.Gas.AsTracing(), reason)
 	}
-	c.Gas += gas
+	return true
+}
+
+// refundGas absorbs a sub-call's leftover GasBudget into this contract's gas state.
+func (c *Contract) refundGas(child GasBudget, forwarded uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) {
+	prior := c.Gas
+	c.Gas.Absorb(child, forwarded)
+	if logger.HasGasHook() && reason != tracing.GasChangeIgnored {
+		logger.EmitGasChange(prior.AsTracing(), c.Gas.AsTracing(), reason)
+	}
+}
+
+// forwardGas drains `regular` regular gas and the entire state reservoir
+// from this contract's running budget and returns the initial GasBudget for
+// a child frame. The caller's UsedRegularGas is bumped by the forwarded
+// amount so that the absorb-on-return path correctly reclaims the unused
+// portion. Thin wrapper around GasBudget.Forward with tracer integration.
+//
+// Caller must ensure `regular` is no larger than the running balance (the
+// opcode's dynamic gas table is expected to validate that before invoking
+// the opcode handler).
+func (c *Contract) forwardGas(regular uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) GasBudget {
+	prior := c.Gas
+	child := c.Gas.Forward(regular)
+	if logger.HasGasHook() && reason != tracing.GasChangeIgnored {
+		logger.EmitGasChange(prior.AsTracing(), c.Gas.AsTracing(), reason)
+	}
+	return child
 }
 
 // Address returns the contracts address
@@ -182,7 +213,7 @@ func (c *Contract) SetCallCode(hash common.Hash, code []byte) {
 
 // UseMultiGas attempts the use gas, subtracts it, increments usedMultiGas, and returns true on success
 func (c *Contract) UseMultiGas(multiGas multigas.MultiGas, logger *tracing.Hooks, reason tracing.GasChangeReason) (ok bool) {
-	if !c.useGas(multiGas.SingleGas(), logger, reason) {
+	if !c.chargeRegular(multiGas.SingleGas(), logger, reason) {
 		return false
 	}
 	c.UsedMultiGas.SaturatingAddInto(multiGas)

@@ -214,7 +214,7 @@ func init() {
 
 func activePrecompiledContracts(rules params.Rules) PrecompiledContracts {
 	switch {
-	case rules.IsGreaterEqual60:
+	case rules.IsElara:
 		return PrecompiledContractsStartingFromArbOS60
 	case rules.IsDia:
 		return PrecompiledContractsStartingFromArbOS50
@@ -224,7 +224,7 @@ func activePrecompiledContracts(rules params.Rules) PrecompiledContracts {
 		return PrecompiledContractsStartingFromArbOS30
 	case rules.IsArbitrum:
 		return PrecompiledContractsBeforeArbOS30
-	case rules.IsVerkle:
+	case rules.IsUBT:
 		return PrecompiledContractsVerkle
 	case rules.IsOsaka:
 		return PrecompiledContractsOsaka
@@ -251,7 +251,7 @@ func ActivePrecompiledContracts(rules params.Rules) PrecompiledContracts {
 // ActivePrecompiles returns the precompile addresses enabled with the current configuration.
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
-	case rules.IsGreaterEqual60:
+	case rules.IsElara:
 		return PrecompiledAddressesStartingFromArbOS60
 	case rules.IsDia:
 		return PrecompiledAddressesStartingFromArbOS50
@@ -288,7 +288,7 @@ type AdvancedPrecompileCall struct {
 }
 
 type AdvancedPrecompile interface {
-	RunAdvanced(input []byte, suppliedGas uint64, advancedInfo *AdvancedPrecompileCall) (ret []byte, remainingGas uint64, usedMultiGas multigas.MultiGas, err error)
+	RunAdvanced(input []byte, suppliedGas uint64, advancedInfo *AdvancedPrecompileCall) (ret []byte, remaining GasBudget, usedMultiGas multigas.MultiGas, err error)
 	PrecompiledContract
 }
 
@@ -300,27 +300,34 @@ type arbosAwarePrecompile interface {
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.
 // It returns
 // - the returned bytes,
-// - the _remaining_ gas,
+// - the remaining gas budget,
 // - any error that occurred
-func RunPrecompiledContract(p PrecompiledContract, input []byte, suppliedGas uint64, logger *tracing.Hooks, advancedInfo *AdvancedPrecompileCall) (ret []byte, remainingGas uint64, usedMultiGas multigas.MultiGas, err error) {
+func RunPrecompiledContract(stateDB StateDB, p PrecompiledContract, address common.Address, input []byte, gas GasBudget, logger *tracing.Hooks, rules params.Rules, advancedInfo *AdvancedPrecompileCall) (ret []byte, remaining GasBudget, usedMultiGas multigas.MultiGas, err error) {
+	suppliedGas := gas.RegularGas
 	advanced, isAdvanced := p.(AdvancedPrecompile)
 	if isAdvanced {
-		return advanced.RunAdvanced(input, suppliedGas, advancedInfo)
+		return advanced.RunAdvanced(input, gas.RegularGas, advancedInfo)
 	}
 	precompileArbosAware, isPrecompileArbosAware := p.(arbosAwarePrecompile)
 	if isPrecompileArbosAware && advancedInfo != nil {
 		precompileArbosAware.SetArbosVersion(advancedInfo.Evm.Context.ArbOSVersion)
 	}
 	gasCost := p.RequiredGas(input)
-	if suppliedGas < gasCost {
-		return nil, 0, multigas.ComputationGas(suppliedGas), ErrOutOfGas
+	prior, ok := gas.ChargeRegular(gasCost)
+	if !ok {
+		gas.ChargeRegular(gas.RegularGas)
+		return nil, gas, multigas.ComputationGas(suppliedGas), ErrOutOfGas
 	}
-	if logger != nil && logger.OnGasChange != nil {
-		logger.OnGasChange(suppliedGas, suppliedGas-gasCost, tracing.GasChangeCallPrecompiledContract)
+	if logger.HasGasHook() {
+		logger.EmitGasChange(prior.AsTracing(), gas.AsTracing(), tracing.GasChangeCallPrecompiledContract)
 	}
-	suppliedGas -= gasCost
+	// Touch the precompile for block-level accessList recording once Amsterdam
+	// fork is activated.
+	if rules.IsAmsterdam {
+		stateDB.Touch(address)
+	}
 	output, err := p.Run(input)
-	return output, suppliedGas, multigas.ComputationGas(gasCost), err
+	return output, gas, multigas.ComputationGas(gasCost), err
 }
 
 // ecrecover implemented as a native contract.
@@ -347,11 +354,11 @@ func (c *ecrecover) Run(input []byte) ([]byte, error) {
 	}
 	// We must make sure not to modify the 'input', so placing the 'v' along with
 	// the signature needs to be done on a new allocation
-	sig := make([]byte, 65)
-	copy(sig, input[64:128])
+	var sig [65]byte
+	copy(sig[:], input[64:128])
 	sig[64] = v
 	// v needs to be at the end for libsecp256k1
-	pubKey, err := crypto.Ecrecover(input[:32], sig)
+	pubKey, err := crypto.Ecrecover(input[:32], sig[:])
 	// make sure the public key is a valid one
 	if err != nil {
 		return nil, nil
@@ -639,7 +646,6 @@ func (c *bigModExp) RequiredGas(input []byte) uint64 {
 		if expLen > 32 {
 			expHead.SetBytes(getData(input, baseLen, 32))
 		} else {
-			// TODO: Check that if expLen < baseLen, then getData will return an empty slice
 			expHead.SetBytes(getData(input, baseLen, expLen))
 		}
 	}

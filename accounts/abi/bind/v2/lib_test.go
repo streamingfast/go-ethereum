@@ -310,7 +310,7 @@ done:
 		t.Fatalf("expected e1Count of 2 from filter call.  got %d", e1Count)
 	}
 	if e2Count != 1 {
-		t.Fatalf("expected e2Count of 1 from filter call.  got %d", e1Count)
+		t.Fatalf("expected e2Count of 1 from filter call.  got %d", e2Count)
 	}
 }
 
@@ -379,16 +379,16 @@ func TestEventUnpackEmptyTopics(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when unpacking event with empty topics, got nil")
 		}
-		if err.Error() != "event signature mismatch" {
-			t.Fatalf("expected 'event signature mismatch' error, got: %v", err)
+		if err != bind.ErrNoEventSignature {
+			t.Fatalf("expected 'no event signature' error, got: %v", err)
 		}
 
 		_, err = c.UnpackBasic2Event(log)
 		if err == nil {
 			t.Fatal("expected error when unpacking event with empty topics, got nil")
 		}
-		if err.Error() != "event signature mismatch" {
-			t.Fatalf("expected 'event signature mismatch' error, got: %v", err)
+		if err != bind.ErrNoEventSignature {
+			t.Fatalf("expected 'no event signature' error, got: %v", err)
 		}
 	}
 }

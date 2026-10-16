@@ -158,10 +158,10 @@ func testLinkCase(tcInput linkTestCaseInput) error {
 		overrideAddrs  = make(map[rune]common.Address)
 	)
 	// generate deterministic addresses for the override set.
-	rand.Seed(42)
+	rng := rand.New(rand.NewSource(42))
 	for contract := range tcInput.overrides {
 		var addr common.Address
-		rand.Read(addr[:])
+		rng.Read(addr[:])
 		overrideAddrs[contract] = addr
 		overridesAddrs[addr] = struct{}{}
 	}
@@ -329,7 +329,7 @@ func TestContractLinking(t *testing.T) {
 			map[rune]struct{}{},
 		},
 		// two contracts ('a' and 'f') share some dependencies.  contract 'a' is marked as an override.  expect that any of
-		// its depdencies that aren't shared with 'f' are not deployed.
+		// its dependencies that aren't shared with 'f' are not deployed.
 		linkTestCaseInput{map[rune][]rune{
 			'a': {'b', 'c', 'd', 'e'},
 			'f': {'g', 'c', 'd', 'h'}},
