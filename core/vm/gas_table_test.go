@@ -54,6 +54,123 @@ func TestMemoryGasCost(t *testing.T) {
 	}
 }
 
+type stateRead struct {
+	method  string
+	address common.Address
+}
+
+type stateReadRecordingStateDB struct {
+	StateDB
+	reads []stateRead
+}
+
+func (s *stateReadRecordingStateDB) record(method string, address common.Address) {
+	s.reads = append(s.reads, stateRead{method: method, address: address})
+}
+
+func (s *stateReadRecordingStateDB) Exist(address common.Address) bool {
+	s.record("Exist", address)
+	return s.StateDB.Exist(address)
+}
+
+func (s *stateReadRecordingStateDB) Empty(address common.Address) bool {
+	s.record("Empty", address)
+	return s.StateDB.Empty(address)
+}
+
+func (s *stateReadRecordingStateDB) GetCode(address common.Address) []byte {
+	s.record("GetCode", address)
+	return s.StateDB.GetCode(address)
+}
+
+func (s *stateReadRecordingStateDB) GetBalance(address common.Address) *uint256.Int {
+	s.record("GetBalance", address)
+	return s.StateDB.GetBalance(address)
+}
+
+func (s *stateReadRecordingStateDB) HasSelfDestructed(address common.Address) bool {
+	s.record("HasSelfDestructed", address)
+	return s.StateDB.HasSelfDestructed(address)
+}
+
+func (s *stateReadRecordingStateDB) GetStateAndCommittedState(address common.Address, slot common.Hash) (common.Hash, common.Hash) {
+	s.record("GetStateAndCommittedState", address)
+	return s.StateDB.GetStateAndCommittedState(address, slot)
+}
+
+func (s *stateReadRecordingStateDB) count(method string) int {
+	var count int
+	for _, read := range s.reads {
+		if read.method == method {
+			count++
+		}
+	}
+	return count
+}
+
+func TestGasCallIntrinsicAccountLookupOnMemoryError(t *testing.T) {
+	tests := []struct {
+		name            string
+		isAmsterdam     bool
+		isEIP158        bool
+		transfersValue  bool
+		expectedLookups int
+	}{
+		{
+			name:            "pre-Amsterdam EIP-158 without value",
+			isEIP158:        true,
+			expectedLookups: 0,
+		},
+		{
+			name:            "pre-Amsterdam EIP-158 with value",
+			isEIP158:        true,
+			transfersValue:  true,
+			expectedLookups: 1,
+		},
+		{
+			name:            "pre-Amsterdam pre-EIP-158 without value",
+			expectedLookups: 1,
+		},
+		{
+			name:            "Amsterdam EIP-158 with value",
+			isAmsterdam:     true,
+			isEIP158:        true,
+			transfersValue:  true,
+			expectedLookups: 0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			innerStateDB, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+			stateDB := &stateReadRecordingStateDB{StateDB: innerStateDB}
+			evm := NewEVM(BlockContext{}, stateDB, params.TestChainConfig, Config{})
+			evm.chainRules.IsArbitrum = true
+			evm.chainRules.IsAmsterdam = test.isAmsterdam
+			evm.chainRules.IsEIP158 = test.isEIP158
+
+			stack := newStackForTesting()
+			if test.transfersValue {
+				stack.push(uint256.NewInt(1))
+			} else {
+				stack.push(new(uint256.Int))
+			}
+			stack.push(new(uint256.Int).SetBytes(common.Address{1}.Bytes()))
+			stack.push(uint256.NewInt(100_000))
+
+			contract := NewContract(common.Address{}, common.Address{}, new(uint256.Int), GasBudget{RegularGas: 100_000}, nil)
+			_, err := gasCallIntrinsic(evm, contract, stack, NewMemory(), 0x1fffffffe1)
+			if !errors.Is(err, ErrGasUintOverflow) {
+				t.Fatalf("unexpected error: got %v, want %v", err, ErrGasUintOverflow)
+			}
+			existCalls, emptyCalls := stateDB.count("Exist"), stateDB.count("Empty")
+			if lookups := existCalls + emptyCalls; lookups != test.expectedLookups {
+				t.Fatalf("unexpected account lookup count: got %d (Exist: %d, Empty: %d), want %d", lookups, existCalls, emptyCalls, test.expectedLookups)
+			}
+		})
+	}
+}
+
 var eip2200Tests = []struct {
 	original byte
 	gaspool  uint64
@@ -95,15 +212,15 @@ func TestEIP2200(t *testing.T) {
 
 		vmctx := BlockContext{
 			CanTransfer: func(StateDB, common.Address, *uint256.Int) bool { return true },
-			Transfer:    func(StateDB, common.Address, common.Address, *uint256.Int) {},
+			Transfer:    func(StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
 		}
 		evm := NewEVM(vmctx, statedb, params.AllEthashProtocolChanges, Config{ExtraEips: []int{2200}})
-
-		_, gas, _, err := evm.Call(common.Address{}, address, nil, tt.gaspool, new(uint256.Int))
+		initialGas := NewGasBudget(tt.gaspool, 0)
+		_, result, _, err := evm.Call(common.Address{}, address, nil, initialGas, new(uint256.Int))
 		if !errors.Is(err, tt.failure) {
 			t.Errorf("test %d: failure mismatch: have %v, want %v", i, err, tt.failure)
 		}
-		if used := tt.gaspool - gas; used != tt.used {
+		if used := result.Used(initialGas); used != tt.used {
 			t.Errorf("test %d: gas used mismatch: have %v, want %v", i, used, tt.used)
 		}
 		if refund := evm.StateDB.GetRefund(); refund != tt.refund {
@@ -145,21 +262,25 @@ func TestCreateGas(t *testing.T) {
 			statedb.Finalise(true)
 			vmctx := BlockContext{
 				CanTransfer: func(StateDB, common.Address, *uint256.Int) bool { return true },
-				Transfer:    func(StateDB, common.Address, common.Address, *uint256.Int) {},
+				Transfer:    func(StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
 				BlockNumber: big.NewInt(0),
 			}
 			config := Config{}
+			chainConfig := params.AllEthashProtocolChanges
 			if tt.eip3860 {
 				config.ExtraEips = []int{3860}
+				vmctx.Random = new(common.Hash)
+
+				chainConfig = params.MergedTestChainConfig
 			}
 
-			evm := NewEVM(vmctx, statedb, params.AllEthashProtocolChanges, config)
-			var startGas = uint64(testGas)
-			ret, gas, _, err := evm.Call(common.Address{}, address, nil, startGas, new(uint256.Int))
+			evm := NewEVM(vmctx, statedb, chainConfig, config)
+			initialGas := NewGasBudget(uint64(testGas), 0)
+			ret, result, _, err := evm.Call(common.Address{}, address, nil, initialGas, new(uint256.Int))
 			if err != nil {
 				return false
 			}
-			gasUsed = startGas - gas
+			gasUsed = result.Used(initialGas)
 			if len(ret) != 32 {
 				t.Fatalf("test %d: expected 32 bytes returned, have %d", i, len(ret))
 			}

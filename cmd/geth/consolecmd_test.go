@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	ipcAPIs  = "admin:1.0 debug:1.0 engine:1.0 eth:1.0 miner:1.0 net:1.0 rpc:1.0 txpool:1.0 web3:1.0"
+	ipcAPIs  = "admin:1.0 debug:1.0 engine:1.0 eth:1.0 miner:1.0 net:1.0 rpc:1.0 testing:1.0 txpool:1.0 web3:1.0"
 	httpAPIs = "eth:1.0 net:1.0 rpc:1.0 web3:1.0"
 )
 
@@ -39,8 +39,9 @@ const (
 // child g gets a temporary data directory.
 func runMinimalGeth(t *testing.T, args ...string) *testgeth {
 	// --holesky to make the 'writing genesis to disk' faster (no accounts)
+	// --networkid=1337 to avoid cache bump
 	// --syncmode=full to avoid allocating fast sync bloom
-	allArgs := []string{"--holesky", "--authrpc.port", "0", "--syncmode=full", "--port", "0",
+	allArgs := []string{"--holesky", "--networkid", "1337", "--authrpc.port", "0", "--syncmode=full", "--port", "0",
 		"--nat", "none", "--nodiscover", "--maxpeers", "0", "--cache", "64",
 		"--datadir.minfreedisk", "0"}
 	return runGeth(t, append(allArgs, args...)...)
@@ -50,10 +51,9 @@ func runMinimalGeth(t *testing.T, args ...string) *testgeth {
 // then terminated by closing the input stream.
 func TestConsoleWelcome(t *testing.T) {
 	t.Parallel()
-	coinbase := "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182"
 
 	// Start a geth console, make sure it's cleaned up and terminate the console
-	geth := runMinimalGeth(t, "--miner.etherbase", coinbase, "console")
+	geth := runMinimalGeth(t, "console")
 
 	// Gather all the infos the welcome message needs to contain
 	geth.SetTemplateFunc("goos", func() string { return runtime.GOOS })
@@ -98,7 +98,7 @@ func TestAttachWelcome(t *testing.T) {
 	p := trulyRandInt(1024, 65533) // Yeah, sometimes this will fail, sorry :P
 	httpPort = strconv.Itoa(p)
 	wsPort = strconv.Itoa(p + 1)
-	geth := runMinimalGeth(t, "--miner.etherbase", "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182",
+	geth := runMinimalGeth(t,
 		"--ipcpath", ipc,
 		"--http", "--http.port", httpPort,
 		"--ws", "--ws.port", wsPort)

@@ -33,7 +33,11 @@ const (
 const (
 	baseProtoLen = 16
 	ethProtoLen  = 18
-	snapProtoLen = 8
+	// snapProtoLen accommodates snap/2 (EIP-8189) which extends snap/1 with two
+	// additional message codes (GetBlockAccessLists=0x08, BlockAccessLists=0x09).
+	// Using 10 is safe for snap/1 connections because the extra codes are simply
+	// never used on that protocol version.
+	snapProtoLen = 10
 )
 
 // Unexported handshake structure from p2p/peer.go.
@@ -85,10 +89,4 @@ func protoOffset(proto Proto) uint64 {
 	default:
 		panic("unhandled protocol")
 	}
-}
-
-// msgTypePtr is the constraint for protocol message types.
-type msgTypePtr[U any] interface {
-	*U
-	Kind() byte
 }

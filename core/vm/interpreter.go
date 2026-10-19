@@ -29,13 +29,11 @@ import (
 
 // Config are the configuration options for the Interpreter
 type Config struct {
-	Tracer                  *tracing.Hooks
+	Tracer *tracing.Hooks
+
 	NoBaseFee               bool  // Forces the EIP-1559 baseFee to 0 (needed for 0 price calls)
 	EnablePreimageRecording bool  // Enables recording of SHA3/keccak preimages
 	ExtraEips               []int // Additional EIPS that are to be enabled
-
-	StatelessSelfValidation bool // Generate execution witnesses and self-check against them (testing purpose)
-	EnableWitnessStats      bool // Whether trie access statistics collection is enabled
 
 	ExposeMultiGas bool // Arbitrum: Expose multi-gas used in transaction receipts
 }
@@ -124,8 +122,8 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 	var (
 		op          OpCode     // current opcode
 		jumpTable   *JumpTable = evm.table
-		mem                    = NewMemory() // bound memory
-		stack                  = newstack()  // local stack
+		mem                    = NewMemory()       // bound memory
+		stack                  = evm.arena.stack() // local stack
 		callContext            = &ScopeContext{
 			Memory:   mem,
 			Stack:    stack,
@@ -148,7 +146,7 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 	// so that it gets executed _after_: the OnOpcode needs the stacks before
 	// they are returned to the pools
 	defer func() {
-		returnStack(stack)
+		stack.release()
 		mem.Free()
 	}()
 	contract.Input = input
@@ -181,14 +179,14 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 	for {
 		if debug {
 			// Capture pre-execution values for tracing.
-			logged, pcCopy, gasCopy = false, pc, contract.Gas
+			logged, pcCopy, gasCopy = false, pc, contract.Gas.RegularGas
 		}
 
 		if isEIP4762 && !contract.IsDeployment && !contract.IsSystemCall {
 			// if the PC ends up in a new "chunk" of verkleized code, charge the
 			// associated costs.
 			contractAddr := contract.Address()
-			consumed, wanted := evm.TxContext.AccessEvents.CodeChunksRangeGas(contractAddr, pc, 1, uint64(len(contract.Code)), false, contract.Gas)
+			consumed, wanted := evm.TxContext.AccessEvents.CodeChunksRangeGas(contractAddr, pc, 1, uint64(len(contract.Code)), false, contract.Gas.RegularGas)
 			contract.UseMultiGas(multigas.StorageGrowthGas(consumed), evm.Config.Tracer, tracing.GasChangeWitnessCodeChunk)
 			if consumed < wanted {
 				return nil, ErrOutOfGas
@@ -207,10 +205,8 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 			return nil, &ErrStackOverflow{stackLen: sLen, limit: operation.maxStack}
 		}
 		// for tracing: this gas consumption event is emitted below in the debug section.
-		if contract.Gas < cost {
+		if !contract.chargeRegular(cost, nil, tracing.GasChangeIgnored) {
 			return nil, ErrOutOfGas
-		} else {
-			contract.Gas -= cost
 		}
 		addConstantMultiGas(&contract.UsedMultiGas, cost, op)
 
@@ -240,19 +236,25 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 			if err != nil {
 				return nil, fmt.Errorf("%w: %v", ErrOutOfGas, err)
 			}
-			// for tracing: this gas consumption event is emitted below in the debug section.
-			if contract.Gas < dynamicCost {
+			// EIP-8037: charge regular gas before state gas. The state charge
+			// is a no-op when the state cost is 0 (e.g., pre-Amsterdam).
+			if !contract.chargeRegular(dynamicCost, nil, tracing.GasChangeIgnored) {
 				return nil, ErrOutOfGas
-			} else {
-				contract.Gas -= dynamicCost
+			}
+			if !contract.chargeState(multigasDynamicCost.GetStateGas(), nil, tracing.GasChangeIgnored) {
+				return nil, ErrOutOfGas
 			}
 			contract.UsedMultiGas.SaturatingAddInto(multigasDynamicCost)
 		}
 
 		// Do tracing before potential memory expansion
 		if debug {
-			if evm.Config.Tracer.OnGasChange != nil {
-				evm.Config.Tracer.OnGasChange(gasCopy, gasCopy-cost, tracing.GasChangeCallOpCode)
+			if evm.Config.Tracer.HasGasHook() {
+				evm.Config.Tracer.EmitGasChange(
+					tracing.Gas{Regular: gasCopy, State: contract.Gas.StateGas},
+					tracing.Gas{Regular: gasCopy - cost, State: contract.Gas.StateGas},
+					tracing.GasChangeCallOpCode,
+				)
 			}
 			if evm.Config.Tracer.OnOpcode != nil {
 				evm.Config.Tracer.OnOpcode(pc, byte(op), gasCopy, cost, callContext, evm.returnData, evm.depth, VMErrorFromErr(err))

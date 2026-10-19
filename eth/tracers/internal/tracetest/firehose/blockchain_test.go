@@ -32,7 +32,7 @@ func runPrestateBlock(t *testing.T, prestatePath string, hooks *tracing.Hooks) {
 	state.NewHookedState(testState.StateDB, hooks)
 
 	// testState.StateDB.SetLogger(hooks)
-	testState.StateDB.SetTxContext(tx.Hash(), 0)
+	testState.StateDB.SetTxContext(tx.Hash(), 0, 1)
 
 	block := types.NewBlock(&types.Header{
 		ParentHash:       prestate.Genesis.ToBlock().Hash(),
@@ -64,16 +64,14 @@ func runPrestateBlock(t *testing.T, prestatePath string, hooks *tracing.Hooks) {
 	blockContext := core.NewEVMBlockContext(block.Header(), prestate, &context.Coinbase)
 	vmenv := vm.NewEVM(blockContext, state.NewHookedState(testState.StateDB, hooks), prestate.Genesis.Config, vm.Config{Tracer: hooks})
 
-	usedGas := uint64(0)
-	_, _, err = core.ApplyTransactionWithEVM(
+	_, _, _, err = core.ApplyTransactionWithEVM(
 		msg,
-		new(core.GasPool).AddGas(block.GasLimit()),
+		core.NewGasPool(block.GasLimit()),
 		testState.StateDB,
 		header.Number,
 		header.Hash(),
 		header.Time,
 		tx,
-		&usedGas,
 		vmenv,
 		nil,
 	)

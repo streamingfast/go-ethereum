@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
@@ -87,10 +88,12 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 		return fmt.Errorf("%w: type %d rejected, pool not yet in Prague", core.ErrTxTypeNotSupported, tx.Type())
 	}
 	// Check whether the init code size has been exceeded
-	if rules.IsShanghai && tx.To() == nil && len(tx.Data()) > int(opts.Config.MaxInitCodeSize()) {
-		return fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(tx.Data()), int(opts.Config.MaxInitCodeSize()))
+	if tx.To() == nil {
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data()))); err != nil {
+			return err
+		}
 	}
-	if !opts.Config.IsArbitrum() && rules.IsOsaka && tx.Gas() > params.MaxTxGasRenamedForNitroMerges {
+	if !opts.Config.IsArbitrum() && rules.IsOsaka && !rules.IsAmsterdam && tx.Gas() > params.MaxTxGasRenamedForNitroMerges {
 		return fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGasRenamedForNitroMerges, tx.Gas())
 	}
 	// Transactions can't be negative. This may never happen using RLP decoded
@@ -123,21 +126,28 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 	}
 	// Ensure the transaction has more gas than the bare minimum needed to cover
 	// the transaction metadata
-	intrGas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, rules.IsIstanbul, rules.IsShanghai)
+	intrGas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, rules, params.CostPerStateByte)
 	if err != nil {
 		return err
 	}
-	if tx.Gas() < intrGas {
-		return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrIntrinsicGas, tx.Gas(), intrGas)
+	if tx.Gas() < intrGas.RegularGas {
+		return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrIntrinsicGas, tx.Gas(), intrGas.RegularGas)
 	}
 	// Ensure the transaction can cover floor data gas.
-	if opts.Config.IsPrague(head.Number, head.Time, arbosVersion) {
-		floorDataGas, err := core.FloorDataGas(tx.Data())
+	if rules.IsPrague {
+		floorDataGas, err := core.FloorDataGas(rules, tx.Data(), tx.AccessList())
 		if err != nil {
 			return err
 		}
+		// Make sure the transaction has sufficient gas allowance to
+		// pay the floor cost.
 		if tx.Gas() < floorDataGas {
 			return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrFloorDataGas, tx.Gas(), floorDataGas)
+		}
+		// In Amsterdam, the transaction gas limit is allowed to exceed
+		// params.MaxTxGas, but the calldata floor cost is capped by it.
+		if !opts.Config.IsArbitrum() && rules.IsAmsterdam && max(intrGas.RegularGas, floorDataGas) > params.MaxTxGasRenamedForNitroMerges {
+			return fmt.Errorf("%w: regular intrisic cost %v, floor: %v", core.ErrFloorDataGas, intrGas.RegularGas, floorDataGas)
 		}
 	}
 	// Ensure the gasprice is high enough to cover the requirement of the calling pool
@@ -160,6 +170,15 @@ func validateBlobTx(tx *types.Transaction, head *types.Header, opts *ValidationO
 	sidecar := tx.BlobTxSidecar()
 	if sidecar == nil {
 		return errors.New("missing sidecar in blob transaction")
+	}
+	// Ensure the sidecar is constructed with the correct version, consistent
+	// with the current fork.
+	version := types.BlobSidecarVersion0
+	if opts.Config.IsOsaka(head.Number, head.Time, types.DeserializeHeaderExtraInformation(head).ArbOSFormatVersion) {
+		version = types.BlobSidecarVersion1
+	}
+	if sidecar.Version != version {
+		return fmt.Errorf("unexpected sidecar version, want: %d, got: %d", version, sidecar.Version)
 	}
 	// Ensure the blob fee cap satisfies the minimum blob gas price
 	if tx.BlobGasFeeCapIntCmp(blobTxMinBlobGasPrice) < 0 {
