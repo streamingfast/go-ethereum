@@ -124,6 +124,8 @@ type Database struct {
 	quitChan chan chan error // Quit channel to stop the metrics collection before closing the database
 	closed   bool            // keep track of whether we're Closed
 
+	iterators liveIterators // Unreleased iterators, pebble must not be closed under them
+
 	log log.Logger // Contextual logger tracking the database path
 
 	activeComp    int           // Current number of active compactions
@@ -409,9 +411,9 @@ func New(file string, cache int, handles int, namespace string, readonly bool, e
 // all io accesses to the underlying key-value store.
 func (d *Database) Close() error {
 	d.quitLock.Lock()
-	defer d.quitLock.Unlock()
 	// Allow double closing, simplifies things
 	if d.closed {
+		d.quitLock.Unlock()
 		return nil
 	}
 	d.closed = true
@@ -423,7 +425,30 @@ func (d *Database) Close() error {
 		}
 		d.quitChan = nil
 	}
+	// Methods that reach pebble now fail with ErrClosed, so the lock is not
+	// held while the owners of live iterators release them.
+	d.quitLock.Unlock()
+	if d.iterators.live() {
+		// Pebble syncs the WAL when it closes, which may now come after the
+		// process exits.
+		if err := d.syncWAL(); err != nil && !errors.Is(err, pebble.ErrReadOnly) {
+			log.Warn("Failed to sync database before close", "database", d.fn, "err", err)
+		}
+	}
+	if live := d.iterators.stop(d.closeDeferred); live > 0 {
+		log.Warn("Deferring database close until live iterators are released", "database", d.fn, "iterators", live)
+		return errCloseDeferred
+	}
 	return d.db.Close()
+}
+
+// closeDeferred closes pebble once the iterators that outlived Close are released.
+func (d *Database) closeDeferred() {
+	if err := d.db.Close(); err != nil {
+		log.Error("Failed to close database", "database", d.fn, "err", err)
+		return
+	}
+	log.Info("Closed database after its live iterators were released", "database", d.fn)
 }
 
 // Has retrieves if a key is present in the key-value store.
@@ -537,6 +562,11 @@ func upperBound(prefix []byte) (limit []byte) {
 // Stat returns the internal metrics of Pebble in a text format. It's a developer
 // method to read everything there is to read, independent of Pebble version.
 func (d *Database) Stat() (string, error) {
+	d.quitLock.RLock()
+	defer d.quitLock.RUnlock()
+	if d.closed {
+		return "", pebble.ErrClosed
+	}
 	return d.db.Metrics().String(), nil
 }
 
@@ -548,6 +578,14 @@ func (d *Database) Stat() (string, error) {
 // is treated as a key after all keys in the data store. If both is nil then it
 // will compact entire data store.
 func (d *Database) Compact(start []byte, limit []byte) error {
+	// Checked up front only, holding the lock through a compaction would stall
+	// Close for as long as it runs.
+	d.quitLock.RLock()
+	closed := d.closed
+	d.quitLock.RUnlock()
+	if closed {
+		return pebble.ErrClosed
+	}
 	// There is no special flag to represent the end of key range
 	// in pebble(nil in leveldb). Use an ugly hack to construct a
 	// large key to represent it.
@@ -570,6 +608,15 @@ func (d *Database) Path() string {
 // SyncKeyValue flushes all pending writes in the write-ahead-log to disk,
 // ensuring data durability up to that point.
 func (d *Database) SyncKeyValue() error {
+	d.quitLock.RLock()
+	defer d.quitLock.RUnlock()
+	if d.closed {
+		return pebble.ErrClosed
+	}
+	return d.syncWAL()
+}
+
+func (d *Database) syncWAL() error {
 	// The entry (value=nil) is not written to the database; it is only
 	// added to the WAL. Writing this special log entry in sync mode
 	// automatically flushes all previous writes, ensuring database
@@ -871,26 +918,41 @@ func (b *batch) Close() {
 //
 // The pebble iterator is not thread-safe.
 type pebbleIterator struct {
+	db       *Database
 	iter     *pebble.Iterator
 	moved    bool
 	released bool
+	err      error // pebble.ErrClosed once Next finds the database closed
 }
 
 // NewIterator creates a binary-alphabetical iterator over a subset
 // of database content with a particular key prefix, starting at a particular
 // initial key (or after, if it does not exist).
 func (d *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
-	iter, _ := d.db.NewIter(&pebble.IterOptions{
+	d.quitLock.RLock()
+	defer d.quitLock.RUnlock()
+	if d.closed {
+		return &errorIterator{err: pebble.ErrClosed}
+	}
+	iter, err := d.db.NewIter(&pebble.IterOptions{
 		LowerBound: append(prefix, start...),
 		UpperBound: upperBound(prefix),
 	})
+	if err != nil {
+		return &errorIterator{err: err}
+	}
+	d.iterators.add()
 	iter.First()
-	return &pebbleIterator{iter: iter, moved: true, released: false}
+	return &pebbleIterator{db: d, iter: iter, moved: true, released: false}
 }
 
 // Next moves the iterator to the next key/value pair. It returns whether the
 // iterator is exhausted.
 func (iter *pebbleIterator) Next() bool {
+	if iter.db.iterators.stopped.Load() {
+		iter.err = pebble.ErrClosed
+		return false
+	}
 	if iter.moved {
 		iter.moved = false
 		return iter.iter.Valid()
@@ -901,6 +963,9 @@ func (iter *pebbleIterator) Next() bool {
 // Error returns any accumulated error. Exhausting all the key/value pairs
 // is not considered to be an error.
 func (iter *pebbleIterator) Error() error {
+	if iter.err != nil {
+		return iter.err
+	}
 	return iter.iter.Error()
 }
 
@@ -908,6 +973,9 @@ func (iter *pebbleIterator) Error() error {
 // should not modify the contents of the returned slice, and its contents may
 // change on the next call to Next.
 func (iter *pebbleIterator) Key() []byte {
+	if iter.err != nil {
+		return nil
+	}
 	return iter.iter.Key()
 }
 
@@ -915,6 +983,9 @@ func (iter *pebbleIterator) Key() []byte {
 // caller should not modify the contents of the returned slice, and its contents
 // may change on the next call to Next.
 func (iter *pebbleIterator) Value() []byte {
+	if iter.err != nil {
+		return nil
+	}
 	return iter.iter.Value()
 }
 
@@ -924,5 +995,6 @@ func (iter *pebbleIterator) Release() {
 	if !iter.released {
 		iter.iter.Close()
 		iter.released = true
+		iter.db.iterators.release()
 	}
 }
