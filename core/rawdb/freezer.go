@@ -300,13 +300,43 @@ func (f *Freezer) TruncateHead(items uint64) (uint64, error) {
 	if oitems <= items {
 		return oitems, nil
 	}
+	// Tail groups are pruned independently, so their tails can differ. Cutting
+	// the head below the tail of one group is fine: that group simply retains
+	// nothing, while the groups with a lower tail keep their data. Cutting below
+	// every group's tail is not, as it discards data that no group had pruned.
+	// Reject that up front.
+	if lowest := f.lowestTail(); items < lowest {
+		return 0, fmt.Errorf("truncation below tail: head %d, lowest group tail %d", items, lowest)
+	}
 	for _, table := range f.tables {
 		if err := table.truncateHead(items); err != nil {
 			return 0, err
 		}
 	}
 	f.head.Store(items)
+
+	// A group whose tail sat above the new head has been reset down to it by the
+	// truncation above, so the cached tail has to follow.
+	for _, tail := range f.tails {
+		if tail.Load() > items {
+			tail.Store(items)
+		}
+	}
 	return oitems, nil
+}
+
+// lowestTail returns the smallest tail among the tail groups.
+func (f *Freezer) lowestTail() uint64 {
+	var (
+		lowest uint64
+		first  = true
+	)
+	for _, tail := range f.tails {
+		if v := tail.Load(); first || v < lowest {
+			lowest, first = v, false
+		}
+	}
+	return lowest
 }
 
 // TruncateTail discards all data below the specified threshold across every
@@ -432,7 +462,8 @@ func (f *Freezer) validate() error {
 // repair brings every table into a consistent state. The common head is taken
 // as the minimum item count among non-empty tables; freshly added empty tables
 // are fast-forwarded to that head via tail truncation. Within each tail group
-// the maximum tail wins, and prunable tables are truncated to it.
+// the maximum tail wins, and prunable tables are truncated to it. An optional
+// table that lags is reset to the head and never sets it.
 func (f *Freezer) repair() error {
 	// Determine the common head from non-empty tables. Empty tables are
 	// excluded so that a freshly added table cannot drag the existing head
@@ -442,7 +473,7 @@ func (f *Freezer) repair() error {
 		head        uint64 = math.MaxUint64
 	)
 	for _, table := range f.tables {
-		if table.items.Load() == 0 {
+		if table.items.Load() == 0 || table.config.optional {
 			continue
 		}
 		if items := table.items.Load(); items < head {
@@ -459,6 +490,11 @@ func (f *Freezer) repair() error {
 	if head > 0 {
 		for _, table := range f.tables {
 			if table.items.Load() == 0 {
+				if err := table.truncateTail(head); err != nil {
+					return err
+				}
+			} else if items := table.items.Load(); table.config.optional && items < head {
+				log.Warn("Resetting lagging optional freezer table", "table", table.name, "items", items, "head", head)
 				if err := table.truncateTail(head); err != nil {
 					return err
 				}
