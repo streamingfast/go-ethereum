@@ -18,11 +18,13 @@ package js
 
 import (
 	"bytes"
+	"math/big"
 	"testing"
 
 	"github.com/dop251/goja"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/core/vm/runtime"
@@ -81,5 +83,38 @@ func TestCtxInputIsCopy(t *testing.T) {
 	}
 	if !bytes.Equal(input, []byte{1, 2, 3}) {
 		t.Fatalf("script modified the call input: %x", input)
+	}
+}
+
+func TestArbitrumHookArgumentsAreCopies(t *testing.T) {
+	tracer, err := newJsTracer(`{
+		captureArbitrumTransfer: function() { this.value.setInt64(7); },
+		onBalanceChange: function(change) {
+			change.prev.setInt64(7);
+			change.new.setInt64(7);
+		},
+		hostio: function(info) {
+			info.args[0] = 0xff;
+			info.outs[0] = 0xff;
+		},
+		fault: function() {},
+		result: function() { return null; }
+	}`, nil, nil, params.TestChainConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, prev, next := big.NewInt(1), big.NewInt(2), big.NewInt(3)
+	args, outs := []byte{1}, []byte{2}
+	tracer.CaptureArbitrumTransfer(nil, nil, value, true, tracing.BalanceChangeUnspecified)
+	tracer.OnBalanceChange(common.Address{}, prev, next, tracing.BalanceChangeUnspecified)
+	tracer.CaptureStylusHostio("read_args", args, outs, 0, 0)
+	if _, err := tracer.GetResult(); err != nil {
+		t.Fatal(err)
+	}
+	if value.Int64() != 1 || prev.Int64() != 2 || next.Int64() != 3 {
+		t.Errorf("script modified balances: value %v, prev %v, new %v", value, prev, next)
+	}
+	if args[0] != 1 || outs[0] != 2 {
+		t.Errorf("script modified hostio buffers: args %x, outs %x", args, outs)
 	}
 }

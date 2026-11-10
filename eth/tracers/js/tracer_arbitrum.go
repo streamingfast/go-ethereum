@@ -44,7 +44,7 @@ func (jst *jsTracer) CaptureArbitrumTransfer(
 		transfer.Set("to", nil)
 	}
 
-	transfer.Set("value", value)
+	transfer.Set("value", copyBig(value))
 	transfer.Set("before", before)
 	transfer.Set("purpose", reason.Str())
 
@@ -61,8 +61,8 @@ func (jst *jsTracer) CaptureStylusHostio(name string, args, outs []byte, startIn
 
 	info := jst.vm.NewObject()
 	info.Set("name", name)
-	info.Set("args", args)
-	info.Set("outs", outs)
+	info.Set("args", common.CopyBytes(args))
+	info.Set("outs", common.CopyBytes(outs))
 	info.Set("startInk", startInk)
 	info.Set("endInk", endInk)
 
@@ -79,11 +79,18 @@ func (jst *jsTracer) OnBalanceChange(addr common.Address, prev, new *big.Int, re
 
 	balanceChange := jst.vm.NewObject()
 	balanceChange.Set("addr", addr.String())
-	balanceChange.Set("prev", prev)
-	balanceChange.Set("new", new)
+	balanceChange.Set("prev", copyBig(prev))
+	balanceChange.Set("new", copyBig(new))
 	balanceChange.Set("reason", reason.Str())
 
 	if _, err := traceBalanceChange(jst.obj, balanceChange); err != nil {
 		jst.err = wrapError("onBalanceChange", err)
 	}
+}
+
+func copyBig(v *big.Int) *big.Int {
+	if v == nil {
+		return nil
+	}
+	return new(big.Int).Set(v)
 }
