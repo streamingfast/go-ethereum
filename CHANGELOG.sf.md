@@ -1,3 +1,7 @@
+## polygon-v2.11.2-fh3.0
+
+* Bumped Polygon bor to [v2.11.2](https://github.com/0xPolygon/bor/releases/tag/v2.11.2), which also brings [v2.11.1](https://github.com/0xPolygon/bor/releases/tag/v2.11.1). Peer cleanup is enabled by default: keep the peers a node depends on configured as static or trusted peers, or set `peer-idle-eviction = false` under `[p2p]`. No change to the Firehose block.
+
 ## polygon-v2.11.0-fh3.0
 
 * Bumped Polygon bor to [v2.11.0](https://github.com/0xPolygon/bor/releases/tag/v2.11.0), with the Uburu hard fork (mainnet block `96787900`, Amoy block `51978200`). From Uburu on, state-sync receivers get less gas and the StateReceiver stores the hash of each failed record, which shows in the traced state-sync calls.
