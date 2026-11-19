@@ -1,0 +1,5 @@
+global:
+  language: golang
+  variant: chain
+release:
+  changelog-path: CHANGELOG.sf.md
