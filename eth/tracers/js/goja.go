@@ -78,7 +78,8 @@ type fromBufFn = func(vm *goja.Runtime, buf goja.Value, allowString bool) ([]byt
 
 func toBuf(vm *goja.Runtime, bufType goja.Value, val []byte) (goja.Value, error) {
 	// bufType is usually Uint8Array. This is equivalent to `new Uint8Array(val)` in JS.
-	return vm.New(bufType, vm.ToValue(vm.NewArrayBuffer(val)))
+	// Copy, because val may alias memory that the caller keeps using.
+	return vm.New(bufType, vm.ToValue(vm.NewArrayBuffer(common.CopyBytes(val))))
 }
 
 func fromBuf(vm *goja.Runtime, bufType goja.Value, buf goja.Value, allowString bool) ([]byte, error) {
