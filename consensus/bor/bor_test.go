@@ -4779,7 +4779,7 @@ func testCommitStatesOverrideAboveFetched(t *testing.T, borCfg *params.BorConfig
 		GasLimit:   genesis.GasLimit,
 	}
 
-	data, err := b.CommitStates(statedb, h, statefull.ChainContext{Chain: chain.HeaderChain(), Bor: b})
+	data, err := b.CommitStates(statedb, h, statefull.ChainContext{Chain: chain.HeaderChain(), Bor: b}, nil)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 	require.Equal(t, uint64(1), data[0].ID)
