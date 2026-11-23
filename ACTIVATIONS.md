@@ -1,6 +1,6 @@
 # Activations
 
-Every fork the Polygon PoS chain configs in `params/config.go` define, with its status on Polygon mainnet and Amoy and its effect on the Firehose block. Bor activates forks by block number, so a fork is active once the chain is past its block. Statuses were checked on 2026-11-19 against bor `v2.11.2` (`polygon-v2.11.2-fh3.0`), with mainnet at block 97602399 and Amoy at block 53286331.
+Every fork the Polygon PoS chain configs in `params/config.go` define, with its status on Polygon mainnet and Amoy and its effect on the Firehose block. Bor activates forks by block number, so a fork is active once the chain is past its block. Statuses were checked on 2026-11-23 against bor `v2.12.0-beta` (`polygon-v2.12.0-beta-fh3.0`), with mainnet at block 97835027 and Amoy at block 53636810. Bor `v2.12.0-beta` defines no fork that `v2.11.2` did not.
 
 Review the entries that are new or whose block changed at every upstream bump, and refresh this file when Polygon announces a fork block between bumps.
 
@@ -42,4 +42,4 @@ Review the entries that are new or whose block changed at every upstream bump, a
 
 ## Heimdall forks
 
-Heimdall-v2 hard forks (Karwar, Purley, …) are not defined in the Bor chain configs, and Bor v2.11.2 has no code that switches on them. They change nothing in the Firehose block through Bor; what they change in the spans and state syncs Bor fetches from Heimdall shows in the state-sync transactions as usual.
+Heimdall-v2 hard forks (Karwar, Purley, …) are not defined in the Bor chain configs, and Bor v2.12.0-beta has no code that switches on them. They change nothing in the Firehose block through Bor; what they change in the spans and state syncs Bor fetches from Heimdall shows in the state-sync transactions as usual.

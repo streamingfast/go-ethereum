@@ -1,3 +1,9 @@
+## polygon-v2.12.0-beta-fh3.0
+
+* Bumped Polygon bor to the [v2.12.0-beta](https://github.com/0xPolygon/bor/releases/tag/v2.12.0-beta) pre-release. It defines no new fork and does not change the Firehose block. Finalized blocks now come from upstream's Heimdall milestone handling, which only moves the finalized block forward and only to a canonical block.
+* Fixed missing keccak preimages when a `KECCAK256` result comes from the shared VM result caches (`precompile-cache`).
+* `precompile-cache` is now turned off when a live tracer such as Firehose is active.
+
 ## polygon-v2.11.2-fh3.0
 
 * Bumped Polygon bor to [v2.11.2](https://github.com/0xPolygon/bor/releases/tag/v2.11.2), which also brings [v2.11.1](https://github.com/0xPolygon/bor/releases/tag/v2.11.1). Peer cleanup is enabled by default: keep the peers a node depends on configured as static or trusted peers, or set `peer-idle-eviction = false` under `[p2p]`. No change to the Firehose block.
