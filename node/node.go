@@ -188,6 +188,10 @@ func (n *Node) Start() error {
 
 	// Check if endpoint startup failed.
 	if err != nil {
+		// Arbitrum: log before closing the databases, a background worker
+		// failing on a closed database can end the process before the caller
+		// gets to log the error.
+		log.Error("Failed to start node", "err", err)
 		n.doClose(nil)
 		return err
 	}
@@ -201,6 +205,8 @@ func (n *Node) Start() error {
 	}
 	// Check if any lifecycle failed to start.
 	if err != nil {
+		// Arbitrum: log before closing the databases, as above.
+		log.Error("Failed to start node", "err", err)
 		n.stopServices(started)
 		n.doClose(nil)
 	}
