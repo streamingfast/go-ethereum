@@ -274,6 +274,10 @@ func opKeccak256(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 			if evm.Config.EnablePreimageRecording {
 				evm.StateDB.AddPreimage(h, data)
 			}
+			// Firehose requirements, see 11471b22bb0b below.
+			if evm.Config.Tracer != nil && evm.Config.Tracer.OnKeccakPreimage != nil {
+				evm.Config.Tracer.OnKeccakPreimage(h, data)
+			}
 			size.SetBytes32(h[:])
 			return nil, nil
 		}
@@ -324,6 +328,10 @@ func (evm *EVM) keccakLoadOrCompute(data []byte, size *uint256.Int) bool {
 		markSampled(meters.hit)
 		if evm.Config.EnablePreimageRecording {
 			evm.StateDB.AddPreimage(h, data)
+		}
+		// Firehose requirements, see 11471b22bb0b in opKeccak256.
+		if evm.Config.Tracer != nil && evm.Config.Tracer.OnKeccakPreimage != nil {
+			evm.Config.Tracer.OnKeccakPreimage(h, data)
 		}
 		size.SetBytes32(h[:])
 		return true
