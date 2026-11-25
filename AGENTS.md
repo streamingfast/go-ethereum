@@ -322,3 +322,10 @@ not invariants**. Any feature that introduces a hard Heimdall→Bor
 dependency (or sticky Bor→Heimdall coupling) will break those
 topologies. Design new features so they degrade gracefully when the
 assumed peer isn't reachable.
+
+## Firehose fork tests
+
+This repository is the StreamingFast Firehose fork. After a Bor bump or any change to block execution or the
+Firehose tracer (`eth/tracers/firehose*.go`, `consensus/bor/statefull`, `core/state_processor.go`), run
+`make test-firehose` and add new Firehose tests under the `TestFirehose_*` naming so it picks them up. Details in
+`README.fh.md` ("Firehose tests").

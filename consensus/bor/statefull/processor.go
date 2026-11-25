@@ -141,8 +141,13 @@ func ApplyMessage(
 	vmenv := vm.NewEVM(blockContext, state, chainConfig, vm.Config{Tracer: tracer})
 	vmenv.SetTxContext(core.NewEVMTxContextForStateSync())
 
+	// Only a tracer that forces the hash of system transactions (Firehose) gets one transaction per
+	// message. Any other tracer sees the state-sync events as calls inside the transaction its caller
+	// opened (core.StateProcessor / WrapStateSyncHooks), opening one here would nest transactions.
+	traceTx := tracer != nil && tracer.OnTxStartWithHash != nil
+
 	var tx *types.Transaction
-	if tracer != nil {
+	if traceTx {
 		tx = types.NewTx(&types.LegacyTx{
 			Nonce:    msg.Nonce(),
 			GasPrice: msg.GasPrice(),
@@ -152,13 +157,7 @@ func ApplyMessage(
 			Data:     msg.Data(),
 		})
 
-		switch {
-		case tracer.OnTxStartWithHash != nil: // firehose has this hook that allows forcing a hash to some special system transactions
-			txHash := getFirehose2CompatibleHash(spanID, msg)
-			tracer.OnTxStartWithHash(vmenv.GetVMContext(), tx, msg.From(), txHash)
-		case tracer.OnTxStart != nil:
-			tracer.OnTxStart(vmenv.GetVMContext(), tx, msg.From())
-		}
+		tracer.OnTxStartWithHash(vmenv.GetVMContext(), tx, msg.From(), getFirehose2CompatibleHash(spanID, msg))
 		state.Inner().SetTxContext(tx.Hash(), 0)
 	}
 
@@ -194,7 +193,7 @@ func ApplyMessage(
 
 	gasUsed := initialGas - gasLeft
 
-	if tracer != nil {
+	if traceTx {
 		blockHash := header.Hash()
 		cumulativeGasUsed := gasUsed
 

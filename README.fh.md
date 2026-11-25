@@ -164,3 +164,26 @@ branch was based on `v1.15.2` at time of writing.
 * From terminal: `git log --decorate --pretty=oneline --abbrev-commit --first-parent=v1.15.2..firehose-fh3.0`
 * From `GitHub`: [https://github.com/streamingfast/go-ethereum/compare/v1.15.2...firehose-fh3.0](https://github.com/streamingfast/go-ethereum/compare/v1.15.2...firehose-fh3.0)
 * Modified files in our fork: `git diff --name-status v1.15.2..firehose-fh3.0 | grep -E "^M" | cut -d $'\t' -f 2`
+
+### Firehose tests
+
+Tests that exercise the Firehose tracer against the Polygon system transactions (state-sync, span commit,
+Madhugiri boundary, failed or retried blocks) are the main safety net for chain updates, run them on every
+bump of Bor and after any change to block execution or `eth/tracers/firehose*.go`:
+
+```bash
+make test-firehose
+```
+
+- `eth/tracers/firehose*_test.go`: unit tests that drive the tracer hooks by hand.
+- `tests/bor/firehose_*_test.go` (build tag `integration`): a real Bor chain (Heimdall and spanner mocked) with
+  the production Firehose tracer attached, flushing to an in-memory buffer. `newFirehoseHarness` in
+  `firehose_helper_test.go` is the entry point, assertions are done on the decoded `pbeth.Block`.
+- `TestStateSyncTracing_*` in `tests/bor/bor_test.go` check that live tracers (Firehose and others) handle
+  state-sync transactions.
+- Golden files are in `tests/bor/testdata/firehose`, regenerate with `GOLDEN_UPDATE=true`, and review the diff
+  as a semantic change of the Firehose block.
+
+New Firehose tests must be named `TestFirehose_*` (or `TestStateSyncTracing_*`) so `make test-firehose` picks them up.
+Battlefield (`battlefield-ethereum`) is still required for what these tests cannot cover: RPC receipt parity of
+merged hashes, BlockSTM and real-network fork effects.
