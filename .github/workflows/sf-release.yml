@@ -1,10 +1,11 @@
 name: Build, push and release (if tag)
 
+# A release tag is created by sf-publish-release.yml (sfreleaser), which creates the GitHub release and
+# starts this workflow on the tag with workflow_dispatch. There is no push trigger on tags on purpose:
+# a tag pushed by hand would start a second build of the same release.
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "*-v*"
     branches:
       - "firehose-fh3.0"
       - "release/*"
@@ -163,10 +164,10 @@ jobs:
           docker cp $(docker create --platform=linux/amd64 ${{ steps.image.outputs.ID }}-amd64):/usr/local/bin/bor ./bor_linux
           docker cp $(docker create --platform=linux/arm64 ${{ steps.image.outputs.ID }}-arm64):/usr/local/bin/bor ./bor_linux_arm64
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-          files: |
-            ./bor_linux
-            ./bor_linux_arm64
+      # The release itself (notes, pre-release flag) is created by sf-publish-release.yml, this only adds
+      # the binaries to it. It fails when the release does not exist so there is a single way to release.
+      - name: Upload assets to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF#refs/tags/}" ./bor_linux ./bor_linux_arm64 --clobber --repo "${{ github.repository }}"
