@@ -342,7 +342,8 @@ func (b *blockGen) addTxWithChain(bc *core.BlockChain, statedb *state.StateDB, t
 
 	statedb.SetTxContext(tx.Hash(), len(b.txs))
 
-	context := core.NewEVMBlockContext(b.header, bc, nil)
+	// The block is not signed yet, so the fee recipient (the future signer) cannot be recovered from the header.
+	context := core.NewEVMBlockContext(b.header, bc, &coinbase)
 	evm := vm.NewEVM(context, statedb, bc.Config(), vm.Config{})
 	receipt, err := core.ApplyTransaction(evm, b.gasPool, statedb, b.header, tx, &b.header.GasUsed)
 	if err != nil {

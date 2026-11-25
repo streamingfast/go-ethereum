@@ -7,7 +7,7 @@
 .PHONY: geth-linux-arm geth-linux-arm-5 geth-linux-arm-6 geth-linux-arm-7 geth-linux-arm64
 .PHONY: geth-darwin geth-darwin-386 geth-darwin-amd64
 .PHONY: geth-windows geth-windows-386 geth-windows-amd64
-.PHONY: geth all test lint fmt clean devtools help
+.PHONY: geth all test test-firehose lint fmt clean devtools help
 
 GO ?= latest
 GOBIN = $(CURDIR)/build/bin
@@ -72,6 +72,12 @@ test-race:
 
 gocovmerge-deps:
 	$(GOBUILD) -o $(GOBIN)/gocovmerge github.com/wadey/gocovmerge
+
+# StreamingFast fork: every test that exercises the Firehose tracer. Keep new Firehose tests matched by
+# these patterns (name them TestFirehose_* or TestStateSyncTracing_*), see README.fh.md.
+test-firehose:
+	$(GOTEST) --timeout 30m ./eth/tracers/...
+	$(GOTEST) --timeout 30m -tags integration ./tests/bor -run 'Firehose|StateSyncTracing|FetchStateSyncEvents'
 
 test-integration:
 	$(GOTEST) --timeout 60m -cover -coverprofile=cover.out -covermode=atomic -tags integration $(TESTE2E)

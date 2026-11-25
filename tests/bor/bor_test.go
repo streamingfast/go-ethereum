@@ -910,7 +910,7 @@ func TestStateSyncTracing_FirehoseLiveTracerDoesNotPanic(t *testing.T) {
 		gen.Config.Bor.Sprint = map[string]uint64{"0": sprintSize}
 		gen.Config.Bor.MadhugiriBlock = big.NewInt(0) // Madhugiri from genesis.
 	}
-	init := buildEthereumInstanceWithVMTrace(t, rawdb.NewMemoryDatabase(), "firehose", updateGenesis)
+	init := buildEthereumInstanceWithConfig(t, rawdb.NewMemoryDatabase(), eth.Config{VMTrace: "firehose"}, updateGenesis)
 	chain := init.ethereum.BlockChain()
 	engine := init.ethereum.Engine()
 	_bor := engine.(*bor.Bor)
@@ -938,6 +938,8 @@ func TestStateSyncTracing_FirehoseLiveTracerDoesNotPanic(t *testing.T) {
 	eventRecords := generateFakeStateSyncEvents(sample, eventCount)
 
 	h.EXPECT().StateSyncEvents(gomock.Any(), fromID, to).Return(eventRecords, nil).AnyTimes()
+	// Every record was admitted, so CommitStates asks for the next page and finds it empty.
+	h.EXPECT().StateSyncEvents(gomock.Any(), fromID+uint64(eventCount), to).Return(nil, nil).AnyTimes()
 	h.EXPECT().GetLatestSpan(gomock.Any()).Return(nil, fmt.Errorf("span not found")).AnyTimes()
 	_bor.SetHeimdallClient(h)
 
