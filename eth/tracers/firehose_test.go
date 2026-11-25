@@ -332,6 +332,82 @@ func TestFirehose_PolygonFeeTransferLog(t *testing.T) {
 	assert.Equal(t, uint32(3), trx.Receipt.Logs[0].BlockIndex)
 }
 
+// A block that failed while reading wrong shared VM result caches is re-run by
+// the chain (see BlockChain.retrySerialWithoutSharedCaches): the failed run is
+// closed with OnBlockEnd(err) and the retry reopens the same block. Only the
+// retry may reach the stream.
+func TestFirehose_BlockReopenedAfterFailedRunPrintsOnlyAcceptedRun(t *testing.T) {
+	from, to := common.HexToAddress("0x01"), common.HexToAddress("0x02")
+	header := &types.Header{Number: big.NewInt(1), Difficulty: big.NewInt(1)}
+
+	tracer, err := NewFirehoseFromRawJSON([]byte(`{"_private":{"flushToTestBuffer":true}}`))
+	require.NoError(t, err)
+	hooks := tracer.TracingHooks()
+	hooks.OnBlockchainInit(&params.ChainConfig{ChainID: big.NewInt(137)})
+
+	runTx := func(nonce uint64) {
+		hooks.OnTxStart(&tracing.VMContext{}, types.NewTx(&types.LegacyTx{Nonce: nonce, To: &to, Gas: 21000}), from)
+		hooks.OnEnter(0, byte(vm.CALL), from, to, nil, 21000, nil)
+		hooks.OnExit(0, nil, 21000, nil, false)
+		hooks.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, GasUsed: 21000}, nil)
+	}
+
+	// Failed run: two transactions executed, then the state validation fails.
+	hooks.OnBlockStart(tracing.BlockEvent{Block: types.NewBlockWithHeader(header)})
+	runTx(0)
+	runTx(1)
+	hooks.OnBlockEnd(fmt.Errorf("invalid merkle root"))
+	require.NotContains(t, tracer.GetTestingOutputBuffer().String(), "FIRE BLOCK ", "a failed run must not be printed")
+
+	// Retry: same block, a single transaction this time.
+	hooks.OnBlockStart(tracing.BlockEvent{Block: types.NewBlockWithHeader(header)})
+	runTx(0)
+	hooks.OnBlockEnd(nil)
+
+	block := readSingleFirehoseBlock(t, tracer.GetTestingOutputBuffer())
+	assert.Equal(t, uint64(1), block.Number)
+	require.Len(t, block.TransactionTraces, 1, "only the accepted run's transactions are in the block")
+	assert.Equal(t, uint32(0), block.TransactionTraces[0].Index)
+}
+
+// The chain closes a failed run with OnBlockEnd(err) wherever the failure
+// happened, including while a transaction and a call are still open and after
+// the state-sync receipt of the failed run was recorded. None of it may leak
+// into the retry of the same block.
+func TestFirehose_BlockReopenedAfterFailureInsideOpenTransaction(t *testing.T) {
+	from, to := common.HexToAddress("0x01"), common.HexToAddress("0x02")
+	header := &types.Header{Number: big.NewInt(1), Difficulty: big.NewInt(1)}
+
+	tracer, err := NewFirehoseFromRawJSON([]byte(`{"_private":{"flushToTestBuffer":true}}`))
+	require.NoError(t, err)
+	hooks := tracer.TracingHooks()
+	hooks.OnBlockchainInit(&params.ChainConfig{ChainID: big.NewInt(137)})
+
+	staleReceipt := &types.Receipt{TxHash: common.HexToHash("0xdead"), Status: types.ReceiptStatusSuccessful}
+
+	hooks.OnBlockStart(tracing.BlockEvent{Block: types.NewBlockWithHeader(header)})
+	hooks.OnTxStart(&tracing.VMContext{}, types.NewTx(&types.LegacyTx{Nonce: 0, To: &to, Gas: 21000}), from)
+	hooks.OnEnter(0, byte(vm.CALL), from, to, nil, 21000, nil)
+	hooks.OnEnter(1, byte(vm.CALL), to, from, nil, 1000, nil)
+	hooks.OnStateSyncReceipt(nil, staleReceipt)
+	// Failure with a transaction and two nested calls still open: no OnExit, no OnTxEnd.
+	hooks.OnBlockEnd(fmt.Errorf("invalid merkle root"))
+	require.NotContains(t, tracer.GetTestingOutputBuffer().String(), "FIRE BLOCK ")
+
+	hooks.OnBlockStart(tracing.BlockEvent{Block: types.NewBlockWithHeader(header)})
+	hooks.OnTxStart(&tracing.VMContext{}, types.NewTx(&types.LegacyTx{Nonce: 0, To: &to, Gas: 21000}), from)
+	hooks.OnEnter(0, byte(vm.CALL), from, to, nil, 21000, nil)
+	hooks.OnExit(0, nil, 21000, nil, false)
+	hooks.OnTxEnd(&types.Receipt{Status: types.ReceiptStatusSuccessful, GasUsed: 21000}, nil)
+	hooks.OnBlockEnd(nil)
+
+	block := readSingleFirehoseBlock(t, tracer.GetTestingOutputBuffer())
+	require.Len(t, block.TransactionTraces, 1)
+	trx := block.TransactionTraces[0]
+	assert.NotEqual(t, staleReceipt.TxHash.Bytes(), trx.Hash, "the failed run's state-sync receipt must not be reused")
+	require.Len(t, trx.Calls, 1, "calls left open by the failed run must not leak into the retry")
+}
+
 func readSingleFirehoseBlock(t *testing.T, output *bytes.Buffer) *pbeth.Block {
 	t.Helper()
 

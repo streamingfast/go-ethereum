@@ -359,14 +359,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			log.Warn("Live tracing requested with ParallelEVM enabled; disabling ParallelEVM so BlockSTM is not used while the live tracer is active")
 			config.ParallelEVM.Enable = false
 		}
-		// With precompile-cache, the traced serial import reads results cached by
-		// other executors, and a failed traced run is replaced by an untraced retry
-		// whose success would close the block the tracer saw fail.
-		if config.EnablePrecompileCache {
-			log.Warn("Live tracing requested with precompile-cache enabled; disabling precompile-cache while the live tracer is active")
-			config.EnablePrecompileCache = false
-			vmCfg.EnablePrecompileCache = false
-		}
 		traceConfig := json.RawMessage("{}")
 		if config.VMTraceJsonConfig != "" {
 			traceConfig = json.RawMessage(config.VMTraceJsonConfig)

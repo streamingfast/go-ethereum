@@ -9466,10 +9466,20 @@ func TestProcessBlock_SerialRetryWithoutSharedCaches(t *testing.T) {
 	}
 
 	for _, flag := range []bool{false, true} {
-		// A live tracer must see each transaction once, even when the block
-		// is re-executed by the retry.
-		var txStarts int
-		hooks := &tracing.Hooks{OnTxStart: func(*tracing.VMContext, *types.Transaction, common.Address) { txStarts++ }}
+		// Record the tracer's block events in order. A failed cached run must be
+		// closed with its error before the retry opens the block again.
+		var events []string
+		hooks := &tracing.Hooks{
+			OnBlockStart: func(ev tracing.BlockEvent) { events = append(events, fmt.Sprintf("start:%d", ev.Block.NumberU64())) },
+			OnTxStart:    func(*tracing.VMContext, *types.Transaction, common.Address) { events = append(events, "tx") },
+			OnBlockEnd: func(err error) {
+				if err != nil {
+					events = append(events, "end:err")
+				} else {
+					events = append(events, "end:ok")
+				}
+			},
+		}
 		cfg := DefaultConfig()
 		cfg.VmConfig = vm.Config{EnablePrecompileCache: flag, Tracer: hooks}
 		bc, err := NewBlockChain(rawdb.NewMemoryDatabase(), gspec, ethash.NewFaker(), cfg)
@@ -9495,9 +9505,15 @@ func TestProcessBlock_SerialRetryWithoutSharedCaches(t *testing.T) {
 			t.Fatalf("flag=%v: slot 0 = %x, want %x", flag, got, want)
 		}
 
-		if txStarts != 2 {
+		want := []string{"start:1", "tx", "end:ok", "start:2", "tx", "end:ok"}
+		if flag {
+			// Block 2 fails on the poisoned cache, its trace is discarded, and the
+			// retry traces it again.
+			want = []string{"start:1", "tx", "end:ok", "start:2", "tx", "end:err", "start:2", "tx", "end:ok"}
+		}
+		if !reflect.DeepEqual(events, want) {
 			bc.Stop()
-			t.Fatalf("flag=%v: tracer saw %d tx starts, want 2 (one per transaction, no duplicates from the retry)", flag, txStarts)
+			require.Failf(t, "unexpected tracer events", "flag=%v: got %v, want %v", flag, events, want)
 		}
 
 		gotRetries := blockSerialNoCacheRetryCounter.Snapshot().Count() - retries

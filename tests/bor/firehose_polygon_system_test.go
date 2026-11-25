@@ -5,11 +5,15 @@ package bor
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"math/big"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/assert"
@@ -298,26 +302,82 @@ func TestFirehose_PreRioSpanCommitBlock(t *testing.T) {
 func TestFirehose_FailedSprintEndBlockDoesNotLeak(t *testing.T) {
 	t.Parallel()
 
+	// With precompile-cache on, the rejected block is executed twice (cached run, then the serial retry that
+	// reopens the block on the tracer): both runs are discarded and neither may leak into the valid block.
+	for _, precompileCache := range []bool{false, true} {
+		for name, madhugiri := range map[string]*big.Int{"pre_madhugiri": nil, "post_madhugiri": big.NewInt(0)} {
+			t.Run(fmt.Sprintf("%s/precompile_cache=%t", name, precompileCache), func(t *testing.T) {
+				t.Parallel()
+
+				h := newFirehoseHarness(t, firehoseHarnessOptions{MadhugiriBlock: madhugiri, StateSyncBatches: []int{3}, PrecompileCache: precompileCache})
+				h.AdvanceTo(sprintSize - 1)
+
+				wrongRoot := func(block *types.Block, _ []*types.Receipt) *types.Block {
+					header := block.Header()
+					header.Root = common.HexToHash("0xbad")
+					return types.NewBlockWithHeader(header).WithBody(*block.Body())
+				}
+
+				bad := h.Build(wrongRoot)
+				_, err := h.chain.InsertChain([]*types.Block{bad}, false)
+				require.Error(t, err, "block with a wrong state root must be rejected")
+				require.Zero(t, h.FirehoseBlockCount(sprintSize), "a rejected block is never printed")
+
+				valid := h.Advance()
+				require.NotEqual(t, bad.Hash(), valid.Hash())
+				require.Equal(t, 1, h.FirehoseBlockCount(sprintSize))
+
+				block := h.FirehoseBlock(sprintSize)
+				assert.Equal(t, valid.Hash().Bytes(), block.Hash)
+				require.Len(t, block.TransactionTraces, 1)
+				assertTraceOrdinalsSane(t, block)
+				assertMergedStateSyncCalls(t, stateSyncTrace(t, block), 3)
+
+				if madhugiri == nil {
+					assert.Equal(t, pbeth.TransactionTrace_TRX_TYPE_LEGACY, block.TransactionTraces[0].Type)
+					assert.Equal(t, types.GetDerivedBorTxHash(types.BorReceiptKey(valid.NumberU64(), valid.Hash())).Bytes(), block.TransactionTraces[0].Hash)
+				} else {
+					assert.Equal(t, pbeth.TransactionTrace_TRX_TYPE_POLYGON_STATE_SYNC, block.TransactionTraces[0].Type)
+					assert.Equal(t, valid.Transactions()[0].Hash().Bytes(), block.TransactionTraces[0].Hash)
+				}
+			})
+		}
+	}
+}
+
+// failFirstStateValidation wraps a validator and rejects the first state validation of a block number, so
+// the run that read the shared caches fails while the serial retry without them is accepted. It stands in
+// for a wrong shared cache entry, which tests/bor cannot reach.
+type failFirstStateValidation struct {
+	core.Validator
+	number uint64
+	failed atomic.Bool
+}
+
+func (v *failFirstStateValidation) ValidateState(block *types.Block, statedb *state.StateDB, res *core.ProcessResult, stateless bool) error {
+	if block.NumberU64() == v.number && v.failed.CompareAndSwap(false, true) {
+		return errors.New("injected state validation failure")
+	}
+	return v.Validator.ValidateState(block, statedb, res, stateless)
+}
+
+// With precompile-cache on, a sprint-end block whose first run fails and whose serial retry passes is
+// printed once, from the retry only: the state-sync receipt recorded by the failed run must not be reused
+// and the state-sync calls must not be doubled.
+func TestFirehose_SprintEndBlockAcceptedAfterRetry(t *testing.T) {
+	t.Parallel()
+
 	for name, madhugiri := range map[string]*big.Int{"pre_madhugiri": nil, "post_madhugiri": big.NewInt(0)} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newFirehoseHarness(t, firehoseHarnessOptions{MadhugiriBlock: madhugiri, StateSyncBatches: []int{3}})
+			h := newFirehoseHarness(t, firehoseHarnessOptions{MadhugiriBlock: madhugiri, StateSyncBatches: []int{3}, PrecompileCache: true})
+			validator := &failFirstStateValidation{Validator: h.chain.Validator(), number: sprintSize}
+			h.chain.SetBlockValidatorAndProcessorForTesting(validator, h.chain.Processor())
 			h.AdvanceTo(sprintSize - 1)
 
-			wrongRoot := func(block *types.Block, _ []*types.Receipt) *types.Block {
-				header := block.Header()
-				header.Root = common.HexToHash("0xbad")
-				return types.NewBlockWithHeader(header).WithBody(*block.Body())
-			}
-
-			bad := h.Build(wrongRoot)
-			_, err := h.chain.InsertChain([]*types.Block{bad}, false)
-			require.Error(t, err, "block with a wrong state root must be rejected")
-			require.Zero(t, h.FirehoseBlockCount(sprintSize), "a rejected block is never printed")
-
 			valid := h.Advance()
-			require.NotEqual(t, bad.Hash(), valid.Hash())
+			require.True(t, validator.failed.Load(), "the first run of the sprint-end block must have failed")
 			require.Equal(t, 1, h.FirehoseBlockCount(sprintSize))
 
 			block := h.FirehoseBlock(sprintSize)
@@ -327,7 +387,6 @@ func TestFirehose_FailedSprintEndBlockDoesNotLeak(t *testing.T) {
 			assertMergedStateSyncCalls(t, stateSyncTrace(t, block), 3)
 
 			if madhugiri == nil {
-				assert.Equal(t, pbeth.TransactionTrace_TRX_TYPE_LEGACY, block.TransactionTraces[0].Type)
 				assert.Equal(t, types.GetDerivedBorTxHash(types.BorReceiptKey(valid.NumberU64(), valid.Hash())).Bytes(), block.TransactionTraces[0].Hash)
 			} else {
 				assert.Equal(t, pbeth.TransactionTrace_TRX_TYPE_POLYGON_STATE_SYNC, block.TransactionTraces[0].Type)
