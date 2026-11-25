@@ -24,6 +24,8 @@ import (
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/fdlimit"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/downloader/whitelist"
@@ -68,6 +70,12 @@ type Config struct {
 
 	// Use switch-based fast path EVM interpreter
 	EnableEVMSwitchDispatch bool `hcl:"evm-switch-dispatch,optional" toml:"evm-switch-dispatch,optional"`
+
+	// EnablePrecompileCache shares the per-block VM result caches with the
+	// serial import processor and the block builder, and widens keccak caching
+	// to variable-length inputs. The prefetcher and the parallel (V2) workers
+	// share the result caches whether or not this is set.
+	EnablePrecompileCache bool `hcl:"precompile-cache,optional" toml:"precompile-cache,optional"`
 
 	// Enable state size tracking
 	StateSizeTracking bool `hcl:"state.size-tracking,optional" toml:"state.size-tracking,optional"`
@@ -413,6 +421,10 @@ type TxPoolConfig struct {
 	// FilteredAddressesFile is the path to newline-separated list of addresses whose transactions will be filtered
 	FilteredAddressesFile string `hcl:"filtered-addresses,optional" toml:"filtered-addresses,optional"`
 
+	// FilterReload is how often the filtered addresses file is re-read (0 disables)
+	FilterReload    time.Duration `hcl:"-,optional" toml:"-"`
+	FilterReloadRaw string        `hcl:"filter-reload,optional" toml:"filter-reload,optional"`
+
 	// Rebroadcast enables the stuck transaction rebroadcast mechanism
 	Rebroadcast bool `hcl:"rebroadcast,optional" toml:"rebroadcast,optional"`
 
@@ -456,6 +468,12 @@ type SealerConfig struct {
 	EnableDynamicTargetGas bool   `hcl:"enableDynamicTargetGas,optional" toml:"enableDynamicTargetGas,optional"`
 	TargetGasMinPercentage uint64 `hcl:"targetGasMinPercentage,optional" toml:"targetGasMinPercentage,optional"`
 	TargetGasMaxPercentage uint64 `hcl:"targetGasMaxPercentage,optional" toml:"targetGasMaxPercentage,optional"`
+
+	// BaseFeeFloor is the base fee floor in wei this producer holds (post-Lisovo, producer
+	// policy only). 0 disables it. When set it is also the target base fee, so the floor
+	// and the gas target can never disagree. It has no default on purpose: the floor
+	// must always be set explicitly.
+	BaseFeeFloor uint64 `hcl:"baseFeeFloor,optional" toml:"baseFeeFloor,optional"`
 
 	// GasPrice is the minimum gas price for mining a transaction
 	GasPrice    *big.Int `hcl:"-,optional" toml:"-"`
@@ -936,6 +954,7 @@ func DefaultConfig() *Config {
 		Verbosity:                   3,
 		EnablePreimageRecording:     false,
 		EnableEVMSwitchDispatch:     false,
+		EnablePrecompileCache:       false,
 		StateSizeTracking:           ethconfig.Defaults.EnableStateSizeTracking,
 		DataDir:                     DefaultDataDir(),
 		Ancient:                     "",
@@ -1017,6 +1036,8 @@ func DefaultConfig() *Config {
 			RebroadcastInterval:  30 * time.Second,
 			RebroadcastMaxAge:    10 * time.Minute,
 			RebroadcastBatchSize: 200,
+
+			FilterReload: time.Minute,
 		},
 		Sealer: &SealerConfig{
 			Enabled:                  false,
@@ -1029,6 +1050,7 @@ func DefaultConfig() *Config {
 			TargetBaseFee:            miner.DefaultConfig.TargetBaseFee,
 			BaseFeeBuffer:            miner.DefaultConfig.BaseFeeBuffer,
 			EnableDynamicTargetGas:   false,
+			BaseFeeFloor:             0,
 			TargetGasMinPercentage:   50,                                         // 50% floor
 			TargetGasMaxPercentage:   80,                                         // 80% ceiling
 			GasPrice:                 big.NewInt(params.BorDefaultMinerGasPrice), // bor's default
@@ -1268,6 +1290,7 @@ func (c *Config) fillTimeDurations() error {
 		{"jsonrpc.http.ep-requesttimeout", &c.JsonRPC.Http.ExecutionPoolRequestTimeout, &c.JsonRPC.Http.ExecutionPoolRequestTimeoutRaw},
 		{"txpool.lifetime", &c.TxPool.LifeTime, &c.TxPool.LifeTimeRaw},
 		{"txpool.strandedlifetime", &c.TxPool.StrandedLifetime, &c.TxPool.StrandedLifetimeRaw},
+		{"txpool.filter-reload", &c.TxPool.FilterReload, &c.TxPool.FilterReloadRaw},
 		{"txpool.conditionallifetime", &c.TxPool.ConditionalLifetime, &c.TxPool.ConditionalLifetimeRaw},
 		{"txpool.rejournal", &c.TxPool.Rejournal, &c.TxPool.RejournalRaw},
 		{"txpool.rebroadcast-interval", &c.TxPool.RebroadcastInterval, &c.TxPool.RebroadcastIntervalRaw},
@@ -1311,9 +1334,11 @@ func readConfigFile(path string) (*Config, error) {
 
 	config := &Config{
 		P2P:    &P2PConfig{PeerReputation: true, PeerIdleEviction: true, PeerIdleGracePeriod: peerpolicy.IdleTimeout, PeerIdleMaxRemovals: 1, PeerIdleReconnectCooldown: p2p.DefaultPeerIdleReconnectCooldown, PeerIdleOccupancyThreshold: p2p.DefaultPeerIdleOccupancyThreshold},
-		TxPool: &TxPoolConfig{},
 		Cache:  &CacheConfig{},
 		Sealer: &SealerConfig{},
+		// HCL configs don't start from DefaultConfig, so an omitted
+		// filter-reload would otherwise disable reloading.
+		TxPool: &TxPoolConfig{FilterReload: time.Minute},
 		// WarmSnapshot defaults on: witness-producing nodes measure faster
 		// with it, and it is inert otherwise. The zero value would silently
 		// put HCL-configured witness nodes on the slower path.
@@ -1333,6 +1358,51 @@ func readConfigFile(path string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+// useBaseFeeFloorAsTarget makes miner.baseFeeFloor the target base fee
+// everywhere it is read (miner config, validations, Bor config), so the floor
+// and the dynamic gas limit / gas target can never disagree. It must run
+// before any of them reads TargetBaseFee.
+func (s *SealerConfig) useBaseFeeFloorAsTarget() {
+	if s.BaseFeeFloor == 0 {
+		return
+	}
+	log.Info("Base fee floor enabled, it replaces miner.targetBaseFee", "floor", s.BaseFeeFloor, "targetBaseFee", s.TargetBaseFee)
+	s.TargetBaseFee = s.BaseFeeFloor
+}
+
+// applyBaseFeeFloor wires miner.baseFeeFloor into the Bor config. TargetBaseFee
+// already equals the floor (see useBaseFeeFloorAsTarget).
+func (s *SealerConfig) applyBaseFeeFloor(bor *params.BorConfig) {
+	if s.BaseFeeFloor == 0 {
+		return
+	}
+	enabled, floor := true, s.BaseFeeFloor
+	bor.BaseFeeFloor = &enabled
+	bor.TargetBaseFee = &floor
+}
+
+// copyGenesisForRuntime returns a copy of the genesis whose chain config and
+// Bor config can be changed without touching the shared chain preset.
+// buildEth writes runtime producer settings (target gas, base fee floor) into
+// them, and chains.GetChain returns the same preset to every caller, so
+// writing into it would leak one configuration into the next one built in
+// the same process.
+func copyGenesisForRuntime(genesis *core.Genesis) *core.Genesis {
+	if genesis == nil {
+		return nil
+	}
+	g := *genesis
+	if g.Config != nil {
+		cfg := *g.Config
+		if cfg.Bor != nil {
+			bor := *cfg.Bor
+			cfg.Bor = &bor
+		}
+		g.Config = &cfg
+	}
+	return &g
 }
 
 func (c *Config) loadChain() error {
@@ -1366,7 +1436,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 	// have the chain object for it.
 	if !c.Developer.Enabled {
 		n.NetworkId = c.chain.NetworkId
-		n.Genesis = c.chain.Genesis
+		n.Genesis = copyGenesisForRuntime(c.chain.Genesis)
 	}
 
 	n.HeimdallURL = c.Heimdall.URL
@@ -1396,6 +1466,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 
 	n.EnablePreimageRecording = c.EnablePreimageRecording
 	n.EnableEVMSwitchDispatch = c.EnableEVMSwitchDispatch
+	n.EnablePrecompileCache = c.EnablePrecompileCache
 	n.EnableStateSizeTracking = c.StateSizeTracking
 	n.VMTrace = c.VMTrace
 	n.VMTraceJsonConfig = c.VMTraceJsonConfig
@@ -1420,12 +1491,13 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		n.TxPool.ConditionalLifetime = c.TxPool.ConditionalLifetime
 		n.TxPool.ConditionalSlots = c.TxPool.ConditionalSlots
 
-		// Load filtered addresses during config initialization
-		if filteredAddrs, err := loadFilteredAddresses(c.TxPool.FilteredAddressesFile); err != nil {
-			return nil, fmt.Errorf("failed to load filtered addresses: %v", err)
-		} else {
-			n.TxPool.FilteredAddresses = filteredAddrs
+		filteredAddrs, err := legacypool.LoadFilteredAddresses(c.TxPool.FilteredAddressesFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load filtered addresses: %w", err)
 		}
+		n.TxPool.FilteredAddresses = filteredAddrs
+		n.TxPool.FilteredAddressesFile = c.TxPool.FilteredAddressesFile
+		n.TxPool.FilterReload = c.TxPool.FilterReload
 
 		// Rebroadcast options
 		n.TxPool.Rebroadcast = c.TxPool.Rebroadcast
@@ -1454,6 +1526,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 		}
 
 		// Dynamic gas limit configuration
+		c.Sealer.useBaseFeeFloorAsTarget()
 		n.Miner.EnableDynamicGasLimit = c.Sealer.EnableDynamicGasLimit
 		n.Miner.GasLimitMin = c.Sealer.GasLimitMin
 		n.Miner.GasLimitMax = c.Sealer.GasLimitMax
@@ -1543,6 +1616,8 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 			n.Genesis.Config.Bor.TargetBaseFee = &c.Sealer.TargetBaseFee
 			n.Genesis.Config.Bor.BaseFeeBuffer = &c.Sealer.BaseFeeBuffer
 		}
+
+		c.Sealer.applyBaseFeeFloor(n.Genesis.Config.Bor)
 	}
 
 	// unlock accounts
@@ -1609,7 +1684,7 @@ func (c *Config) buildEth(stack *node.Node, accountManager *accounts.Manager) (*
 
 		// update the parameters
 		n.NetworkId = c.chain.NetworkId
-		n.Genesis = c.chain.Genesis
+		n.Genesis = copyGenesisForRuntime(c.chain.Genesis)
 
 		// Set runtime miner gas parameters in BorConfig for developer mode
 		if n.Genesis != nil && n.Genesis.Config != nil && n.Genesis.Config.Bor != nil {
@@ -2478,44 +2553,4 @@ func validateGoDebug(value string) error {
 	}
 
 	return nil
-}
-
-// loadFilteredAddresses loads newline-separated addresses to filter from the specified file.
-func loadFilteredAddresses(filePath string) (map[common.Address]struct{}, error) {
-	if filePath == "" {
-		return make(map[common.Address]struct{}), nil
-	}
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Warn("Filtered addresses file not found", "file", filePath)
-			return make(map[common.Address]struct{}), nil
-		}
-		return nil, fmt.Errorf("failed to read filtered addresses file: %v", err)
-	}
-
-	filteredAddrs := make(map[common.Address]struct{})
-	content := strings.TrimSpace(string(data))
-	if content == "" {
-		log.Info("Empty filtered addresses file", "file", filePath)
-		return filteredAddrs, nil
-	}
-
-	addresses := strings.Split(content, "\n")
-	for i, addrStr := range addresses {
-		addrStr = strings.TrimSpace(addrStr)
-		if addrStr == "" {
-			continue
-		}
-		if !common.IsHexAddress(addrStr) {
-			log.Warn("Invalid address in filtered addresses file", "file", filePath, "position", i+1, "address", addrStr)
-			continue
-		}
-		addr := common.HexToAddress(addrStr)
-		filteredAddrs[addr] = struct{}{}
-	}
-
-	log.Info("Loaded filtered addresses", "count", len(filteredAddrs), "file", filePath)
-	return filteredAddrs, nil
 }
