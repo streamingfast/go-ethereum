@@ -25,6 +25,10 @@ cover.out
 /build/bin/
 /geth*.zip
 
+# written by `sfreleaser release prepare`, left untracked it makes sfreleaser refuse to release a dirty repository
+/build/.env.release
+/build/.release_notes.md
+
 # used by the build/ci.go archive + upload tool
 /geth*.tar.gz
 /geth*.tar.gz.sig

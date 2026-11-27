@@ -48,6 +48,10 @@ type firehoseHarnessOptions struct {
 	// set contract (system call to 0x1000) of the genesis and reach the tracer.
 	RealSpanner bool
 
+	// PrecompileCache turns the precompile-cache flag on, so a block that fails is executed a second time by
+	// the serial retry without shared caches, which reopens the block on the tracer.
+	PrecompileCache bool
+
 	// PrintGenesisBlock keeps the genesis block in the Firehose output instead of ignoring it.
 	PrintGenesisBlock bool
 }
@@ -97,7 +101,7 @@ func newFirehoseHarness(t *testing.T, opts firehoseHarnessOptions) *firehoseHarn
 		gen.Config.Bor.RioBlock = opts.RioBlock
 	}
 
-	h.init = buildEthereumInstanceWithConfig(t, rawdb.NewMemoryDatabase(), eth.Config{VMTrace: tracerName}, updateGenesis)
+	h.init = buildEthereumInstanceWithConfig(t, rawdb.NewMemoryDatabase(), eth.Config{VMTrace: tracerName, EnablePrecompileCache: opts.PrecompileCache}, updateGenesis)
 	require.NotNil(t, h.fh, "firehose tracer must have been instantiated by eth.New")
 
 	h.chain = h.init.ethereum.BlockChain()

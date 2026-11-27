@@ -1504,11 +1504,17 @@ type processorResult struct {
 }
 
 // retrySerialWithoutSharedCaches re-executes block with the serial processor
-// on a fresh statedb, with no shared VM result caches and no tracer. It is
-// used only when the precompile cache flag is on and the cached run failed. If the retry
+// on a fresh statedb and no shared VM result caches. It is used only when the
+// precompile cache flag is on and the cached run failed. If the retry
 // succeeds, a shared cache entry was wrong: the block is accepted and the
 // event is logged and counted. If it fails too, the block is invalid and the
 // retry's error is returned. On a setup error the original result is kept.
+//
+// A live tracer sees the failed run as a block that ended with an error, and
+// the retry as a new run of the same block: the failed trace is discarded with
+// OnBlockEnd(failed.err) and the retry is traced between a new OnBlockStart
+// and the caller's deferred OnBlockEnd. The traced block is then always the
+// accepted one, never the output of the run that read a wrong cache entry.
 func (bc *BlockChain) retrySerialWithoutSharedCaches(ctx context.Context, block *types.Block, parent *types.Header,
 	witness *stateless.Witness, pipeOpts *PipelineImportOpts, failed processorResult) processorResult {
 	blockSerialNoCacheRetryCounter.Inc(1)
@@ -1518,19 +1524,17 @@ func (bc *BlockChain) retrySerialWithoutSharedCaches(ctx context.Context, block 
 		return failed
 	}
 	applyFlatDiffOverlayToAll(pipeOpts, statedb)
-	// No tracer on the retry: the failed run already sent this block's
-	// transactions to the tracer inside the same OnBlockStart/OnBlockEnd, and
-	// sending them again would duplicate them.
-	vmCfg := bc.cfg.VmConfig
-	vmCfg.Tracer = nil
-	retry := bc.runSerialProcessorWithConfig(ctx, block, statedb, witness, pipeOpts, nil, vmCfg)
+
+	if bc.logger != nil && bc.logger.OnBlockEnd != nil {
+		bc.logger.OnBlockEnd(failed.err)
+	}
+	bc.fireBlockStart(block)
+
+	retry := bc.runSerialProcessorWithConfig(ctx, block, statedb, witness, pipeOpts, nil, bc.cfg.VmConfig)
 	if retry.err == nil {
 		blockSerialNoCacheRetryAcceptedCounter.Inc(1)
 		log.Error("Block valid only without shared VM result caches, a cache entry was wrong",
 			"number", block.NumberU64(), "hash", block.Hash(), "cachedErr", failed.err)
-		if bc.cfg.VmConfig.Tracer != nil {
-			log.Warn("Tracer output for this block comes from the failed cached run", "number", block.NumberU64(), "hash", block.Hash())
-		}
 	}
 	return retry
 }

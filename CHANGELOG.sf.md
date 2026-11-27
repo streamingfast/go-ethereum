@@ -1,8 +1,9 @@
-## Unreleased
+## polygon-v2.12.0-beta-fh3.0
 
 * Bumped Polygon bor to the [v2.12.0-beta](https://github.com/0xPolygon/bor/releases/tag/v2.12.0-beta) pre-release. It defines no new fork and does not change the Firehose block. Finalized blocks now come from upstream's Heimdall milestone handling, which only moves the finalized block forward and only to a canonical block.
 * Fixed missing keccak preimages when a `KECCAK256` result comes from the shared VM result caches (`precompile-cache`).
-* `precompile-cache` is now turned off when a live tracer such as Firehose is active.
+* `precompile-cache` can be used with a live tracer such as Firehose. If a block fails while reading the shared caches, the failed run is discarded (`OnBlockEnd` with the error) and the block is traced again from a new `OnBlockStart` on the serial retry, so the traced block is always the accepted one.
+* Fixed live tracers other than Firehose receiving one extra transaction per state-sync event. State-sync events are again traced as calls inside the single state-sync transaction, as upstream does. No change to the Firehose block.
 
 ## polygon-v2.11.2-fh3.0
 
